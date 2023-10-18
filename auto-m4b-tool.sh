@@ -3,10 +3,10 @@
 m=1
 #variable defenition
 inputfolder="${INPUT_FOLDER:-"/temp/merge/"}"
-outputfolder="${OUTPUT_FOLDER:-"/temp/untagged/"}"
-originalfolder="${ORIGINAL_FOLDER:-"/temp/recentlyadded/"}"
-fixitfolder="${FIXIT_FOLDER:-"/temp/fix"}"
-backupfolder="${BACKUP_FOLDER:-"/temp/backup/"}"
+outputfolder="${OUTPUT_FOLDER:-"/auto-m4b/out/"}"
+originalfolder="${ORIGINAL_FOLDER:-"/auto-m4b/in/"}"
+fixitfolder="${FIXIT_FOLDER:-"/auto-m4b/fix/"}"
+backupfolder="${BACKUP_FOLDER:-"/auto-m4b/backup/"}"
 binfolder="${BIN_FOLDER:-"/temp/delete/"}"
 m4bend=".m4b"
 logend=".log"
@@ -20,10 +20,23 @@ mkdir -p "$backupfolder"
 mkdir -p "$binfolder"
 
 #fix of the user for the new created folders
-username="$(whoami)"
-userid="$(id -u $username)"
-groupid="$(id -g $username)"
-chown -R $userid:$groupid /temp 
+# username="$(whoami)"
+# userid="$(id -u $username)"
+# groupid="$(id -g $username)"
+# chown -R $userid:$groupid /temp 
+
+#check if current user has write access to each folder
+if [ -w "$inputfolder" ] && 
+	 [ -w "$outputfolder" ] && 
+	 [ -w "$originalfolder" ] && 
+	 [ -w "$fixitfolder" ] && 
+	 [ -w "$backupfolder" ] && 
+	 [ -w "$binfolder" ]; then
+	echo "User has write access to all folders"
+else
+	echo "User does not have write access to all folders"
+	exit 1
+fi
 
 #adjust the number of cores depending on the ENV CPU_CORES
 if [ -z "$CPU_CORES" ]
