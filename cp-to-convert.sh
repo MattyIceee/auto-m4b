@@ -10,10 +10,10 @@
 
 cwd=$(dirname "$0")
 
-root_folder="/volume1/Downloads/#done/#books"
-source_folder="/volume1/Downloads/#done/#books"
-destination_folder="/volume1/Downloads/#done/#books/#convert/inbox"
-converted_folder="/volume1/Downloads/#done/#books/#convert/converted"
+root_folder="/path/to/your/books"
+source_folder="/path/to/your/books"
+destination_folder="/path/to/your/books/#convert/inbox"
+converted_folder="/path/to/your/books/#convert/converted"
 log_file="$cwd/cp-to-convert.log"
 history_file="$cwd/history.log"
 
@@ -186,8 +186,8 @@ process_book() {
         copy_msg=$([ "$FORCE" == true ] && echo "already copied, but force mode enabled" || echo "copying")
         echolog " * → $rel_child_path :: ($mp3_count mp3 files - $copy_msg)"
         if [ ! "$TEST_MODE" == true ]; then
-            # if single mode, copy $full_path to $destination_folder/, e.g. "/volume1/Downloads/#done/#books/Chuck" becomes "/volume1/Downloads/#done/#books/#convert/inbox/Chuck"
-            # if root mode, copy $full_path/$folder_name to $destination_folder/, e.g. "/volume1/Downloads/#done/#books/Chuck" becomes "/volume1/Downloads/#done/#books/#convert/inbox/Chuck"
+            # if single mode, copy $full_path to $destination_folder/, e.g. "/path/to/your/books/Chuck" becomes "/path/to/your/books/#convert/inbox/Chuck"
+            # if root mode, copy $full_path/$folder_name to $destination_folder/, e.g. "/path/to/your/books/Chuck" becomes "/path/to/your/books/#convert/inbox/Chuck"
             if [ "$1" == "single" ]; then
                 # echo "cp -r \"$full_path\" \"$destination_folder/\""
                 cp -r "$full_path" "$destination_folder/"

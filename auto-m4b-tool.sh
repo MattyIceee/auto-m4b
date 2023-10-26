@@ -33,15 +33,15 @@ rm_leading_dot_slash() {
 m=1
 
 #variable defenition
-inboxfolder="${INBOX_FOLDER:-"/volume1/Downloads/#done/#books/#convert/inbox/"}"
-outputfolder="${OUTPUT_FOLDER:-"/volume1/Downloads/#done/#books/#convert/converted/"}"
-donefolder="${DONE_FOLDER:-"/volume1/Downloads/#done/#books/#convert/processed/"}"
-fixitfolder="${FIXIT_FOLDER:-"/volume1/Downloads/#done/#books/#convert/fix/"}"
-backupfolder="${BACKUP_FOLDER:-"/volume1/Downloads/#done/#books/#convert/backup/"}"
+inboxfolder="${INBOX_FOLDER:-"/path/to/your/books/#convert/inbox/"}"
+outputfolder="${OUTPUT_FOLDER:-"/path/to/your/books/#convert/converted/"}"
+donefolder="${DONE_FOLDER:-"/path/to/your/books/#convert/processed/"}"
+fixitfolder="${FIXIT_FOLDER:-"/path/to/your/books/#convert/fix/"}"
+backupfolder="${BACKUP_FOLDER:-"/path/to/your/books/#convert/backup/"}"
 
-remote_buildfolder="${BUILD_FOLDER:-"/volume1/Downloads/#done/#books/#convert/#tmp/build/"}"
-remote_mergefolder="${MERGE_FOLDER:-"/volume1/Downloads/#done/#books/#convert/#tmp/merge/"}"
-remote_binfolder="${BIN_FOLDER:-"/volume1/Downloads/#done/#books/#convert/#tmp/delete/"}"
+remote_buildfolder="${BUILD_FOLDER:-"/path/to/your/books/#convert/#tmp/build/"}"
+remote_mergefolder="${MERGE_FOLDER:-"/path/to/your/books/#convert/#tmp/merge/"}"
+remote_binfolder="${BIN_FOLDER:-"/path/to/your/books/#convert/#tmp/delete/"}"
 
 buildfolder="${BUILD_FOLDER:-"/tmp/auto-m4b/build/"}"
 # buildfolder="$remote_buildfolder"
