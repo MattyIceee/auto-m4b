@@ -426,7 +426,7 @@ log_results() {
     # pad quality with spaces to 28 characters
     local _quality=$(printf '%-19s' "$bitrate_friendly @ $samplerate_friendly")
     local _count=$(printf '%-9s' "$audio_files_count files")
-    local _info=$(echo Quality: "$_quality | .$file_type | $_count | $audio_files_size")
+    local _info=$(echo Quality: "$_quality | .$file_type | $_count | $audio_files_size | $audio_files_duration")
     local _result="$2"
     local _elapsed="$3"
 
@@ -475,6 +475,10 @@ get_size() {
     echo "$_size"
 }
 
+get_file_duration() {
+    echo $(ffprobe -hide_banner -loglevel 0 -of flat -i "$1" -show_entries format=duration -of default=noprint_wrappers=1:nokey=1)
+}
+
 get_duration() {
     # takes a file or directory and returns the length in seconds of all audio files
     # if no path specified, assume current directory
@@ -494,12 +498,12 @@ get_duration() {
             exit 1
         fi
 
-        local _length=$(ffprobe -hide_banner -loglevel 0 -of flat -i "$_path" -show_entries format=duration -of default=noprint_wrappers=1:nokey=1)
+        local _duration=$(get_file_duration "$_path")
         if [ "$_format" == "human" ]; then
-          _length=$(printf "%.0f" "$_length")  # Round up to the nearest second
-          _length=$(human_elapsed_time "$_length")
+          _duration=$(printf "%.0f" "$_duration")  # Round up to the nearest second
+          _duration=$(human_elapsed_time "$_duration")
       fi
-        echo "$_length"
+        echo "$_duration"
     elif [ -d "$_path" ]; then
         
         # make sure there are some audio files in the dir. Get a list of them all, and then the count, and if count is 0 exit. Otherwise, loop files and add up length
@@ -511,22 +515,22 @@ get_duration() {
             exit 1
         fi
 
-        local _length=0
+        local _duration=0
         while read -r _file; do
-            _length=$(echo "$_length + $(get_duration "$_file")" | bc)
+            _duration=$(echo "$_duration + $(get_file_duration "$_file")" | bc)
         done <<< "$_files"
 
         if [ "$_format" == "human" ]; then
             # if length has a decimal value that is less than 0.1, round down to nearest second, otherwise round up to nearest second
-            local _decimal=$(echo "$_length" | sed 's/^[0-9]*\.//')
+            local _decimal=$(echo "$_duration" | sed 's/^[0-9]*\.//')
             if [ "$_decimal" -lt 1 ]; then
-                _length=$(printf "%.0f" "$_length")  # Round down to the nearest second
+                _duration=$(printf "%.0f" "$_duration")  # Round down to the nearest second
             else
-                _length=$(printf "%.0f" "$_length")  # Round up to the nearest second
+                _duration=$(printf "%.0f" "$_duration")  # Round up to the nearest second
             fi
-            _length=$(human_elapsed_time "$_length")
+            _duration=$(human_elapsed_time "$_duration")
         fi
-        echo "$_length"
+        echo "$_duration"
     fi
     
 }
@@ -662,7 +666,7 @@ extract_metadata() {
     bitrate="$(echo "$bitrate" | awk '{printf "%.0f", int($1/1000)}')k"
     samplerate_friendly="$(echo "$samplerate" | awk '{printf "%.1f", $1/1000}') kHz"
     echo -e "- Quality: $bitrate_friendly @ $samplerate_friendly"
-
+    
     # Description:
     #      - Write all extracted properties, and "Original folder name: <folder name>" to this field, e.g.
     #        Book title: <book title>
@@ -676,10 +680,6 @@ extract_metadata() {
     # Save description to description.txt alongside the m4b file
     description_file="$inboxfolder$book/description.txt"
 
-    # Get the total size of the audio files in dir
-    audio_files_size=$(get_size "." "human")
-    audio_files_length=$(get_duration "." "human")
-
     # Write the description to the file with newlines, ensure utf-8 encoding
     echo -e "Book title: $title\n\
 Author: $author\n\
@@ -689,7 +689,7 @@ Quality: $bitrate_friendly @ $samplerate_friendly\n\
 Original folder: $book\n\
 Original file type: .$file_type\n\
 Original size: $audio_files_size\n\
-Original length: $audio_files_length" > "$description_file"
+Original duration: $audio_files_duration" > "$description_file"
 
     # build m4b-tool command switches based on which properties are defined
     # --name[=NAME]                              $title
@@ -913,12 +913,14 @@ while [ $m -ge 0 ]; do
         # Count the number of audio files in the book folder and get a human readable filesize
         audio_files_count=$(find "$book_full_path" -type f \( "${audio_exts[@]}" \) | wc -l)
         audio_files_size=$(get_size "$book_full_path" "human")
+        audio_files_duration=$(get_duration "$book_full_path" "human")
 
         echo ""
         echo "- Path: $book_full_path"
+        echo "- File type: .$file_type"
         echo "- Audio files: $audio_files_count"
         echo "- Total size: $audio_files_size"
-        echo "- File type: .$file_type"
+        echo "- Duration: $audio_files_duration"
         echo ""
 
         # Check if a copy of this book is in fixitfolder and bail
@@ -1134,8 +1136,8 @@ while [ $m -ge 0 ]; do
         m4b_file_size=$(get_size "$build_m4bfile" "human")
         echo -e "Converted size: $m4b_file_size" >> "$description_file"
 
-        m4b_audio_lenth=$(get_duration "$build_m4bfile" "human")
-        echo -e "Converted length: $m4b_audio_lenth" >> "$description_file"
+        m4b_audio_duration=$(get_duration "$build_m4bfile" "human")
+        echo -e "Converted duration: $m4b_audio_duration" >> "$description_file"
 
         # Rename description.txt to $book-[$desc_quality].txt
         mv "$description_file" "$book [$desc_quality].txt"
