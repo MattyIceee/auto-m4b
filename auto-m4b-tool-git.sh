@@ -1,33 +1,5 @@
 #!/bin/bash
-
-DEFAULT_SLEEP_TIME=30s
-
-add_trailing_slash() {
-    # adds a trailing slash to path
-    local path="$1"
-    if [[ ! "$path" == */ ]]; then
-        path="$path/"
-    fi
-    echo "$path"
-}
-
-rm_trailing_slash() {
-    # removes a trailing slash from path
-    local path="$1"
-    if [[ "$path" == */ ]]; then
-        path="${path%?}"
-    fi
-    echo "$path"
-}
-
-rm_leading_dot_slash() {
-    # removes a leading ./ from path if it exists
-    local path="$1"
-    if [[ "$path" == ./* ]]; then
-        path="${path#./}"
-    fi
-    echo "$path"
-}
+DEFAULT_SLEEP_TIME=10s
 
 # set m to 1
 m=1
@@ -77,19 +49,70 @@ other_exts=(
 # If it does exist, echo startup notice
 # If it does, do nothing.
 
-if [ ! -f "/tmp/auto-m4b/started.txt" ]; then
+if [ ! -f "/tmp/auto-m4b/running" ]; then
     sleep 5
     mkdir -p "/tmp/auto-m4b/"
-    touch "/tmp/auto-m4b/started.txt"
+    touch "/tmp/auto-m4b/running"
     current_local_time=$(date +"%Y-%m-%d %H:%M:%S")
-    echo "auto-m4b started at $current_local_time", watching "$inboxfolder" >> "/tmp/auto-m4b/started.txt"
-    echo "Starting auto-m4b..."
-    echo "Watching \"$inboxfolder\" for books to convert ⌐O-O"
+    echo "auto-m4b started at $current_local_time", watching "$inboxfolder" >> "/tmp/auto-m4b/running"
+    echo -e "\nStarting auto-m4b..."
+    echo -e "Watching \"$inboxfolder\" for books to convert ⌐O-O\n"
 fi
 
+add_trailing_slash() {
+    # adds a trailing slash to path
+    local path="$1"
+    if [[ ! "$path" == */ ]]; then
+        path="$path/"
+    fi
+    echo "$path"
+}
+
+rm_trailing_slash() {
+    # removes a trailing slash from path
+    local path="$1"
+    if [[ "$path" == */ ]]; then
+        path="${path%?}"
+    fi
+    echo "$path"
+}
+
+rm_leading_dot_slash() {
+    # removes a leading ./ from path if it exists
+    local path="$1"
+    if [[ "$path" == ./* ]]; then
+        path="${path#./}"
+    fi
+    echo "$path"
+}
+
+echo_underline() {
+    echo -e "\033[4m$1\033[0m"
+}
+
+echo_grey() {
+    # \e[2;37;40m
+    echo -e "\033[2;37m$1\033[0m"
+}
+
+echo_blue() {
+    echo -e "\033[1;36m$1\033[0m"
+}
+
+echo_error() {
+    echo -e "\033[1;31m *** $1\033[0m"
+}
+
+echo_warning() {
+    echo -e "\033[1;33m *** $1\033[0m"
+}
+
 draw_line() {
-    printf '%.0s-' {1..80}
-    echo
+    # printf '%.0s-' {1..80}
+    # echo
+
+    # do the above, but in darkgrey
+    echo_grey "$(printf '%.0s-' {1..80})"
 }
 
 swap_first_last() {
@@ -225,23 +248,23 @@ cp_dir() {
 
     # Check if both dirs exist, otherwise exit with error
     if [ ! -d "$_source_dir" ]; then
-        echo " *** Error: Source directory \"$_source_dir\" does not exist"
+        echo_error "Error: Source directory \"$_source_dir\" does not exist"
         exit 1
     fi
 
     if [ ! -d "$_dest_dir" ]; then
-        echo " *** Error: Destination directory \"$_dest_dir\" does not exist"
+        echo_error "Error: Destination directory \"$_dest_dir\" does not exist"
         exit 1
     fi
 
     # Make sure both paths are dirs
     if [ ! -d "$_source_dir" ]; then
-        echo " *** Error: Source \"$_source_dir\" is not a directory"
+        echo_error "Error: Source \"$_source_dir\" is not a directory"
         exit 1
     fi
 
     if [ ! -d "$_dest_dir" ]; then
-        echo " *** Error: Destination \"$_dest_dir\" is not a directory"
+        echo_error "Error: Destination \"$_dest_dir\" is not a directory"
         exit 1
     fi
 
@@ -256,18 +279,18 @@ cp_file_to_dir() {
 
     # Check if both dirs exist, otherwise exit with error
     if [ ! -f "$_source_file" ]; then
-        echo " *** Error: Source file \"$_source_file\" does not exist"
+        echo_error "Error: Source file \"$_source_file\" does not exist"
         exit 1
     fi
 
     if [ ! -d "$_dest_dir" ]; then
-        echo " *** Error: Destination directory \"$_dest_dir\" does not exist"
+        echo_error "Error: Destination directory \"$_dest_dir\" does not exist"
         exit 1
     fi
 
     # Make sure destination path is a dir
     if [ ! -d "$_dest_dir" ]; then
-        echo " *** Error: Destination \"$_dest_dir\" is not a directory"
+        echo_error "Error: Destination \"$_dest_dir\" is not a directory"
         exit 1
     fi
 
@@ -284,34 +307,40 @@ mv_dir() {
 
     # Remove trailing slash from source and add trailing slash to destination
     local _source_dir=$(rm_trailing_slash "$1")
-    local _dest_dir=$(add_trailing_slash "$2")
+    local _dest_dir=$(rm_trailing_slash "$2")
 
     # Check if both dirs exist, otherwise exit with error
     if [ ! -d "$_source_dir" ]; then
-        echo " *** Error: Source directory \"$_source_dir\" does not exist"
+        echo_error "Error: Source directory \"$_source_dir\" does not exist"
         exit 1
     fi
 
     if [ ! -d "$_dest_dir" ]; then
-        echo " *** Error: Destination directory \"$_dest_dir\" does not exist"
+        echo_error "Error: Destination directory \"$_dest_dir\" does not exist"
         exit 1
     fi
 
     # Make sure both paths are dirs
     if [ ! -d "$_source_dir" ]; then
-        echo " *** Error: Source \"$_source_dir\" is not a directory"
+        echo_error "Error: Source \"$_source_dir\" is not a directory"
         exit 1
     fi
 
     if [ ! -d "$_dest_dir" ]; then
-        echo " *** Error: Destination \"$_dest_dir\" is not a directory"
+        echo_error "Error: Destination \"$_dest_dir\" is not a directory"
         exit 1
     fi
 
     # Move the source dir to the destination dir by moving all files in source dir to dest dir
     # Overwrite existing files, then remove the source dir
-    mv "$_source_dir"* "$_dest_dir"
-    rm -rf "$_source_dir"
+    mv -n "$_source_dir"/* "$_dest_dir"
+
+    # Make sure source dir is empty, then remove it
+    if [ -n "$(ls -A "$_source_dir")" ]; then
+        echo_error "Error moving files: some files in \"$_source_dir\" could not be moved"
+        exit 1
+    fi
+    rmdir "$_source_dir"
 }
 
 mv_file_to_dir() {
@@ -322,18 +351,18 @@ mv_file_to_dir() {
 
     # Check if both dirs exist, otherwise exit with error
     if [ ! -f "$_source_file" ]; then
-        echo " *** Error: Source file \"$_source_file\" does not exist"
+        echo_error "Error: Source file \"$_source_file\" does not exist"
         exit 1
     fi
 
     if [ ! -d "$_dest_dir" ]; then
-        echo " *** Error: Destination directory \"$_dest_dir\" does not exist"
+        echo_error "Error: Destination directory \"$_dest_dir\" does not exist"
         exit 1
     fi
 
     # Make sure destination path is a dir
     if [ ! -d "$_dest_dir" ]; then
-        echo " *** Error: Destination \"$_dest_dir\" is not a directory"
+        echo_error "Error: Destination \"$_dest_dir\" is not a directory"
         exit 1
     fi
 
@@ -394,6 +423,103 @@ rmdir_force() {
                 return 1
             fi
         fi
+    fi
+}
+
+find_dirs_with_audio_files() {
+    # Takes a path and counts the number of distinct folders/subfolders that contain audio files, including . root
+    # Returns the count of unique paths found
+
+    # Returns 0 if
+    # - no audio files found in any dir, including .
+
+    # Returns 1 if
+    # - audio files found in . but nowhere else
+    # - audio files found in ./subfolder/ but nowhere else
+    # - audio files found in ./subfolder/nextfolder/ but nowhere else
+
+    # Returns 2 if
+    # - audio files found in . and in ./subfolder/
+    # - audio files found in . and in ./subfolder/nextfolder/
+    # - audio files found in ./subfolder/ and in ./subfolder/nextfolder/
+    # - audio files found in ./subfolder/ and in ./otherfolder/
+    
+    # etc.
+
+    local _path="$1"
+    local _mindepth="$2"
+    local _maxdepth="$3"
+
+    if [ -n "$_mindepth" ]; then
+        _mindepth=" -mindepth $_mindepth"
+    fi
+    if [ -n "$_maxdepth" ]; then
+        _maxdepth=" -maxdepth $_maxdepth"
+    fi
+
+    # get a list of all subfolders that contain audio files, n levels deep.
+    # get the top level folder of each of those subfolders, then | sort | uniq to get a list of unique top level folders
+    local _paths_with_audio_files=$(find "$_path"$_mindepth$_maxdepth -type f \( "${audio_exts[@]}" \) -exec dirname {} + | cut -d'/' -f2- | sort | uniq)
+
+    echo "$_paths_with_audio_files"
+}
+
+get_uniq_root_dirs() {
+    # Takes the output from a "find" command and returns the unique root dirs
+    
+    # e.g. if find returns:
+    # ./folder1/file1
+    # ./folder1/file2
+    # ./folder2/file3
+    # ./folder2/file4
+
+    # this function will return:
+    # ./folder1
+    # ./folder2
+
+    local _paths="$1"
+
+    # first trim the leading ./, then use cut -d'/' -f1
+    echo "$_paths" | sed 's/^\.\///' | cut -d'/' -f1 | sort | uniq
+}
+
+get_root_dir() {
+    # Takes a path and returns the root dir
+    # e.g. /path/to/folder1/folder2/file1 becomes /path
+    #      ./folder1/folder2/file1 becomes folder1
+    #      ./this-file.txt becomes .
+
+    local _path="$1"
+
+    # if arg is empty, throw
+    if [ -z "$_path" ]; then
+        echo " *** Error: get_root_dir() requires a path as an argument."
+        return 1
+    fi
+
+    # if path ends in a file extension or is a file, get the dirname and recursive call get_root_dir
+    # make sure to only allow .ext files, not .ext/ folders or ./ext folders
+    if [ -f "$_path" ] || echo "$_path" | grep -q -E '\.[a-zA-Z0-9]+$'; then
+        echo $([[ "$_path" =~ ^.*\.[^/]+$ ]])
+        echo "think it's a file"
+        _path=$(dirname "$_path")
+        echo $(get_root_dir "$_path")
+        return
+    fi
+
+    # if path begins with / and > 0 chars, return the first dir e.g. /path/ or /path >> path
+    # if path begins with ./ and > 2 chars, return the second dir e.g. ./path/ or ./path >> path
+    # if path does not start with / or ./, but contains a /, get the left-most part before /
+    # if path is ./, return .
+    # if path is . or /, return as-is
+
+    # if path is ./, return .
+    if [ "$_path" = "./" ] || [ "$_path" = "." ]; then
+        echo "."
+    elif [ "$_path" = "/" ]; then
+        echo "/"
+    else
+        echo $([[ "$_path" =~ ^\.?/ ]] && echo "$_path" | cut -d'/' -f2 || echo "$_path" | cut -d'/' -f1)
     fi
 }
 
@@ -808,7 +934,7 @@ while [ $m -ge 0 ]; do
     cd_inbox_folder
 
     # Check if there are audio files in the inbox folder. If none, sleep and exit
-    if [ -z "$(find . -maxdepth 2 -type f \( "${audio_exts[@]}" \) -print0)" ]; then
+    if [ -z "$(find . -type f \( "${audio_exts[@]}" \) -print0)" ]; then
         sleep $sleeptime
         exit 0
     fi
@@ -836,7 +962,14 @@ while [ $m -ge 0 ]; do
     echo "Checking for new books in \"$inboxfolder\""
 
     # Check if there are any directories modified in the last minute
-    unfinished_dirs=$(find . -maxdepth 1 -type d -mmin -1)
+    unfinished_dirs=$(find . -type d -mmin -0.1)
+
+    # if unfinished dirs exist, sleep script until they are finished copying
+    if [ -n "$unfinished_dirs" ]; then
+        echo -e "The inbox folder was recently modified, waiting for a bit to make sure all files are done copying...\n"
+        sleep $sleeptime
+        exit 0
+    fi
 
     # Move single audio files into their own folders
     find . -maxdepth 1 -type f \( "${audio_exts[@]}" \) -print0 | while IFS= read -r -d $'\0' audio_file; do
@@ -850,11 +983,11 @@ while [ $m -ge 0 ]; do
         # If the file is an m4b, we can send it straight to the output folder.
         # if a file of the same name exists, rename the incoming file to prevent data loss using (copy), (copy 1), (copy 2) etc.
         if [ "$ext" == "m4b" ]; then
-            echo "Moving \"$audio_file\" to completed folder, it is already an m4b..."
             target_dir="$outputfolder"
             unique_target="$target_dir/$file_name"
+            echo "Moving to completed folder (already an m4b) → \"$unique_target\""
         else
-            echo "Moving \"$audio_file\" into its own folder..."
+            echo "Moving book into its own folder → \"$unique_target\""
             mkdir -p "$target_dir"
         fi
 
@@ -882,47 +1015,71 @@ while [ $m -ge 0 ]; do
             echo "Error moving to \"$unique_target\""
         fi
     done
-    
-    # Find folders with 3+ levels deep and move to fix that contain audio files
-    find . -mindepth 3 -type f \( "${audio_exts[@]}" \) -print0 | while IFS= read -r -d $'\0' nested; do
-        echo -e Skipping "\"$nested\", it has nested subfolders (multiple books or discs in one folder)"
-        echo -e "Moving to fix folder..."
-        # get first path segment of nested
-        root_of_nested=$(echo "$nested" | cut -d'/' -f2)
-        dir_to_move=$(join_paths "$inboxfolder" "$root_of_nested")
-        ensure_dir_exists_and_is_writable "$fixitfolder"
-        mv_dir "$dir_to_move" "$fixitfolder"
-        continue
-    done
 
     # Find directories containing audio files, handling single quote if present
-    audio_dirs=$(find . -type f \( "${audio_exts[@]}" \) -exec dirname {} + | sort | uniq)
+    audio_dirs=$(find_dirs_with_audio_files . 1)
+    audio_dirs=$(get_uniq_root_dirs "$audio_dirs")
+
+    books_count=$(echo "$audio_dirs" | wc -l)
 
     # If no books to convert, echo, sleep, and exit
-    if [ -z "$audio_dirs" ]; then
-        echo "No books to convert, next check in $sleeptime"
+    if [ "$books_count" -eq 0 ]; then
+        echo -e "No books to convert, next check in $sleeptime\n"
         sleep $sleeptime
         exit 0
     fi
 
-    books_count=$(echo "$audio_dirs" | wc -l)
-
     echo -e "Found $(echo "$books_count") book(s) to convert"
     
     echo "$audio_dirs" | while IFS= read -r book_rel_path; do
+
+        # get real path of book
+        book_full_path=$(realpath "$book_rel_path")
 
         # get basename of book
         book=$(basename "$book_rel_path")
 
         draw_line
 
-        # check if the current dir was modified in the last 30s and skip if so
-        if [ "$(find "$book_rel_path" -maxdepth 0 -mmin -0.5)" ]; then
-            echo "Skipping \"$book_rel_path\", it was recently updated and may still be copying"
+        echo_blue "$book"
+
+        book_audio_dirs=$(find_dirs_with_audio_files "$book_rel_path")
+        book_audio_dirs_count=$(echo "$book_audio_dirs" | wc -l)
+
+        # check if the current dir was modified in the last 1m and skip if so
+        if [ "$(find "$book_rel_path" -mmin -1)" ]; then
+            echo -e "Skipping \"$book_rel_path\", it was recently updated and may still be copying"
+            continue
+        fi
+
+        # use count_dirs_with_audio_files to check if 0, 1, or >1
+        if [ "$book_audio_dirs_count" -eq 0 ]; then
+            echo -e " *** Notice: No audio files found, skipping\n"
+            continue
+
+        elif [ "$book_audio_dirs_count" -ge 2 ]; then
+            echo ""
+            echo_error "Error: This book contains multiple folders with audio files\n"
+            echo -e "Maybe this is a multi-disc book, or maybe it is multiple books?"
+            echo -e "All files must be in a single folder, named alphabetically in the correct order\n"
+            dir_to_move=$(join_paths "$inboxfolder" "$book_rel_path")
+            echo -e "Moving to fix folder → \"$(join_paths "$fixitfolder" "$book")\"\n"
+            ensure_dir_exists_and_is_writable "$fixitfolder"
+            mv_dir "$dir_to_move" "$fixitfolder"
+            continue
+            
+        elif [ "$book_audio_dirs_count" -eq 1 ] && [ "$book_audio_dirs" != "$book" ]; then
+            echo -e "Audio files for this book are a subfolder: \"./$book_audio_dirs\""
+            root_of_book=$(join_paths "$inboxfolder" "$book_rel_path")
+            dir_to_move=$(join_paths "$root_of_book" "$book_audio_dirs")
+            echo -e "Moving from \"$dir_to_move\" → \"$root_of_book\"\n"
+
+            # move all files in dir to $inboxfolder/$book
+            mv_dir "$dir_to_move" "$root_of_book"
             continue
         fi
         
-        echo -e "\nPreparing to convert \"$book\""
+        echo -e "\nPreparing to convert..."
 
         # check if book is a set of mp3 files that need to be converted to m4b
         mp3_count=$(find "$book_rel_path" -type f -name '*.mp3' | wc -l)
@@ -936,7 +1093,7 @@ while [ $m -ge 0 ]; do
         is_wma=$( [ "$wma_count" -gt 0 ] && echo "TRUE" || echo "FALSE" )
 
         # get full path of book (remove leading ./ if relative path)
-        book_full_path=$inboxfolder$(echo "$book_rel_path" | sed 's/^\.\///')
+        # book_full_path=$inboxfolder$(echo "$book_rel_path" | sed 's/^\.\///')
         
         if [ "$is_m4b" == "TRUE" ]; then
             file_type="m4b"
@@ -948,7 +1105,7 @@ while [ $m -ge 0 ]; do
             file_type="wma"
         else
             echo " *** Error: \"$book_full_path\""
-            echo "     This folder does not contain any known audio files, skipping..."
+            echo "     This folder does not contain any known audio files, skipping"
             continue
         fi
 
@@ -984,7 +1141,7 @@ while [ $m -ge 0 ]; do
         elif [ -z "$(ls -A "$book_full_path")" ]; then
             echo "Skipping making a backup (folder is empty)"
         else
-            echo "Making a backup copy in \"$backupfolder\"..."
+            echo "Making a backup copy → \"$backupfolder$book\""
             cp_dir "$book_full_path" "$backupfolder"
 
             # Check that files count and folder size match
@@ -1125,7 +1282,7 @@ while [ $m -ge 0 ]; do
                 error_line=$(grep -i "ERROR" "$logfile" | head -n 1)
                 echo " *** Error: m4b-tool found an error in the log when converting \"$book\""
                 echo "     Message: $error_line"
-                echo -e "\nMoving \"$book\" to fix folder..."
+                echo -e "\nMoving to fix folder → \"$fixitfolder$book\""
                 
                 if [ "$(ensure_dir_exists_and_is_writable "$fixitfolder" "false")" != "1" ]; then
                     mv_dir "$mergefolder$book" "$fixitfolder"
@@ -1140,9 +1297,9 @@ while [ $m -ge 0 ]; do
                         fi
                     done
 
-                    # remove inbox folder if it is empty
+                    # remove book folder from inbox if it is empty
                     if ! rmdir "$inboxfolder$book" 2>/dev/null; then
-                        echo " *** Warning: Some files from \"$inboxfolder$book\" couldn't be moved"
+                        echo_warning "Warning: Some files in \"$inboxfolder$book\" couldn't be moved"
                     fi
 
                     cp "$logfile" "$fixitfolder$book/m4b-tool.$book.log"
@@ -1156,7 +1313,7 @@ while [ $m -ge 0 ]; do
         # Make sure the m4b file was created
         if [ ! -f "$build_m4bfile" ]; then
             echo " *** Error: m4b-tool failed to convert \"$book\", no output file was found"
-            echo "     Moving \"$book\" to fix folder..."
+            echo -e "\nMoving to fix folder → \"$fixitfolder$book\""
             if [ "$(ensure_dir_exists_and_is_writable "$fixitfolder" "false")" != "1" ]; then
                 mv_dir "$mergefolder$book" "$fixitfolder"
                 cp "$logfile" "$fixitfolder$book/m4b-tool.$book.log"
@@ -1204,7 +1361,7 @@ while [ $m -ge 0 ]; do
         echo "Finished in $elapsedtime_friendly"
         log_results "$book_full_path" "SUCCESS" "$elapsedtime_friendly"
 
-        echo "Moving to \"$final_m4bfile\"..."
+        echo "Moving to finished folder → \"$final_m4bfile\""
         mv_dir "$mergefolder$book" "$binfolder"
         
         if [ "$on_complete" = "move" ]; then
