@@ -33,15 +33,15 @@ rm_leading_dot_slash() {
 m=1
 
 #variable defenition
-inboxfolder="${INBOX_FOLDER:-"/path/to/your/books/#convert/inbox/"}"
-outputfolder="${OUTPUT_FOLDER:-"/path/to/your/books/#convert/converted/"}"
-donefolder="${DONE_FOLDER:-"/path/to/your/books/#convert/processed/"}"
-fixitfolder="${FIXIT_FOLDER:-"/path/to/your/books/#convert/fix/"}"
-backupfolder="${BACKUP_FOLDER:-"/path/to/your/books/#convert/backup/"}"
+inboxfolder="${INBOX_FOLDER:-"/volume1/Downloads/#done/#books/#convert/inbox/"}"
+outputfolder="${OUTPUT_FOLDER:-"/volume1/Downloads/#done/#books/#convert/converted/"}"
+donefolder="${DONE_FOLDER:-"/volume1/Downloads/#done/#books/#convert/processed/"}"
+fixitfolder="${FIXIT_FOLDER:-"/volume1/Downloads/#done/#books/#convert/fix/"}"
+backupfolder="${BACKUP_FOLDER:-"/volume1/Downloads/#done/#books/#convert/backup/"}"
 
-remote_buildfolder="${BUILD_FOLDER:-"/path/to/your/books/#convert/#tmp/build/"}"
-remote_mergefolder="${MERGE_FOLDER:-"/path/to/your/books/#convert/#tmp/merge/"}"
-remote_binfolder="${BIN_FOLDER:-"/path/to/your/books/#convert/#tmp/delete/"}"
+remote_buildfolder="${BUILD_FOLDER:-"/volume1/Downloads/#done/#books/#convert/#tmp/build/"}"
+remote_mergefolder="${MERGE_FOLDER:-"/volume1/Downloads/#done/#books/#convert/#tmp/merge/"}"
+remote_binfolder="${BIN_FOLDER:-"/volume1/Downloads/#done/#books/#convert/#tmp/delete/"}"
 
 buildfolder="${BUILD_FOLDER:-"/tmp/auto-m4b/build/"}"
 # buildfolder="$remote_buildfolder"
@@ -274,6 +274,12 @@ cp_file_to_dir() {
     cp -rf "$_source_file" "$_dest_dir"
 }
 
+join_paths() {
+    local _path1=$(rm_trailing_slash "$1")
+    local _path2=$(rm_leading_dot_slash "$2")
+    echo "$_path1/$_path2"
+}
+
 mv_dir() {
 
     # Remove trailing slash from source and add trailing slash to destination
@@ -450,6 +456,24 @@ get_log_entry() {
     echo "$_log_entry"
 }
 
+strip_part_number() {
+    # takes a string and strips the part number from it
+    # e.g. "The Name of the Wind, Part 1)" becomes "The Name of the Wind"
+    #      "The Name of the Wind Part 002" becomes "The Name of the Wind"
+    #      "The Name of the Wind - 012" becomes "The Name of the Wind"
+    local _string="$1"
+    local _part_number_pattern=",?[-_–—]?\s*\d*\s*(?:[-_–—]|\bpart|\bof\b|\d+)?\s*\d+$"
+    local _ignore_if_pattern="(?:book|vol(?:ume)?)\s*\d+$"
+    
+    # use perl to check ignore pattern; if matches, return original
+    if perl -pnE "s/$_ignore_if_pattern//i" <<< "$_string" | grep -qE "$_ignore_if_pattern"; then
+        return
+    fi
+
+    local _stripped=$(perl -pnE "s/$_part_number_pattern//i" <<< "$_string")
+    echo "$_stripped"
+}
+
 human_elapsed_time() {
     # make friendly elapsed time as HHh:MMm:SSs but don't show hours if 0
     # e.g. 00m:52s, 12m:52s, 1h:12m:52s 
@@ -551,6 +575,7 @@ extract_metadata() {
     id3_sortalbum=$(ffprobe -hide_banner -loglevel 0 -of flat -i "$sample_audio" -select_streams a -show_entries format_tags=sort_album -of default=noprint_wrappers=1:nokey=1)
     id3_date=$(ffprobe -hide_banner -loglevel 0 -of flat -i "$sample_audio" -select_streams a -show_entries format_tags=date -of default=noprint_wrappers=1:nokey=1)
     id3_year=$(echo "$id3_date" | grep -Eo '[0-9]{4}')
+    id3_comment=$(ffprobe -hide_banner -loglevel 0 -of flat -i "$sample_audio" -select_streams a -show_entries format_tags=comment -of default=noprint_wrappers=1:nokey=1)
 
     # Title:
     if [ -z "$id3_title" ] && [ -z "$id3_album" ] && [ -z "$id3_sortalbum" ]; then
@@ -571,6 +596,9 @@ extract_metadata() {
             title="$id3_title"
         fi
     fi
+
+    title=$(strip_part_number "$title")
+
     echo "- Title: $title"
 
 
@@ -622,6 +650,11 @@ extract_metadata() {
     fi
 
     # Narrator
+    # If id3_comment contains "Narrated by" or "Narrator", use that
+    if [ -n "$id3_comment"] && echo "$id3_comment" | grep -q -i "narrat"; then
+        narrator=$(echo "$id3_comment" | perl -n -e "/narrat(ed by|or)\W+(?<narrator>.+?)[.\s]*(?:$|\(|\[|$)/i && print $+{narrator}")
+        id3_comment=""
+    fi
     if [ -z "$narrator" ]; then
         narrator="$dir_narrator"
     fi
@@ -655,10 +688,14 @@ extract_metadata() {
     #      - Use this for the narrator, in the format "Narrated by <narrator>"
     #      - If narrator is unknown, clear this field
 
+    # if id3_comment exists, prepend a space
+    if [ -n "$id3_comment" ]; then
+        id3_comment=" $id3_comment"
+    fi
     if [ -n "$narrator" ]; then
-        comment="Narrated by $narrator"
+        comment="Narrated by $narrator$id3_comment"
     else
-        comment=""
+        comment="$id3_comment"
     fi
 
     # convert bitrate and sample rate to friendly to kbit/s, rounding to nearest tenths, e.g. 44.1 kHz
@@ -847,10 +884,15 @@ while [ $m -ge 0 ]; do
     done
     
     # Find folders with 3+ levels deep and move to fix that contain audio files
-    find . -mindepth 3 -maxdepth 3 -type f \( "${audio_exts[@]}" \) -print0 | while IFS= read -r -d $'\0' nested; do
-        echo "Moving \"$nested\" to fix folder - the file order cannot be determined because it has nested subfolders..."
+    find . -mindepth 3 -type f \( "${audio_exts[@]}" \) -print0 | while IFS= read -r -d $'\0' nested; do
+        echo -e Skipping "\"$nested\", it has nested subfolders (multiple books or discs in one folder)"
+        echo -e "Moving to fix folder..."
+        # get first path segment of nested
+        root_of_nested=$(echo "$nested" | cut -d'/' -f2)
+        dir_to_move=$(join_paths "$inboxfolder" "$root_of_nested")
         ensure_dir_exists_and_is_writable "$fixitfolder"
-        mv_dir "$nested" "$fixitfolder"
+        mv_dir "$dir_to_move" "$fixitfolder"
+        continue
     done
 
     # Find directories containing audio files, handling single quote if present
