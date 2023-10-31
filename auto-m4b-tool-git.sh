@@ -143,13 +143,18 @@ echo__alert() {
     local _first="$2"
     local _rest="${*:3}"
 
-    # if first char is a \n, remove it and add it back after the ***
+    # if first char is a \n, remove it
     if [[ "$_first" =~ ^\\n ]]; then
-        # strip the first 2char from $1, then include all other args
-        line="\\n *** ${_first:2} ${_rest}"
-    else
-        line=" *** $_first $_rest"
+        _first="${_first:2}"
     fi
+
+    line=" *** $_first $_rest"
+
+    # if previous line in console is empty don't print newline, otherwise do
+    if [ -z "$(tail -1 /dev/stdin)" ]; then
+        echo
+    fi
+
     echo__color $_color "$line"
 }
 
@@ -161,7 +166,7 @@ echo_warning() {
     echo__alert "208" "$@"
 }
 
-draw_line() {
+divider() {
     echo_dark_grey "$(printf '%.0s-' {1..80})"
 }
 
@@ -261,6 +266,17 @@ get_ext() {
         done
     else
         echo "$1" | sed 's/^.*\.//'
+    fi
+}
+
+pluralize() {
+    local _count="$1"
+    local _singular="$2"
+    local _plural="${3:-"$_singular""s"}"
+    if [ "$_count" -eq 1 ]; then
+        echo "$_singular"
+    else
+        echo "$_plural"
     fi
 }
 
@@ -443,11 +459,6 @@ mv_dir() {
     done)
     
     if [ -n "$failed_to_mv" ]; then
-
-        # if previous line in console is empty don't print newline, otherwise do
-        if [ -z "$(tail -1 /dev/stdin)" ]; then
-            echo
-        fi
 
         echo_error "Error moving files: some files in \"$_source_dir\" could not be moved:"
         # print files with echo_error that didn't move, nicely indended with " - "
@@ -897,7 +908,8 @@ extract_metadata() {
 
     # Narrator
     # If id3_comment contains "Narrated by" or "Narrator", use that
-    if [ -n "$id3_comment"] && echo "$id3_comment" | grep -q -i "narrat"; then
+    _comment_has_narrator=$(echo "$id3_comment" | grep -q -i "narrat" && echo "true" || echo "false")
+    if [ "$_comment_has_narrator" = "true" ]; then
         narrator=$(echo "$id3_comment" | perl -n -e "/narrat(ed by|or)\W+(?<narrator>.+?)[.\s]*(?:$|\(|\[|$)/i && print $+{narrator}")
         id3_comment=""
     fi
@@ -959,6 +971,12 @@ extract_metadata() {
     #        Quality: <bitrate_friendly> @ <samplerate_friendly>
     #        Original folder name: <folder name>
     #      - this needs to be newline-separated (\n does not work, use $'\n' instead)
+
+    # if $mergefolder$book doesn't exist, throw error
+    if [ ! -d "$mergefolder$book" ]; then
+        echo_error "Error: working dir for book \"$mergefolder$book\" does not exist"
+        exit 1
+    fi
     
     # Save description to description.txt alongside the m4b file
     description_file="$mergefolder$book/description.txt"
@@ -973,6 +991,12 @@ Original folder: $book\n\
 Original file type: .$file_type\n\
 Original size: $audio_files_size\n\
 Original duration: $audio_files_duration" > "$description_file"
+
+    # check to make sure the file was created
+    if [ ! -f "$description_file" ]; then
+        echo_error "Error: Failed to create \"$description_file\""
+        exit 1
+    fi
 
     # build m4b-tool command switches based on which properties are defined
     # --name[=NAME]                              $title
@@ -1112,7 +1136,7 @@ while [ $m -ge 0 ]; do
         fi
 
         if [ -f "$unique_target" ]; then
-            echo "(A file with the same name already exists in \"./$target_dir\", renaming the incoming file to prevent data loss)"
+            echo "(A file with the same name already exists in \"./$target_dir\", renaming incoming file to prevent data loss)"
 
             # using a loop, first try to rename the file to append (copy) to the end of the file name.
             # if that fails, try (copy 1), (copy 2) etc. until it succeeds
@@ -1132,7 +1156,7 @@ while [ $m -ge 0 ]; do
         if [ -f "$unique_target" ]; then
             echo "Successfully moved to \"$unique_target\""
         else
-            echo "Error moving to \"$unique_target\""
+            echo_error "Error: Failed to move to \"$unique_target\""
         fi
     done
 
@@ -1149,7 +1173,7 @@ while [ $m -ge 0 ]; do
         exit 0
     fi
 
-    echo -e "Found $(echo "$books_count") book(s) to convert"
+    echo -e "Found $(echo "$books_count") $(pluralize "$books_count" "book") to convert\n"
     
     echo "$audio_dirs" | while IFS= read -r book_rel_path; do
 
@@ -1159,7 +1183,7 @@ while [ $m -ge 0 ]; do
         # get basename of book
         book=$(basename "$book_rel_path")
 
-        draw_line
+        divider
 
         echo_blue "$book"
 
@@ -1294,6 +1318,12 @@ while [ $m -ge 0 ]; do
 
         cd_inbox_folder "$book"
 
+        # Move from inbox to merge folder
+        echo -e "\nAdding files to queue & building m4b..."
+        cp_dir "$book_full_path" "$mergefolder"
+
+        cd_merge_folder "$book"
+
         extract_metadata
 
         # if output file already exists, check if OVERWRITE_EXISTING is set to Y; if so, overwrite, if not, exit with error
@@ -1310,13 +1340,8 @@ while [ $m -ge 0 ]; do
                 done
                 sleep 2
             fi
+            echo
         fi
-
-        # Move from inbox to merge folder
-        echo -e "\nAdding files to queue & building \"$book.m4b\"..."
-        cp_dir "$book_full_path" "$mergefolder"
-
-        cd_merge_folder "$book"
 
         # Pre-create tempdir for m4b-tool in "$buildfolder$book-tmpfiles" and ensure writable
 
@@ -1421,11 +1446,11 @@ while [ $m -ge 0 ]; do
                         echo_warning "Warning: Some files in \"$inboxfolder$book\" couldn't be moved"
                     fi
 
-                    cp "$logfile" "$fixitfolder$book/m4b-tool.$book.log"
+                    cp "$logfile" "$fixitfolder$book/$book.m4b-tool.log"
                     log_results "$book_full_path" "FAILED" ""
                     continue
                 fi
-                echo "     See \"$logfile\" for details"
+                echo "     See log file in \"$fixitfolder$book\" for details"
             fi
         fi
 
@@ -1443,9 +1468,6 @@ while [ $m -ge 0 ]; do
 
         # create outputfolder
         mkdir -p "$outputfolder$book" 2>/dev/null
-
-        # Copy log file to output folder as $buildfolder$book/m4b-tool.$book.log
-        mv "$logfile" "$book.m4b-tool.log"
 
         # Remove reserved filesystem chars from "$bitrate_friendly @ $samplerate_friendly" (replace kb/s with kbps)
         desc_quality=$(echo "$bitrate_friendly @ $samplerate_friendly" | sed 's/kb\/s/kbps/g')
@@ -1465,13 +1487,15 @@ while [ $m -ge 0 ]; do
         echo "Finished in $elapsedtime_friendly"
         log_results "$book_full_path" "SUCCESS" "$elapsedtime_friendly"
 
+        # Copy log file to output folder as $buildfolder$book/m4b-tool.$book.log
+        mv "$logfile" "$book.m4b-tool.log"
+
         echo "Moving to finished folder → \"$final_m4bfile\""
         
         # Move all built audio files to output folder
-        find "$buildfolder$book" -maxdepth 1 -type f \( "${audio_exts[@]}" \) -exec mv {} "$outputfolder$book/" \;
-        # Copy other jpg, png, and txt files to output folder
+        find "$buildfolder$book" -maxdepth 1 -type f \( "${audio_exts[@]}" -o "${other_exts[@]}" \) -exec mv {} "$outputfolder$book/" \;
+        # Copy other jpg, png, and txt files from mergefolder to output folder
         find "$mergefolder$book" -maxdepth 1 -type f \( "${other_exts[@]}" \) -exec mv {} "$outputfolder$book/" \;
-        find "$buildfolder$book" -maxdepth 1 -type f \( "${other_exts[@]}" \) -exec mv {} "$outputfolder$book/" \;
 
         # Remove description.txt from output folder if "$book [$desc_quality].txt" exists
         if [ -f "$outputfolder$book/$book [$desc_quality].txt" ]; then
@@ -1520,7 +1544,7 @@ while [ $m -ge 0 ]; do
         
     # clear the folders
     echo
-    draw_line
+    divider
     rm -r "$binfolder"* 2>/dev/null
     rm -r "$mergefolder"* 2>/dev/null
     rm -r "$buildfolder"* 2>/dev/null
