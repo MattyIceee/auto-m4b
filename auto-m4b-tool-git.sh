@@ -42,6 +42,20 @@ other_exts=(
     -o -name '*.txt'
     -o -name '*.log'
 )
+
+hidden_files=(
+    -name '.DS_Store'
+    -o -name '._*'
+    -o -name '.AppleDouble'
+    -o -name '.LSOverride'
+    -o -name '.Spotlight-V100'
+    -o -name '.Trashes'
+    -o -name '__MACOSX'
+    -o -name 'ehthumbs.db'
+    -o -name 'Thumbs.db'
+    -o -name '@eaDir'
+)
+
 # -----------------------------------------------------------------------
 # Log startup notice
 # -----------------------------------------------------------------------
@@ -56,7 +70,7 @@ if [ ! -f "/tmp/auto-m4b/running" ]; then
     current_local_time=$(date +"%Y-%m-%d %H:%M:%S")
     echo "auto-m4b started at $current_local_time", watching "$inboxfolder" >> "/tmp/auto-m4b/running"
     echo -e "\nStarting auto-m4b..."
-    echo -e "Watching \"$inboxfolder\" for books to convert ⌐O-O\n"
+    echo -e "Watching \"$inboxfolder\" for books to convert ⌐◒-◒\n"
 fi
 
 add_trailing_slash() {
@@ -90,29 +104,65 @@ echo_underline() {
     echo -e "\033[4m$1\033[0m"
 }
 
+echo__color() {
+    color="$1"
+    text="$2"
+    echo -e "\033[38;5;${color}m${text}\033[0m"
+}
+
 echo_grey() {
-    # \e[2;37;40m
-    echo -e "\033[2;37m$1\033[0m"
+    echo__color "242" "$1"
+}
+
+echo_dark_grey() {
+    echo__color "237" "$1"
+}
+
+echo_green() {
+    echo__color "43" "$1"
 }
 
 echo_blue() {
-    echo -e "\033[1;36m$1\033[0m"
+    echo__color "33" "$1"
+}
+
+echo_amber() {
+    echo__color "214" "$1"
+}
+
+echo_orange() {
+    echo__color "208" "$1"
+}
+
+echo_red() {
+    echo__color "161" "$1"
+}
+
+echo__alert() {
+    local _color="$1"
+    local _first="$2"
+    local _rest="${*:3}"
+
+    # if first char is a \n, remove it and add it back after the ***
+    if [[ "$_first" =~ ^\\n ]]; then
+        # strip the first 2char from $1, then include all other args
+        line="\\n *** ${_first:2} ${_rest}"
+    else
+        line=" *** $_first $_rest"
+    fi
+    echo__color $_color "$line"
 }
 
 echo_error() {
-    echo -e "\033[1;31m *** $1\033[0m"
+    echo__alert "161" "$@"
 }
 
 echo_warning() {
-    echo -e "\033[1;33m *** $1\033[0m"
+    echo__alert "208" "$@"
 }
 
 draw_line() {
-    # printf '%.0s-' {1..80}
-    # echo
-
-    # do the above, but in darkgrey
-    echo_grey "$(printf '%.0s-' {1..80})"
+    echo_dark_grey "$(printf '%.0s-' {1..80})"
 }
 
 swap_first_last() {
@@ -229,13 +279,13 @@ ensure_dir_exists_and_is_writable() {
 
     if [ ! -w "$_dir" ]; then
         if [ "$_exit_on_error" == "true" ]; then
-            echo " *** Error: $_dir is not writable by current user. Please fix permissions and try again."
+            echo_error "Error: $_dir is not writable by current user. Please fix permissions and try again."
             exit 1
         else
-            echo " *** Warning: $_dir is not writable by current user, this may result in data loss."
+            echo_warning "Warning: $_dir is not writable by current user, this may result in data loss."
             return 1
         fi
-        echo " *** Error: $_dir is not writable by current user. Please fix permissions and try again."
+        echo_error "Error: $_dir is not writable by current user. Please fix permissions and try again."
         exit 1
     fi
 }
@@ -303,44 +353,114 @@ join_paths() {
     echo "$_path1/$_path2"
 }
 
+get_total_dir_size() {
+    # Takes a path and returns the total size of all files in the path
+    # If no path is specified, uses current directory
+    local _path="${1:-"."}"
+    local _size=$(du -s "$_path" | awk '{print $1}')
+    echo "$_size"
+}
+
+ok_to_del() {
+    local _path="$1"
+    local _max_size="${2:-"10240"}"  # default to 10kb
+    local _ignore_hidden="${3:-"true"}"  # default to true
+
+    src_dir_size=$(get_total_dir_size "$_source_dir")
+    if [ "$_ignore_hidden" = "true" ]; then
+        files_count=$(ls "$_source_dir" | wc -l)
+    else
+        files_count=$(ls -A "$_source_dir" | wc -l)
+    fi
+
+    #ok to delete if no visible files or if size is less than 10kb
+    echo $([ "$files_count" -eq 0 ] || [ "$src_dir_size" -lt "$_max_size" ] && echo "true" || echo "false")
+}
+
 mv_dir() {
 
     # Remove trailing slash from source and add trailing slash to destination
     local _source_dir=$(rm_trailing_slash "$1")
     local _dest_dir=$(rm_trailing_slash "$2")
 
+    # valid overwrite modes are "skip" (default), "overwrite", and "overwrite-silent"
+    local _overwrite_mode="${3:-"skip"}"
+
     # Check if both dirs exist, otherwise exit with error
     if [ ! -d "$_source_dir" ]; then
-        echo_error "Error: Source directory \"$_source_dir\" does not exist"
+        echo_error "\nError: Source directory \"$_source_dir\" does not exist"
         exit 1
     fi
 
     if [ ! -d "$_dest_dir" ]; then
-        echo_error "Error: Destination directory \"$_dest_dir\" does not exist"
+        echo_error "\nError: Destination directory \"$_dest_dir\" does not exist"
         exit 1
     fi
 
     # Make sure both paths are dirs
     if [ ! -d "$_source_dir" ]; then
-        echo_error "Error: Source \"$_source_dir\" is not a directory"
+        echo_error "\nError: Source \"$_source_dir\" is not a directory"
         exit 1
     fi
 
     if [ ! -d "$_dest_dir" ]; then
-        echo_error "Error: Destination \"$_dest_dir\" is not a directory"
+        echo_error "\nError: Destination \"$_dest_dir\" is not a directory"
         exit 1
     fi
 
     # Move the source dir to the destination dir by moving all files in source dir to dest dir
     # Overwrite existing files, then remove the source dir
-    mv -n "$_source_dir"/* "$_dest_dir"
 
-    # Make sure source dir is empty, then remove it
-    if [ -n "$(ls -A "$_source_dir")" ]; then
-        echo_error "Error moving files: some files in \"$_source_dir\" could not be moved"
-        exit 1
+    files_expecting_overwrite=$(ls -A "$_source_dir" | while read -r file; do
+        if [ -f "$_dest_dir/$file" ]; then
+            echo "$file"
+        fi
+    done)
+
+    if [ "$_overwrite_mode" == "overwrite" ]; then
+        echo_warning "\nWarning: Some files in \"$_dest_dir\" will be replace with files from \"$_source_dir\":"
+        for file in $files_expecting_overwrite; do
+            echo_orange "     - $file"
+        done
     fi
-    rmdir "$_source_dir"
+
+    if [ -z "$files_expecting_overwrite" ] || [ "$_overwrite_mode" == "skip" ]; then
+        mv -n "$_source_dir"/* "$_dest_dir" >/dev/null 2>&1
+    else
+        mv -f "$_source_dir"/* "$_dest_dir" >/dev/null 2>&1 
+    fi
+    
+
+    # make sure every file in source dir exists in dest dir
+    # if not, error
+
+    find "$_source_dir" -type f \( "${hidden_files[@]}" \) -delete >/dev/null 2>&1
+
+    failed_to_mv=$(ls -A "$_source_dir" | while read -r file; do
+        if [ ! -f "$_dest_dir/$file" ]; then
+            echo "$file"
+        fi
+    done)
+    
+    if [ -n "$failed_to_mv" ]; then
+
+        # if previous line in console is empty don't print newline, otherwise do
+        if [ -z "$(tail -1 /dev/stdin)" ]; then
+            echo
+        fi
+
+        echo_error "Error moving files: some files in \"$_source_dir\" could not be moved:"
+        # print files with echo_error that didn't move, nicely indended with " - "
+        ls -A "$_source_dir" | while read -r file; do
+            echo_red "     - $file"
+        done
+        return
+    fi
+
+    local _ok_to_del=$(ok_to_del "$_source_dir")
+    if [ "$_remove_src" = "true" ] && [ "$_ok_to_del" = "true" ]; then
+        rm -rf "$_source_dir"
+    fi
 }
 
 mv_file_to_dir() {
@@ -399,12 +519,12 @@ rmdir_force() {
     # find in parent dir a dir with the same name as the one we are trying to delete
     found=$(find "$parent_dir" -maxdepth 1 -type d -name "$basename" -print0)
     if [ -n "$found" ]; then
-        echo " *** Warning: Unable to delete \"$_dir\", renaming it to -old and trying again..."
+        echo_warning "Warning: Unable to delete \"$_dir\", renaming it to -old and trying again..."
         mv "$_dir" "$_dir-old"
 
         # check if the dir was renamed successfully
         if [ ! -d "$_dir-old" ]; then
-            echo " *** Error: Unable to rename \"$_dir\" to \"$_dir-old\""
+            echo_error "Error: Unable to rename \"$_dir\" to \"$_dir-old\""
             echo "$why"
             if [ "$_exit_on_error" == "true" ]; then
                 exit 1
@@ -415,7 +535,7 @@ rmdir_force() {
 
         rm -rf "$_dir-old" 2>/dev/null
         if ls "$parent_dir" | grep -q "$_dir"; then
-            echo " *** Error: Unable to delete \"$_dir\", please delete it manually and try again."
+            echo_error "Error: Unable to delete \"$_dir\", please delete it manually and try again."
             echo "$why"
             if [ "$_exit_on_error" == "true" ]; then
                 exit 1
@@ -493,7 +613,7 @@ get_root_dir() {
 
     # if arg is empty, throw
     if [ -z "$_path" ]; then
-        echo " *** Error: get_root_dir() requires a path as an argument."
+        echo_error "Error: get_root_dir() requires a path as an argument."
         return 1
     fi
 
@@ -536,14 +656,14 @@ clean_workdir() {
     mkdir -p "$_dir" 2>/dev/null
 
     if [ ! -w "$_dir" ]; then
-        echo " *** Error: $_dir is not writable by current user. Please fix permissions and try again."
+        echo_error "Error: $_dir is not writable by current user. Please fix permissions and try again."
         sleep 30
         exit 1
     fi
 
     # Make sure dir is empty, otherwise error
     if [ -n "$(ls -A "$_dir")" ]; then
-        echo " *** Error: $_dir is not empty; please empty it manually and try again."
+        echo_error "Error: $_dir is not empty; please empty it manually and try again."
         echo "$why"
         sleep 30
         exit 1
@@ -841,7 +961,7 @@ extract_metadata() {
     #      - this needs to be newline-separated (\n does not work, use $'\n' instead)
     
     # Save description to description.txt alongside the m4b file
-    description_file="$inboxfolder$book/description.txt"
+    description_file="$mergefolder$book/description.txt"
 
     # Write the description to the file with newlines, ensure utf-8 encoding
     echo -e "Book title: $title\n\
@@ -940,8 +1060,8 @@ while [ $m -ge 0 ]; do
     fi
 
     current_local_time=$(date +"%Y-%m-%d %H:%M:%S")
-    echo -e "--------------------------auto-m4b $current_local_time--------------------------"
-    echo "$config"
+    echo_green "-------------------  ⌐◒-◒  auto-m4b • $current_local_time  ---------------------"
+    echo_grey "$config"
 
     # Remove fix folder if there are no non-hidden files in it (check recursively)
     if [ -d "$fixitfolder" ] && [ -z "$(find "$fixitfolder" -not -path '*/\.*' -type f)" ]; then
@@ -1047,8 +1167,8 @@ while [ $m -ge 0 ]; do
         book_audio_dirs_count=$(echo "$book_audio_dirs" | wc -l)
 
         # check if the current dir was modified in the last 1m and skip if so
-        if [ "$(find "$book_rel_path" -mmin -1)" ]; then
-            echo -e "Skipping \"$book_rel_path\", it was recently updated and may still be copying"
+        if [ "$(find "$book_rel_path" -mmin -0.5)" ]; then
+            echo -e "Skipping this book, it was recently updated and may still be copying"
             continue
         fi
 
@@ -1072,11 +1192,10 @@ while [ $m -ge 0 ]; do
             echo -e "Audio files for this book are a subfolder: \"./$book_audio_dirs\""
             root_of_book=$(join_paths "$inboxfolder" "$book_rel_path")
             dir_to_move=$(join_paths "$root_of_book" "$book_audio_dirs")
-            echo -e "Moving from \"$dir_to_move\" → \"$root_of_book\"\n"
+            echo -e "Moving them to book root → \"$root_of_book\""
 
             # move all files in dir to $inboxfolder/$book
             mv_dir "$dir_to_move" "$root_of_book"
-            continue
         fi
         
         echo -e "\nPreparing to convert..."
@@ -1104,7 +1223,7 @@ while [ $m -ge 0 ]; do
         elif [ "$is_wma" == "TRUE" ]; then
             file_type="wma"
         else
-            echo " *** Error: \"$book_full_path\""
+            echo_error "Error: \"$book_full_path\""
             echo "     This folder does not contain any known audio files, skipping"
             continue
         fi
@@ -1124,7 +1243,7 @@ while [ $m -ge 0 ]; do
 
         # Check if a copy of this book is in fixitfolder and bail
         if [ -d "$fixitfolder$book" ]; then
-            echo " *** Error: A copy of this book is in the "fix" folder, please fix it and try again."
+            echo_error "Error: A copy of this book is in the "fix" folder, please fix it and try again."
             continue
         fi
 
@@ -1180,13 +1299,13 @@ while [ $m -ge 0 ]; do
         # if output file already exists, check if OVERWRITE_EXISTING is set to Y; if so, overwrite, if not, exit with error
         if [ -f "$final_m4bfile" ]; then
             if [ "$OVERWRITE_EXISTING" == "N" ] && [ -s "$final_m4bfile" ]; then
-                echo -e "\n *** Error: Output file already exists and OVERWRITE_EXISTING is N, skipping \"$book\""
+                echo_error "\nError: Output file already exists and OVERWRITE_EXISTING is N, skipping \"$book\""
                 continue
             else
-                echo -e "\n *** Warning: Output file already exists, it and any similar .m4b files will be overwritten"
-                # delete all m4b files in output folder that have $book as a substring, and echo " *** Deleted {file}"
+                echo_warning "\nWarning: Output file already exists, it and any similar .m4b files will be overwritten"
+                # delete all m4b files in output folder that have $book as a substring, and echo_error "Deleted {file}"
                 find "$outputfolder" -maxdepth 1 -type f -name "*$book*.m4b" -print0 | while IFS= read -r -d $'\0' m4b_file; do
-                    echo " *** Deleted \"$m4b_file\""
+                    echo_error "Deleted \"$m4b_file\""
                     rm "$m4b_file"
                 done
                 sleep 2
@@ -1233,7 +1352,7 @@ while [ $m -ge 0 ]; do
             $m4btool merge . -n $debug_switch $chapters_switch --audio-codec=copy --jobs="$CPUcores" --output-file="$build_m4bfile" --logfile="$logfile" "$chaptersopt" >$logfile 2>&1
         fi
 
-        # echo " *** Error: [TEST] m4b-tool failed to convert \"$book\""
+        # echo_error "Error: [TEST] m4b-tool failed to convert \"$book\""
         # echo "     Moving \"$book\" to fix folder..."
         # mv_dir "$mergefolder$book" "$fixitfolder"
         # cp "$logfile" "$fixitfolder$book/m4b-tool.$book.log"
@@ -1280,7 +1399,7 @@ while [ $m -ge 0 ]; do
             if [ -z "$found_ignorable_error" ]; then
                 # get the line from the log file that contains "ERROR"
                 error_line=$(grep -i "ERROR" "$logfile" | head -n 1)
-                echo " *** Error: m4b-tool found an error in the log when converting \"$book\""
+                echo_error "Error: m4b-tool found an error in the log when converting \"$book\""
                 echo "     Message: $error_line"
                 echo -e "\nMoving to fix folder → \"$fixitfolder$book\""
                 
@@ -1312,7 +1431,7 @@ while [ $m -ge 0 ]; do
 
         # Make sure the m4b file was created
         if [ ! -f "$build_m4bfile" ]; then
-            echo " *** Error: m4b-tool failed to convert \"$book\", no output file was found"
+            echo_error "Error: m4b-tool failed to convert \"$book\", no output file was found"
             echo -e "\nMoving to fix folder → \"$fixitfolder$book\""
             if [ "$(ensure_dir_exists_and_is_writable "$fixitfolder" "false")" != "1" ]; then
                 mv_dir "$mergefolder$book" "$fixitfolder"
@@ -1341,6 +1460,13 @@ while [ $m -ge 0 ]; do
         # Rename description.txt to $book-[$desc_quality].txt
         mv "$description_file" "$book [$desc_quality].txt"
 
+        elapsedtime=$(($(date +%s) - $starttime))
+        elapsedtime_friendly=$(human_elapsed_time "$elapsedtime")
+        echo "Finished in $elapsedtime_friendly"
+        log_results "$book_full_path" "SUCCESS" "$elapsedtime_friendly"
+
+        echo "Moving to finished folder → \"$final_m4bfile\""
+        
         # Move all built audio files to output folder
         find "$buildfolder$book" -maxdepth 1 -type f \( "${audio_exts[@]}" \) -exec mv {} "$outputfolder$book/" \;
         # Copy other jpg, png, and txt files to output folder
@@ -1351,41 +1477,50 @@ while [ $m -ge 0 ]; do
         if [ -f "$outputfolder$book/$book [$desc_quality].txt" ]; then
             rm "$outputfolder$book/description.txt"
         else # otherwise, warn that the description.txt file is missing
-            echo " *** Notice: The description.txt is missing (reason unknown)"
+            echo_error "Notice: The description.txt is missing (reason unknown)"
         fi
 
-        elapsedtime=$(($(date +%s) - $starttime))
-        elapsedtime_friendly=$(human_elapsed_time "$elapsedtime")
-
-        
-        echo "Finished in $elapsedtime_friendly"
-        log_results "$book_full_path" "SUCCESS" "$elapsedtime_friendly"
-
-        echo "Moving to finished folder → \"$final_m4bfile\""
-        mv_dir "$mergefolder$book" "$binfolder"
+        # Remove temp copy in merge
+        rm -rf "$mergefolder$book" 2>/dev/null
         
         if [ "$on_complete" = "move" ]; then
-            echo "Archiving original..."
-            mv_dir "$inboxfolder$book" "$donefolder"
+            echo "Archiving original from inbox..."
+
+            mkdir -p "$donefolder$book" 2>/dev/null
+            mv_dir "$inboxfolder$book" "$donefolder$book" "overwrite-silent"
+            
+            # delete all files in $inboxfolder$book that also exist in $outputfolder$book
+            # delete all files in $inboxfolder$book that exist in $backupfolder$book
+            # delete all files in $inboxfolder$book that are not in other_exts
+            find "$inboxfolder$book" -maxdepth 1 -type f -type f \( "${audio_exts[@]}" -o "${other_exts[@]}" \) -exec basename {} \; | while IFS= read -r file; do
+                if [ -f "$outputfolder$book/$file" ] || [ -f "$backupfolder$book/$file" ] || [ -f "$donefolder$book/$file" ]; then
+                    rm "$inboxfolder$book/$file"
+                fi
+            done
+
         elif [ "$on_complete" = "delete" ]; then
-            echo "Deleting original..."
-            rm -rf "$inboxfolder$book"
+            echo "Deleting original from inbox..."
+        fi
+
+        if [ $(ok_to_del "$inboxfolder$book") = "true" ]; then
+            rm -rf "$inboxfolder$book" 2>/dev/null
         fi
 
         # Check if for some reason this is still in the inbox and warn
         if [ -d "$inboxfolder$book" ]; then
-            echo " *** Warning: \"$book\" is still in the inbox folder, it should have been archived or deleted"
-            echo "     To prevent this book from being converted again, move it out of the inbox folder"
+            echo_warning "Warning: \"$book\" is still in the inbox folder, it should have been archived or deleted"
+            echo_orange "     To prevent this book from being converted again, move it out of the inbox folder"
         fi
         
-        echo -e "\nDone processing \"$book\""
+        echo -e "\nDone processing 🐾✨🥞"
 
         # cd back to inbox folder
         cd_inbox_folder
     done
         
     # clear the folders
-    echo -e "\nCleaning up temp folders..."
+    echo
+    draw_line
     rm -r "$binfolder"* 2>/dev/null
     rm -r "$mergefolder"* 2>/dev/null
     rm -r "$buildfolder"* 2>/dev/null
