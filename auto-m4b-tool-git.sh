@@ -56,6 +56,10 @@ hidden_files=(
     -o -name '@eaDir'
 )
 
+# -----------------------------------------------------------------------
+# Printing and fancy colors
+# -----------------------------------------------------------------------
+
 # Initialize a variable to store the last output
 __last_output=""
 __last_line_was_empty=false
@@ -111,50 +115,6 @@ ecko() {
     __last_line_was_alert=false
     __last_line_was_empty=$_this_line_is_empty
     __last_line_ends_with_newline=$_this_line_ends_with_newline
-}
-
-# -----------------------------------------------------------------------
-# Log startup notice
-# -----------------------------------------------------------------------
-# Create a file at /tmp/auto-m4b/started.txt with the current date and time if it does not exist
-# If it does exist, ecko startup notice
-# If it does, do nothing.
-
-if [ ! -f "/tmp/auto-m4b/running" ]; then
-    sleep 5
-    mkdir -p "/tmp/auto-m4b/"
-    touch "/tmp/auto-m4b/running"
-    current_local_time=$(date +"%Y-%m-%d %H:%M:%S")
-    ecko "auto-m4b started at $current_local_time", watching "$inboxfolder" >> "/tmp/auto-m4b/running"
-    ecko "\nStarting auto-m4b..."
-    ecko "Watching $(tint_path "$inboxfolder") for books to convert ⌐◒-◒\n"
-fi
-
-add_trailing_slash() {
-    # adds a trailing slash to path
-    local path="$1"
-    if [[ ! "$path" == */ ]]; then
-        path="$path/"
-    fi
-    echo "$path"
-}
-
-rm_trailing_slash() {
-    # removes a trailing slash from path
-    local path="$1"
-    if [[ "$path" == */ ]]; then
-        path="${path%?}"
-    fi
-    echo "$path"
-}
-
-rm_leading_dot_slash() {
-    # removes a leading ./ from path if it exists
-    local path="$1"
-    if [[ "$path" == ./* ]]; then
-        path="${path#./}"
-    fi
-    echo "$path"
 }
 
 print_underline() {
@@ -213,11 +173,6 @@ __red="161"
 __red_accent="204"
 print_red() {
     ecko "color:$__red" "$@"
-}
-
-__purple="99"
-print_purple() {
-    ecko "color:$__purple" "$@"
 }
 
 __pink="205"
@@ -350,6 +305,51 @@ tint_error_accent() {
 divider() {
     print_dark_grey "$(printf '%.0s-' {1..80})"
 }
+
+add_trailing_slash() {
+    # adds a trailing slash to path
+    local path="$1"
+    if [[ ! "$path" == */ ]]; then
+        path="$path/"
+    fi
+    echo "$path"
+}
+
+rm_trailing_slash() {
+    # removes a trailing slash from path
+    local path="$1"
+    if [[ "$path" == */ ]]; then
+        path="${path%?}"
+    fi
+    echo "$path"
+}
+
+rm_leading_dot_slash() {
+    # removes a leading ./ from path if it exists
+    local path="$1"
+    if [[ "$path" == ./* ]]; then
+        path="${path#./}"
+    fi
+    echo "$path"
+}
+
+
+# -----------------------------------------------------------------------
+# Log startup notice
+# -----------------------------------------------------------------------
+# Create a file at /tmp/auto-m4b/started.txt with the current date and time if it does not exist
+# If it does exist, ecko startup notice
+# If it does, do nothing.
+
+if [ ! -f "/tmp/auto-m4b/running" ]; then
+    sleep 5
+    mkdir -p "/tmp/auto-m4b/"
+    touch "/tmp/auto-m4b/running"
+    current_local_time=$(date +"%Y-%m-%d %H:%M:%S")
+    echo "auto-m4b started at $current_local_time", watching "$inboxfolder" >> "/tmp/auto-m4b/running"
+    print_aqua "\nStarting auto-m4b..."
+    ecko "Watching $(tint_path "$inboxfolder") for books to convert ⌐◒-◒\n"
+fi
 
 swap_first_last() {
     local _name="$1"
@@ -1043,6 +1043,51 @@ get_duration() {
     
 }
 
+round_bitrate() {
+    local bitrate=$1
+    local standard_bitrates=(32 40 48 56 64 80 96 112 128 160 192 224 256 320) # see https://superuser.com/a/465660/254022
+    local closest_bitrate=${standard_bitrates[0]}
+
+    local bitrate_k=$(echo "$bitrate / 1000" | bc)
+
+    # get the lower and upper bitrates (inclusive) from the standard_bitrates array
+    for i in "${standard_bitrates[@]}"; do
+        if [ "$i" -le "$bitrate_k" ]; then
+            lower_bitrate="$i"
+        fi
+        if [ "$i" -ge "$bitrate_k" ]; then
+            upper_bitrate="$i"
+            break
+        fi
+    done
+
+    # should never happen, but if the upper bitrate is empty, then the bitrate is higher 
+    # than the highest standard bitrate, so return the highest standard bitrate
+    if [ -z "$upper_bitrate" ]; then
+        closest_bitrate=${standard_bitrates[-1]}
+    fi
+
+    # get 25% of the difference between lower and upper
+    local diff=$(echo "($upper_bitrate - $lower_bitrate) / 4" | bc)
+
+    # if bitrate_k + diff is closer to bitrate_k than bitrate_k - diff, use upper bitrate
+    if [ $(echo "$bitrate_k + $diff" | bc) -ge "$bitrate_k" ]; then
+        closest_bitrate="$upper_bitrate"
+    else
+        closest_bitrate="$lower_bitrate"
+    fi
+
+    printf "%d000" "$closest_bitrate"
+}
+
+extract_id3_tag() {
+    # takes a file and an id3 tag name and returns the value of that tag
+    # e.g. extract_id3_tag "file.mp3" "title" returns the title of the file
+    local _file="$1"
+    local _tag="$2"
+    ffprobe -hide_banner -loglevel 0 -of flat -i "$_file" -select_streams a -show_entries format_tags="$_tag" -of default=noprint_wrappers=1:nokey=1
+}
+
 extract_metadata() {
     sample_audio=$(find . -maxdepth 1 -type f \( "${audio_exts[@]}" \) | sort | head -n 1)
 
@@ -1054,18 +1099,18 @@ extract_metadata() {
 
     ecko "Sampling $(tint_light_grey "$(rm_leading_dot_slash "$sample_audio")") for id3 tags and quality information..."
 
-    bitrate=$(ffprobe -hide_banner -loglevel 0 -of flat -i "$sample_audio" -select_streams a -show_entries format=bit_rate -of default=noprint_wrappers=1:nokey=1)
+    bitrate=$(round_bitrate "$(ffprobe -hide_banner -loglevel 0 -select_streams a:0 -show_entries stream=bit_rate -of default=noprint_wrappers=1:nokey=1 "$sample_audio")")
     samplerate=$(ffprobe -hide_banner -loglevel 0 -of flat -i "$sample_audio" -select_streams a -show_entries stream=sample_rate -of default=noprint_wrappers=1:nokey=1)
 
     # read id3 tags of mp3 file
-    id3_title=$(ffprobe -hide_banner -loglevel 0 -of flat -i "$sample_audio" -select_streams a -show_entries format_tags=title -of default=noprint_wrappers=1:nokey=1)
-    id3_artist=$(ffprobe -hide_banner -loglevel 0 -of flat -i "$sample_audio" -select_streams a -show_entries format_tags=artist -of default=noprint_wrappers=1:nokey=1)
-    id3_albumartist=$(ffprobe -hide_banner -loglevel 0 -of flat -i "$sample_audio" -select_streams a -show_entries format_tags=album_artist -of default=noprint_wrappers=1:nokey=1)
-    id3_album=$(ffprobe -hide_banner -loglevel 0 -of flat -i "$sample_audio" -select_streams a -show_entries format_tags=album -of default=noprint_wrappers=1:nokey=1)
-    id3_sortalbum=$(ffprobe -hide_banner -loglevel 0 -of flat -i "$sample_audio" -select_streams a -show_entries format_tags=sort_album -of default=noprint_wrappers=1:nokey=1)
-    id3_date=$(ffprobe -hide_banner -loglevel 0 -of flat -i "$sample_audio" -select_streams a -show_entries format_tags=date -of default=noprint_wrappers=1:nokey=1)
+    id3_title=$(extract_id3_tag "$sample_audio" "title")
+    id3_artist=$(extract_id3_tag "$sample_audio" "artist")
+    id3_albumartist=$(extract_id3_tag "$sample_audio" "album_artist")
+    id3_album=$(extract_id3_tag "$sample_audio" "album")
+    id3_sortalbum=$(extract_id3_tag "$sample_audio" "sort_album")
+    id3_date=$(extract_id3_tag "$sample_audio" "date")
     id3_year=$(echo "$id3_date" | grep -Eo '[0-9]{4}')
-    id3_comment=$(ffprobe -hide_banner -loglevel 0 -of flat -i "$sample_audio" -select_streams a -show_entries format_tags=comment -of default=noprint_wrappers=1:nokey=1)
+    id3_comment=$(extract_id3_tag "$sample_audio" "comment")
 
     # Title:
     if [ -z "$id3_title" ] && [ -z "$id3_album" ] && [ -z "$id3_sortalbum" ]; then
@@ -1103,13 +1148,13 @@ extract_metadata() {
     print_list "- Album: $album"
 
     if [ -n "$id3_sortalbum" ]; then
-        sort_album="$id3_sortalbum"
+        sortalbum="$id3_sortalbum"
     elif [ -n "$id3_album" ]; then
-        sort_album="$id3_album"
+        sortalbum="$id3_album"
     else
-        sort_album="$dir_title"
+        sortalbum="$dir_title"
     fi
-    # ecko "  Sort album: $sort_album"
+    # ecko "  Sort album: $sortalbum"
 
     # Artist:
     if [ -n "$id3_albumartist" ] && [ -n "$id3_artist" ] && [ "$id3_albumartist" != "$id3_artist" ]; then
@@ -1250,6 +1295,7 @@ Original duration: $audio_files_duration" > "$description_file"
                     
     if [ -n "$title" ]; then
         id3tags=" --name=\"$title\" --sortname=\"$title\" --album=\"$title\" --sortalbum=\"$title\""
+        id3tags=" --title=\"$title\" --sorttitle=\"$title\""
     fi
 
     if [ -n "$author" ]; then
@@ -1265,6 +1311,124 @@ Original duration: $audio_files_duration" > "$description_file"
     fi
 
     id3tags="$id3tags --encoded-by=\"PHNTM\" --genre=\"Audiobook\""
+}
+
+write_id3_tags() {
+    # takes a file and writes the specified id3 tags to it, in the format --tag="value"
+    local _file="$1"
+    local _exiftool_args=("${@:2}")
+    local _api_opts=("-api" "filter=\"s/ \(approx\)//\"") # remove (approx) from output
+
+    # if file doesn't exist, throw error
+    if [ ! -f "$_file" ]; then
+        echo -e "Error: Cannot write id3 tags, {{$_file}} does not exist"
+        exit 1
+    fi
+
+    # make sure the exiftool command exists
+    if ! command -v exiftool >/dev/null 2>&1; then
+        echo -e "Error: exiftool is not available, please install it with {{(apt-get install exiftool)}} and try again"
+        exit 1
+    fi
+    
+    echo "Writing id3 tags to $(echo -ne "$_file")..."
+    # write tag to file, using eval so that quotes are not escaped
+    exiftool -overwrite_original "${_exiftool_args[@]}" "${_api_opts[@]}" "$_file" &>/dev/null
+}
+
+verify_id3_tags() {
+    # takes a file and verifies that the id3 tags match the extracted metadata
+    # if they do not match, it will print a notice and update the id3 tags
+
+    local _file="$1"
+
+    # if file doesn't exist, throw error
+    if [ ! -f "$_file" ]; then
+        print_error "Error: Cannot verify id3 tags, {{$_file}} does not exist"
+        exit 1
+    fi
+
+    local _exiftool_args=()
+
+    # enumerate all id3 tags and compare to extracted metadata
+    local _id3_title=$(extract_id3_tag "$_file" "title")
+    local _id3_artist=$(extract_id3_tag "$_file" "artist")
+    local _id3_album=$(extract_id3_tag "$_file" "album")
+    local _id3_sortalbum=$(extract_id3_tag "$_file" "sort_album")
+    local _id3_albumartist=$(extract_id3_tag "$_file" "album_artist")
+    local _id3_date=$(extract_id3_tag "$_file" "date")
+    local _id3_comment=$(extract_id3_tag "$_file" "comment")
+
+    local _update_title=false
+    local _update_author=false
+    local _update_date=false
+    local _update_comment=false
+
+    if [ -n "$title" ] && [ "$_id3_title" != "$title" ]; then
+        _update_title=true
+        print_list "- Title needs updating: $(tint_light_grey "${_id3_title:-(Missing)}") » $(tint_light_grey "$title")"
+    fi
+
+    if [ -n "$author" ] && [ "$_id3_artist" != "$author" ]; then
+        _update_author=true
+        print_list "- Artist (author) needs updating: $(tint_light_grey "${_id3_artist:-(Missing)}") » $(tint_light_grey "$author")"
+    fi
+
+    if [ -n "$title" ] && [ "$_id3_album" != "$title" ]; then
+        _update_title=true
+        print_list "- Album (title) needs updating: $(tint_light_grey "${_id3_album:-(Missing)}") » $(tint_light_grey "$title")"
+    fi
+
+    if [ -n "$title" ] && [ "$_id3_sortalbum" != "$title" ]; then
+        _update_title=true
+        print_list "- Sort album (title) needs updating: $(tint_light_grey "${_id3_sortalbum:-(Missing)}") » $(tint_light_grey "$title")"
+    fi
+
+    if [ -n "$author" ] && [ "$_id3_albumartist" != "$author" ]; then
+        _update_author=true
+        print_list "- Album artist (author) needs updating: $(tint_light_grey "${_id3_albumartist:-(Missing)}") » $(tint_light_grey "$author")"
+    fi
+
+    if [ -n "$date" ] && [ "$_id3_date" != "$date" ]; then
+        id3tags="$id3tags -Date=$date"
+        print_list "- Date needs updating: $(tint_light_grey "${_id3_date:-(Missing)}") » $(tint_light_grey "$date")"
+    fi
+
+    if [ -n "$comment" ] && [ "$_id3_comment" != "$comment" ]; then
+        id3tags="$id3tags -Comment=$comment"
+        print_list "- Comment needs updating: $(tint_light_grey "${_id3_comment:-(Missing)}") » $(tint_light_grey "$comment")"
+    fi
+
+    # for each of the id3 tags that need updating, write the id3 tags
+    if [ "$_update_title" = true ]; then
+        _exiftool_args+=("-Title=$title")
+        _exiftool_args+=("-Album=$title")
+        _exiftool_args+=("-SortAlbum=$title")
+    fi
+
+    if [ "$_update_author" = true ]; then
+        _exiftool_args+=("-Artist=$author")
+        _exiftool_args+=("-SortArtist=$author")
+    fi
+
+    if [ "$_update_date" = true ]; then
+        _exiftool_args+=("-Date=$date")
+    fi
+
+    if [ "$_update_comment" = true ]; then
+        _exiftool_args+=("-Comment=$comment")
+    fi
+
+    # set track_number and other statics
+    _exiftool_args+=("-TrackNumber=1/$m4b_num_parts")
+    _exiftool_args+=("-EncodedBy=auto-m4b")
+    _exiftool_args+=("-Genre=Audiobook")
+    _exiftool_args+=("-Copyright=")
+
+    # write with exiftool
+    if [ ${#_exiftool_args[@]} -gt 0 ]; then
+        write_id3_tags "$_file" "${_exiftool_args[@]}"
+    fi
 }
 
 # Set move to "done" folder or delete from inbox when done by ENV ON_COMPLETE=move|delete
@@ -1385,12 +1549,14 @@ while [ $m -ge 0 ]; do
 
         # check if the current dir was modified in the last 1m and skip if so
         if [ "$(find "$book_rel_path" -mmin -0.5)" ]; then
+            ecko
             print_notice "Skipping this book, it was recently updated and may still be copying"
             continue
         fi
 
         # use count_dirs_with_audio_files to check if 0, 1, or >1
         if [ "$book_audio_dirs_count" -eq 0 ]; then
+            ecko
             print_notice "No audio files found, skipping"
             continue
 
@@ -1475,18 +1641,20 @@ while [ $m -ge 0 ]; do
             orig_files_count=$(find "$book_full_path" -type f \( "${audio_exts[@]}" \) | wc -l)
             orig_files_size=$(get_size "$book_full_path" "human")
             orig_bytes=$(get_size "$book_full_path" "bytes")
+            orig_plural=$(pluralize $orig_files_count file)
 
             backup_files_count=$(find "$backupfolder$book" -type f \( "${audio_exts[@]}" \) | wc -l)
             backup_files_size=$(get_size "$backupfolder$book" "human")
             backup_bytes=$(get_size "$backupfolder$book" "bytes")
+            backup_plural=$(pluralize $backup_files_count file)
 
             if [ "$orig_files_count" == "$backup_files_count" ] && [ "$orig_files_size" == "$backup_files_size" ]; then
-                ecko "Backup successful - $backup_files_count files ($backup_files_size)"
+                ecko "Backup successful - $backup_files_count $orig_plural ($backup_files_size)"
             elif [ "$orig_files_count" -le "$backup_files_count" ] && [ "$orig_bytes" -le "$backup_bytes" ]; then
-                print_light_grey "Backup successful - but expected $orig_files_count files ($orig_files_size), found $backup_files_count files ($backup_files_size)"
+                print_light_grey "Backup successful - but expected $orig_plural ($orig_files_size), found $backup_files_count $backup_plural ($backup_files_size)"
                 print_light_grey "Assuming this is a previous backup and continuing"
             else
-                print_error "Backup failed - expected $orig_files_count files ($orig_files_size), found $backup_files_count files ($backup_files_size)"
+                print_error "Backup failed - expected $orig_files_count $orig_plural ($orig_files_size), found $backup_files_count $backup_plural ($backup_files_size)"
                 ecko "Skipping this book"
                 continue
             fi
@@ -1502,7 +1670,7 @@ while [ $m -ge 0 ]; do
         cd_inbox_folder "$book"
 
         # Move from inbox to merge folder
-        ecko "\nCopying files to $(tinted_m4b) build folder...\n"
+        ecko "\nCopying files to build folder...\n"
         cp_dir "$book_full_path" "$mergefolder"
 
         cd_merge_folder "$book"
@@ -1543,6 +1711,8 @@ while [ $m -ge 0 ]; do
         starttime=$(date +%s)
         starttime_friendly=$(date +"%Y-%m-%d %H:%M:%S")
 
+        ecko
+
         if [ "$is_mp3" = "true" ] || [ "$is_wma" = "true" ]; then
 
             ecko "Starting $(tinted_file $file_type) ➜ $(tinted_m4b) conversion at $(tint_light_grey $starttime_friendly)..."
@@ -1551,7 +1721,7 @@ while [ $m -ge 0 ]; do
             
         elif [ "$is_m4a" = "true" ] || [ "$is_m4b" = "true" ]; then
 
-            ecko "Starting merge/passthrough ➜ $(tinted_m4b) [$starttime_friendly]..."
+            ecko "Starting merge/passthrough ➜ $(tinted_m4b) at $(tint_light_grey $starttime_friendly)..."
 
             # Merge the files directly as chapters (use chapters.txt if it exists) instead of converting
             # Get existing chapters from file    
@@ -1563,7 +1733,8 @@ while [ $m -ge 0 ]; do
             if [ "$chapters" != "0" ]; then
                 ecko Setting chapters from chapters.txt file...
             fi
-            $m4btool merge . -n $debug_switch $chapters_switch --audio-codec=copy --jobs="$CPUcores" --output-file="$build_m4bfile" --logfile="$logfile" "$chaptersopt" >$logfile 2>&1
+            $m4btool merge . -n $debug_switch $chapters_switch --audio-codec=copy --jobs="$CPUcores" --output-file="$build_m4bfile" --logfile="$logfile" "$chaptersopt" "$id3tags" >$logfile 2>&1
+            echo "$m4btool merge . -n $debug_switch $chapters_switch --audio-codec=copy --jobs=$CPUcores --output-file=\"$build_m4bfile\" --logfile=\"$logfile\" $chaptersopt $id3tags"
         fi
 
         # print_error "Error: [TEST] m4b-tool failed to convert \"$book\""
@@ -1668,6 +1839,30 @@ while [ $m -ge 0 ]; do
         m4b_audio_duration=$(get_duration "$build_m4bfile" "human")
         ecko "Converted duration: $m4b_audio_duration" >> "$description_file"
 
+        m4b_num_parts=1 # hardcode for now, until we know if we need to split parts
+
+        # for ., $buildfolder$book, and $mergefolder$book, do:
+            # found_desc=$(find {thedir} -type f -name "$book \[*kHz*\].txt" | head -n 1)
+            # if [ -n "$found_desc" ]; then
+            #     found_desc=$(basename "$found_desc")
+            #     print_notice "Removing old description file - $found_desc"
+            #     rm "{thedir}/$book \[*kHz*\].txt"
+            # fi
+        # end loop
+
+        # Remove old description files from current dir, $buildfolder$book and $mergefolder$book
+        did_remove_old_desc=false
+        for dir in . "$buildfolder$book" "$mergefolder$book"; do
+            find "$dir" -type f -name "$book \[*kHz*\].txt" | while read found_desc; do
+                rm "$found_desc"
+                did_remove_old_desc=true
+            done
+        done
+
+        if [ "$did_remove_old_desc" = "true" ]; then
+            print_notice "Removed old description file(s)"
+        fi
+
         # Rename description.txt to $book-[$desc_quality].txt
         mv "$description_file" "$book [$desc_quality].txt"
 
@@ -1680,7 +1875,11 @@ while [ $m -ge 0 ]; do
         mv "$logfile" "$book.m4b-tool.log"
 
         ecko "Moving to converted books folder → $(tint_path "$final_m4bfile")"
-        
+
+        ecko "Verifing id3 tags..."
+        verify_id3_tags "$build_m4bfile"
+        ecko
+
         # Move all built audio files to output folder
         find "$buildfolder$book" -maxdepth 1 -type f \( "${audio_exts[@]}" -o "${other_exts[@]}" \) -exec mv {} "$outputfolder$book/" \;
         # Copy other jpg, png, and txt files from mergefolder to output folder
@@ -1732,7 +1931,6 @@ while [ $m -ge 0 ]; do
     done
         
     # clear the folders
-    ecko
     divider
     rm -r "$binfolder"* 2>/dev/null
     rm -r "$mergefolder"* 2>/dev/null
@@ -1746,7 +1944,7 @@ while [ $m -ge 0 ]; do
         ecko "Next check in $sleeptime"
     fi
 	divider
-    ecko ""
+    ecko
 
     sleep $sleeptime
     exit 0 # uncomment this exit to have script restart after each run
