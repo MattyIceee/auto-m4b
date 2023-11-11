@@ -1,12 +1,13 @@
 #!/bin/bash
-DEFAULT_SLEEP_TIME=10s
+DEFAULT_SLEEP_TIME=30s
 
 # set m to 1
 m=1
 
 #variable defenition
 inboxfolder="${INBOX_FOLDER:-"/volume1/Downloads/#done/#books/#convert/inbox/"}"
-outputfolder="${OUTPUT_FOLDER:-"/volume1/Downloads/#done/#books/#convert/converted/"}"
+# outputfolder="${OUTPUT_FOLDER:-"/volume1/Downloads/#done/#books/#convert/converted/"}"
+outputfolder="${OUTPUT_FOLDER:-"/volume1/Books/Audiobooks/_Updated plex copies/"}"
 donefolder="${DONE_FOLDER:-"/volume1/Downloads/#done/#books/#convert/processed/"}"
 fixitfolder="${FIXIT_FOLDER:-"/volume1/Downloads/#done/#books/#convert/fix/"}"
 backupfolder="${BACKUP_FOLDER:-"/volume1/Downloads/#done/#books/#convert/backup/"}"
@@ -233,6 +234,30 @@ tint_aqua() {
     tint $__aqua "$@"
 }
 
+tint_amber() {
+    tint $__amber "$@"
+}
+
+tint_light_grey() {
+    tint $__light_grey "$@"
+}
+
+tint_warning() {
+    tint $__orange "$@"
+}
+
+tint_warning_accent() {
+    tint $__orange_accent "$@"
+}
+
+tint_error() {
+    tint $__red "$@"
+}
+
+tint_error_accent() {
+    tint $__red_accent "$@"
+}
+
 tinted_mp3() {
     if [ -z "$1" ]; then
         tint $__pink "mp3"
@@ -280,26 +305,6 @@ tinted_file() {
         # otherwise, use default
         tint $__default "$@"
     fi
-}
-
-tint_light_grey() {
-    tint $__light_grey "$@"
-}
-
-tint_warning() {
-    tint $__orange "$@"
-}
-
-tint_warning_accent() {
-    tint $__orange_accent "$@"
-}
-
-tint_error() {
-    tint $__red "$@"
-}
-
-tint_error_accent() {
-    tint $__red_accent "$@"
 }
 
 divider() {
@@ -373,26 +378,25 @@ swap_first_last() {
     fi
 }
 
+author_pattern="^(.*?)[\W\s]*[-_–—\(]"
+book_title_pattern="(?<=[-_–—])[\W\s]*(?<book_title>[\w\s]+?)\s*(?=\d{4}|\(|\[|$)"
+year_pattern="(?P<year>\d{4})"
+narrator_pattern="(?:read by|narrated by|narrator)\W+(?<narrator>(?:\w+(?:\s\w+\.?\s)?[\w-]+))(?:\W|$)"
 extract_folder_info() {
-    local folder_name="$1"
-
-    local author_pattern="^(.*?)[\W\s]*[-_–—\(]"
-    local book_title_pattern="(?<=[-_–—])[\W\s]*(?<book_title>[\w\s]+?)\s*(?=\d{4}|\(|\[|$)"
-    local year_pattern="(?P<year>\d{4})"
-    local narrator_pattern="narrat(ed by|or)\W+(?<narrator>[\w\s.-]+?)[.\s]*(?:$|\(|\[|$)"
+    local _folder_name="$1"
 
     # Replace single occurrences of . with spaces
-    folder_name=$(echo "$folder_name" | sed 's/\./ /g')
+    _folder_name=$(echo "$_folder_name" | sed 's/\./ /g')
 
-    local dir_author=$(echo "$folder_name" | perl -n -e "/$author_pattern/ && print \$1")
+    local dir_author=$(echo "$_folder_name" | perl -n -e "/$author_pattern/ && print \$1")
     local dir_author=$(swap_first_last "$dir_author")
 
     local dir_author=$(echo "$givennames $lastname")
-    local dir_title=$(echo "$folder_name" | perl -n -e "/$book_title_pattern/ && print \$+{book_title}")
-    local dir_year=$(echo "$folder_name" | perl -n -e "/$year_pattern/ && print \$+{year}")
-    local dir_narrator=$(echo "$folder_name" | perl -n -e "/$narrator_pattern/i && print \$+{narrator}")
+    local dir_title=$(echo "$_folder_name" | perl -n -e "/$book_title_pattern/ && print \$+{book_title}")
+    local dir_year=$(echo "$_folder_name" | perl -n -e "/$year_pattern/ && print \$+{year}")
+    local dir_narrator=$(echo "$_folder_name" | perl -n -e "/$narrator_pattern/i && print \$+{narrator}")
 
-    local dir_extrajunk="$folder_name"
+    local dir_extrajunk="$_folder_name"
 
     # Iterate through properties in reverse order of priority
     for property in "dir_narrator" "dir_year" "dir_title" "dir_author"; do
@@ -892,28 +896,74 @@ clean_workdir() {
 }
 
 log_results() {
+    # note: requires `column` version 2.39 or higher, available in util-linux 2.39 or higher
+
     # takes the original book's path and the result of the book and logs to $outputfolder/auto-m4b.log
     # format: [date] [time] [original book relative path] [info] ["result"=success|failed] [failure-message]
     local _book_src=$(basename "$1")
-    # Quality: 128 kb/s @ 44.1 kHzz | Type: .mp3 | Files: 2 | Size: 11M 
-    # pad quality with spaces to 28 characters
-    local _quality=$(printf '%-19s' "$bitrate_friendly @ $samplerate_friendly")
-    local _count=$(printf '%-9s' "$audio_files_count files")
-    local _info=$(echo Quality: "$_quality | .$file_type | $_count | $audio_files_size | $audio_files_duration")
-    local _result="$2"
-    local _elapsed="$3"
+    # pad the relative path with spaces to 70 characters and truncate to 70 characters
+    _book_src=$(printf '%-70s' "$(echo "$_book_src" | cut -c1-70)")
 
-    # pad the relative path with spaces to 70 characters
-    _book_src=$(printf '%-70s' "\"$_book_src\"")
+    #sanitize _book_src to remove multiple spaces and replace | with _
+    _book_src=$(echo "$_book_src" | sed 's/  */ /g;s/|/_/g')
+    
+    local _result="$2"
+    # pad result with spaces to 9 characters
+    _result=$(printf '%-10s' "$_result")
+    
+    # strip all chars from _elapsed that are not number or :
+    local _elapsed=$(echo "$3" | sed 's/[^0-9:]//g')
 
     # get current date and time
-    local _datetime=$(date +"%Y-%m-%d %H:%M:%S")
+    local _datetime=$(date +"%Y-%m-%d %H:%M:%S%z")
 
-    # pad result with spaces to 9 characters
-    _result=$(printf '%-9s' "[$_result]")
+    local _column_args=(
+        "-t" 
+        "-s" 
+        $'\t'
+        "-C" 
+        "name=Date" 
+        "-C" 
+        "name=Result" 
+        "-C" 
+        "name=Original Folder,width=70" 
+        "-C" 
+        "name=Bitrate,right" 
+        "-C" 
+        "name=Sample Rate,right" 
+        "-C" 
+        "name=Type" 
+        "-C" 
+        "name=Files,right" 
+        "-C" 
+        "name=Size,right" 
+        "-C" 
+        "name=Duration,right" 
+        "-C" 
+        "name=Time,right"
+        "-o"
+        $'   '
+    )
 
-    # log the results
-    echo "$_datetime  $_result $_book_src $_info $_elapsed" >> "$outputfolder/auto-m4b.log"
+    # Read the current auto-m4b.log file and replace all double spaces with |
+    local _log=$(cat "$outputfolder/auto-m4b.log" | sed 's/  \+ /\t/g')
+
+    # Remove each line from _log if it starts with ^Date\s+
+    _log=$(echo "$_log" | sed '/^Date\s/d')
+
+    # Remove blank lines from end of log file
+    _log=$(echo "$_log" | sed -e :a -e '/^\n*$/{$d;N;};/\n$/ba')
+
+    # append the new log entry to the log var if _book_src is not empty or whitespace
+    if [ -n "${_book_src// }" ]; then
+        _log=$(echo "$_log" | sed '$a'"$_datetime\t$_result\t$_book_src\t$bitrate_friendly\t$samplerate_friendly\t.$file_type\t$audio_files_count files\t$audio_files_size\t$audio_files_duration\t$_elapsed")
+    fi
+
+    # pipe the log file into column to make it pretty
+    # cp "$outputfolder/auto-m4b.log" "$outputfolder/auto-m4b.log.bak" # backup the log file for testing
+    echo "$_log" | column "${_column_args[@]}" > "$outputfolder/auto-m4b.log"
+    # cat "$outputfolder/auto-m4b.log"
+    # cp "$outputfolder/auto-m4b.log.bak" "$outputfolder/auto-m4b.log" # restore the log file for testing
 }
 
 get_log_entry() {
@@ -956,6 +1006,12 @@ strip_part_number() {
     fi
 
     perl -pnE "s/$_part_number_pattern//i" <<< "$_string"
+}
+
+fix_smart_quotes() {
+    # takes a string and replaces smart quotes with regular quotes
+    local _string="$1"
+    perl -pe "s/[\x{2018}\x{2019}\x{201A}\x{201B}\x{2032}\x{2035}]/'/g" <<< "$_string" | perl -pe "s/[\x{201C}\x{201D}\x{201E}\x{201F}\x{2033}\x{2036}]/\"/g"
 }
 
 human_elapsed_time() {
@@ -1080,6 +1136,41 @@ round_bitrate() {
     printf "%d000" "$closest_bitrate"
 }
 
+compare_trim() {
+    echo "$1" | awk '{$1=$1};1'
+}
+
+friendly_date() {
+    date "+%a, %d %b %Y %I:%M:%S %Z"
+}
+
+split_path() {
+    local path=$1
+    local limit=${2:-120}
+    local indent=${3:-0}
+    indent=$(printf "%${indent}s")
+    local length=0
+    local output=""
+
+    IFS='/' read -ra parts <<< "$path"
+
+    for part in "${parts[@]}"; do
+        if [[ $part == "" ]]; then
+            continue
+        fi
+        length=$((length + ${#part} + 1))
+        if [[ $length -gt $limit ]]; then
+            output=${output%/}
+            output="$output\n$indent/$part"
+            length=$((${#part} + 1))
+        else
+            output="$output/$part"
+        fi
+    done
+
+    echo -e "$output"
+}
+
 extract_id3_tag() {
     # takes a file and an id3 tag name and returns the value of that tag
     # e.g. extract_id3_tag "file.mp3" "title" returns the title of the file
@@ -1088,7 +1179,33 @@ extract_id3_tag() {
     ffprobe -hide_banner -loglevel 0 -of flat -i "$_file" -select_streams a -show_entries format_tags="$_tag" -of default=noprint_wrappers=1:nokey=1
 }
 
+count_numbers_in_string() {
+    # takes a string and returns the number of numbers in it (count each digit individually)
+    local _string="$1"
+    echo "$_string" | grep -o '[0-9]' | wc -l | tr -d ' '
+}
+
+str_in_str() {
+    # takes two strings and returns true if the first string is in the second string
+    local _str1="$1"
+    local _str2="$2"
+
+    # if either string is empty, return false
+    if [ -z "$_str1" ] || [ -z "$_str2" ]; then
+        return 1
+    fi
+
+    if echo "$_str2" | grep -q -i "$_str1"; then
+        return 0
+    else
+        return 1
+    fi
+}
+
 extract_metadata() {
+
+    local _folder_name="$1"
+
     sample_audio=$(find . -maxdepth 1 -type f \( "${audio_exts[@]}" \) | sort | head -n 1)
 
     # if sample_audio doesn't exist, return 1 so we can coninue
@@ -1111,28 +1228,69 @@ extract_metadata() {
     id3_date=$(extract_id3_tag "$sample_audio" "date")
     id3_year=$(echo "$id3_date" | grep -Eo '[0-9]{4}')
     id3_comment=$(extract_id3_tag "$sample_audio" "comment")
+    id3_composer=$(extract_id3_tag "$sample_audio" "composer")
+
+    id3_title_numbers=$(count_numbers_in_string "$id3_title")
+    id3_album_numbers=$(count_numbers_in_string "$id3_album")
+    id3_sortalbum_numbers=$(count_numbers_in_string "$id3_sortalbum")
+
+    # If title has more numbers in it than the album, it's probably a part number like Part 01 or 01 of 42
+    title_is_partno=$(
+        if [ "$id3_title_numbers" -gt "$id3_album_numbers" ] && [ "$id3_title_numbers" -gt "$id3_sortalbum_numbers" ]; then
+            echo "true"
+        else
+            echo "false"
+        fi
+    )
+    
+    album_is_in_title=$(str_in_str "$id3_album" "$id3_title" && echo "true")
+    sortalbum_is_in_title=$(str_in_str "$id3_sortalbum" "$id3_title" && echo "true")
+
+    title_is_in_folder_name=$(str_in_str "$id3_title" "$_folder_name" && echo "true")
+    album_is_in_folder_name=$(str_in_str "$id3_album" "$_folder_name" && echo "true")
+    sortalbum_is_in_folder_name=$(str_in_str "$id3_sortalbum" "$_folder_name" && echo "true")
+
+    id3_title_is_title="false"
+    id3_album_is_title="false"
+    id3_sortalbum_is_title="false"
 
     # Title:
     if [ -z "$id3_title" ] && [ -z "$id3_album" ] && [ -z "$id3_sortalbum" ]; then
         # If no id3_title, id3_album, or id3_sortalbum, use the extracted title
         title="$dir_title"
     else
-        # If album or sort album is in title, use album or sort album
-        # Otherwise, use album, then sort album, then extracted title
-        if echo "$id3_album" | grep -q -i "$id3_title"; then
+        echo
+        # If (sort)album is in title, it's likely that title is something like {book name}, ch. 6
+        # So if album is in title, prefer album
+        if [ "$album_is_in_title" = "true" ]; then
             title="$id3_album"
-        elif echo "$id3_sortalbum" | grep -q -i "$id3_title"; then
+            id3_album_is_title="true"
+        elif [ "$sortalbum_is_in_title" = "true" ]; then
             title="$id3_sortalbum"
-        elif [ -n "$id3_album" ]; then
-            title="$id3_album"
-        elif [ -n "$id3_sortalbum" ]; then
-            title="$id3_sortalbum"
-        else
+            id3_sortalbum_is_title="true"
+        # If id3_title is in $_folder_name, prefer id3_title
+        elif [ "$title_is_in_folder_name" = "true" ]; then
             title="$id3_title"
+            id3_title_is_title="true"
+        # If title is a part no., we should use album or sortalbum
+        elif [ "$title_is_partno" = "true" ]; then
+            # If album is in $_folder_name or if sortalbum doens't exist, prefer album
+            if [ "$album_is_in_folder_name" = "true" ] || [ -z "$id3_sortalbum" ]; then
+                title="$id3_album"
+                id3_album_is_title="true"
+            elif [ "$sortalbum_is_in_folder_name" = "true" ] || [ -z "$id3_album" ]; then
+                title="$id3_sortalbum"
+                id3_sortalbum_is_title="true"
+            # We can't figure out what it is, so just leave it as title
+            else
+                title="$id3_title"
+                id3_title_is_title="true"
+            fi
         fi
     fi
 
     title=$(strip_part_number "$title")
+    title=$(fix_smart_quotes "$title")
 
     print_list "- Title: $title"
 
@@ -1156,52 +1314,95 @@ extract_metadata() {
     fi
     # ecko "  Sort album: $sortalbum"
 
+    artist_is_in_folder_name=$(str_in_str "$id3_artist" "$_folder_name" && echo "true")
+    albumartist_is_in_folder_name=$(str_in_str "$id3_albumartist" "$_folder_name" && echo "true")
+
+    id3_artist_is_author="false"
+    id3_albumartist_is_author="false"
+    id3_albumartist_is_narrator="false"
+    
+    id3_artist_has_narrator=$(echo "$id3_artist" | grep -qEi "(narrat|read by)" && echo "true" || echo "false")
+    id3_albumartist_has_narrator=$(echo "$id3_albumartist" | grep -qEi "(narrat|read by)" && echo "true" || echo "false")
+    id3_comment_has_narrator=$(echo "$id3_comment" | grep -qEi "(narrat|read by)" && echo "true" || echo "false")
+    id3_composer_has_narrator=$(echo "$id3_composer" | grep -qEi "(narrat|read by)" && echo "true" || echo "false")
+
     # Artist:
     if [ -n "$id3_albumartist" ] && [ -n "$id3_artist" ] && [ "$id3_albumartist" != "$id3_artist" ]; then
-        # Artist and Album Artist are different, use Album Artist for both and Artist for narrator
-        artist="$id3_albumartist"
-        albumartist="$id3_albumartist"
-        narrator="$id3_artist"
+        # Artist and Album Artist are different
+        if [ "$artist_is_in_folder_name" = "$albumartist_is_in_folder_name" ]; then
+            # if both or neither are in the folder name, use artist for author and album artist for narrator
+            artist="$id3_artist"
+            albumartist="$id3_albumartist"
+        elif [ "$artist_is_in_folder_name" = "true" ]; then
+            # if only artist is in the folder name, use it for both
+            artist="$id3_artist"
+            albumartist="$id3_artist"
+        elif [ "$albumartist_is_in_folder_name" = "true" ]; then
+            # if only albumartist is in the folder name, use it for both
+            artist="$id3_albumartist"
+            albumartist="$id3_albumartist"
+        fi
+        
+        artist="$id3_artist"
+        albumartist="$id3_artist"
+        narrator="$id3_albumartist"
+
+        id3_artist_is_author="true"
+        id3_albumartist_is_narrator="true"
+
     elif [ -n "$id3_albumartist" ] && [ -z "$id3_artist" ]; then
         # Only Album Artist is set, using it for both
         artist="$id3_albumartist"
         albumartist="$id3_albumartist"
-    elif [ -n "$id3_artist" ] && [ -z "$id3_albumartist" ]; then
-        # Only Artist is set, using it for both
-        artist="$id3_artist"
-        albumartist="$id3_artist"
-    elif [ -n "$id3_albumartist" ]; then
-        # Album Artist is set, prefer it
-        artist="$id3_albumartist"
-        albumartist="$id3_albumartist"
+        id3_albumartist_is_author="true"
     elif [ -n "$id3_artist" ]; then
-        # Album Artist is not set, use Artist
+        # Artist is set, prefer it
         artist="$id3_artist"
         albumartist="$id3_artist"
+        id3_artist_is_author="true"
     else
-        # Neither Artist nor Album Artist is set, use Author for both
+        # Neither Artist nor Album Artist is set, use folder Author for both
         artist="$dir_author"
         albumartist="$dir_author"
     fi
 
     # Narrator
-    # If id3_comment contains "Narrated by" or "Narrator", use that
-    _comment_has_narrator=$(echo "$id3_comment" | grep -q -i "narrat" && echo "true" || echo "false")
-    if [ "$_comment_has_narrator" = "true" ]; then
-        narrator=$(echo "$id3_comment" | perl -n -e "/narrat(ed by|or)\W+(?<narrator>.+?)[.\s]*(?:$|\(|\[|$)/i && print $+{narrator}")
-        id3_comment=""
-    fi
-    if [ -z "$narrator" ]; then
+    # If id3_comment or (album)artist contains "Narrated by" or "Narrator", use that
+    if [ "$id3_comment_has_narrator" = "true" ]; then
+        narrator=$(echo "$id3_comment" | perl -n -e "/$narrator_pattern/i && print $+{narrator}")
+    elif [ "$id3_artist_has_narrator" = "true" ]; then
+        narrator=$(echo "$id3_artist" | perl -n -e "/$narrator_pattern/i && print $+{narrator}")
+        artist=""
+    elif [ "$id3_albumartist_has_narrator" = "true" ]; then
+        narrator=$(echo "$id3_albumartist" | perl -n -e "/$narrator_pattern/i && print $+{narrator}")
+        albumartist=""
+    elif [ "$id3_albumartist_is_narrator" = "true" ]; then
+        narrator="$id3_albumartist"
+        albumartist=""
+    elif [ "$id3_composer_has_narrator" = "true" ]; then
+        narrator=$(echo "$id3_composer" | perl -n -e "/$narrator_pattern/i && print $+{narrator}")
+        composer=""
+    else
         narrator="$dir_narrator"
     fi
+
     # Swap first and last names if a comma is present
     artist=$(swap_first_last "$artist")
     author=$artist
     albumartist=$(swap_first_last "$albumartist")
     narrator=$(swap_first_last "$narrator")
 
+    # If comment does not have narrator, but narrator is not empty, 
+    # pre-pend narrator to comment as "Narrated by <narrator>. <existing comment>"
+    if [ -n "$narrator" ]; then
+        if [ -z "$id3_comment" ]; then
+            id3_comment="Read by $narrator"
+        elif [ "$id3_comment_has_narrator" = "false" ]; then
+            id3_comment="Read by $narrator // $id3_comment"
+        fi
+    fi
+
     print_list "- Author: $artist"
-    # print_list "  Album artist: $albumartist"
     print_list "- Narrator: $narrator"
 
     # Date:
@@ -1220,20 +1421,6 @@ extract_metadata() {
     # extract 4 digits from date
     year=$(echo "$date" | grep -Eo '[0-9]{4}')
     
-    # Comment:
-    #      - Use this for the narrator, in the format "Narrated by <narrator>"
-    #      - If narrator is unknown, clear this field
-
-    # if id3_comment exists, prepend a space
-    if [ -n "$id3_comment" ]; then
-        id3_comment=" $id3_comment"
-    fi
-    if [ -n "$narrator" ]; then
-        comment="Narrated by $narrator$id3_comment"
-    else
-        comment="$id3_comment"
-    fi
-
     # convert bitrate and sample rate to friendly to kbit/s, rounding to nearest tenths, e.g. 44.1 kHz
     bitrate_friendly="$(echo "$bitrate" | awk '{printf "%.0f", int($1/1000)}') kb/s"
     bitrate="$(echo "$bitrate" | awk '{printf "%.0f", int($1/1000)}')k"
@@ -1331,7 +1518,6 @@ write_id3_tags() {
         exit 1
     fi
     
-    echo "Writing id3 tags to $(echo -ne "$_file")..."
     # write tag to file, using eval so that quotes are not escaped
     exiftool -overwrite_original "${_exiftool_args[@]}" "${_api_opts[@]}" "$_file" &>/dev/null
 }
@@ -1366,37 +1552,37 @@ verify_id3_tags() {
 
     if [ -n "$title" ] && [ "$_id3_title" != "$title" ]; then
         _update_title=true
-        print_list "- Title needs updating: $(tint_light_grey "${_id3_title:-(Missing)}") » $(tint_light_grey "$title")"
+        print_list "- Title needs updating: $(tint_light_grey "${_id3_title:-(Missing)}") $(tint_amber ») $(tint_light_grey "$title")"
     fi
 
     if [ -n "$author" ] && [ "$_id3_artist" != "$author" ]; then
         _update_author=true
-        print_list "- Artist (author) needs updating: $(tint_light_grey "${_id3_artist:-(Missing)}") » $(tint_light_grey "$author")"
+        print_list "- Artist (author) needs updating: $(tint_light_grey "${_id3_artist:-(Missing)}") $(tint_amber ») $(tint_light_grey "$author")"
     fi
 
     if [ -n "$title" ] && [ "$_id3_album" != "$title" ]; then
         _update_title=true
-        print_list "- Album (title) needs updating: $(tint_light_grey "${_id3_album:-(Missing)}") » $(tint_light_grey "$title")"
+        print_list "- Album (title) needs updating: $(tint_light_grey "${_id3_album:-(Missing)}") $(tint_amber ») $(tint_light_grey "$title")"
     fi
 
     if [ -n "$title" ] && [ "$_id3_sortalbum" != "$title" ]; then
         _update_title=true
-        print_list "- Sort album (title) needs updating: $(tint_light_grey "${_id3_sortalbum:-(Missing)}") » $(tint_light_grey "$title")"
+        print_list "- Sort album (title) needs updating: $(tint_light_grey "${_id3_sortalbum:-(Missing)}") $(tint_amber ») $(tint_light_grey "$title")"
     fi
 
     if [ -n "$author" ] && [ "$_id3_albumartist" != "$author" ]; then
         _update_author=true
-        print_list "- Album artist (author) needs updating: $(tint_light_grey "${_id3_albumartist:-(Missing)}") » $(tint_light_grey "$author")"
+        print_list "- Album artist (author) needs updating: $(tint_light_grey "${_id3_albumartist:-(Missing)}") $(tint_amber ») $(tint_light_grey "$author")"
     fi
 
     if [ -n "$date" ] && [ "$_id3_date" != "$date" ]; then
         id3tags="$id3tags -Date=$date"
-        print_list "- Date needs updating: $(tint_light_grey "${_id3_date:-(Missing)}") » $(tint_light_grey "$date")"
+        print_list "- Date needs updating: $(tint_light_grey "${_id3_date:-(Missing)}") $(tint_amber ») $(tint_light_grey "$date")"
     fi
 
-    if [ -n "$comment" ] && [ "$_id3_comment" != "$comment" ]; then
+    if [ -n "$comment" ] && [ "$(compare_trim "$_id3_comment")" != "$(compare_trim "$comment")" ]; then
         id3tags="$id3tags -Comment=$comment"
-        print_list "- Comment needs updating: $(tint_light_grey "${_id3_comment:-(Missing)}") » $(tint_light_grey "$comment")"
+        print_list "- Comment needs updating: $(tint_light_grey "${_id3_comment:-(Missing)}") $(tint_amber ») $(tint_light_grey "$comment")"
     fi
 
     # for each of the id3 tags that need updating, write the id3 tags
@@ -1675,7 +1861,7 @@ while [ $m -ge 0 ]; do
 
         cd_merge_folder "$book"
 
-        extract_metadata
+        extract_metadata "$book"
 
         # if output file already exists, check if OVERWRITE_EXISTING is set to Y; if so, overwrite, if not, exit with error
         if [ -f "$final_m4bfile" ]; then
@@ -1709,19 +1895,19 @@ while [ $m -ge 0 ]; do
         rm -f "$logfile"
         
         starttime=$(date +%s)
-        starttime_friendly=$(date +"%Y-%m-%d %H:%M:%S")
+        starttime_friendly=$(friendly_date)
 
         ecko
 
         if [ "$is_mp3" = "true" ] || [ "$is_wma" = "true" ]; then
 
-            ecko "Starting $(tinted_file $file_type) ➜ $(tinted_m4b) conversion at $(tint_light_grey $starttime_friendly)..."
+            ecko "Starting $(tinted_file $file_type) ➜ $(tinted_m4b) conversion at $(tint_light_grey "$starttime_friendly")..."
 
             $m4btool merge . -n $debug_switch --audio-bitrate="$bitrate" --audio-samplerate="$samplerate"$skipcoverimage --use-filenames-as-chapters --no-chapter-reindexing --max-chapter-length="$maxchapterlength" --audio-codec=libfdk_aac --jobs="$CPUcores" --output-file="$build_m4bfile" --logfile="$logfile" "$id3tags" >$logfile 2>&1
             
         elif [ "$is_m4a" = "true" ] || [ "$is_m4b" = "true" ]; then
 
-            ecko "Starting merge/passthrough ➜ $(tinted_m4b) at $(tint_light_grey $starttime_friendly)..."
+            ecko "Starting merge/passthrough ➜ $(tinted_m4b) at $(tint_light_grey "$starttime_friendly")..."
 
             # Merge the files directly as chapters (use chapters.txt if it exists) instead of converting
             # Get existing chapters from file    
@@ -1734,7 +1920,6 @@ while [ $m -ge 0 ]; do
                 ecko Setting chapters from chapters.txt file...
             fi
             $m4btool merge . -n $debug_switch $chapters_switch --audio-codec=copy --jobs="$CPUcores" --output-file="$build_m4bfile" --logfile="$logfile" "$chaptersopt" "$id3tags" >$logfile 2>&1
-            echo "$m4btool merge . -n $debug_switch $chapters_switch --audio-codec=copy --jobs=$CPUcores --output-file=\"$build_m4bfile\" --logfile=\"$logfile\" $chaptersopt $id3tags"
         fi
 
         # print_error "Error: [TEST] m4b-tool failed to convert \"$book\""
@@ -1743,6 +1928,10 @@ while [ $m -ge 0 ]; do
         # cp "$logfile" "$fixitfolder$book/m4b-tool.$book.log"
         # log_results "$book_full_path" "FAILED" ""
         # break
+
+        endtime_friendly=$(friendly_date)
+        elapsedtime=$(($(date +%s) - "$starttime"))
+        elapsedtime_friendly=$(human_elapsed_time "$elapsedtime")
 
         # Check m4b-tool.log in output dir for "ERROR" in caps; if found, exit with error
         if grep -q -i "ERROR" "$logfile"; then
@@ -1812,6 +2001,10 @@ while [ $m -ge 0 ]; do
                 fi
                 ecko "     See log file in $(tint_light_grey "$fixitfolder$book") for details"
             fi
+        else
+            # write "{date} :: Converted {book} in {elapsedtime_friendly}" to log file
+
+            echo "$endtime_friendly :: $book :: Converted in $elapsedtime_friendly" >> "$logfile"
         fi
 
         # Make sure the m4b file was created
@@ -1865,16 +2058,13 @@ while [ $m -ge 0 ]; do
 
         # Rename description.txt to $book-[$desc_quality].txt
         mv "$description_file" "$book [$desc_quality].txt"
-
-        elapsedtime=$(($(date +%s) - $starttime))
-        elapsedtime_friendly=$(human_elapsed_time "$elapsedtime")
         ecko "Finished in $elapsedtime_friendly"
         log_results "$book_full_path" "SUCCESS" "$elapsedtime_friendly"
 
         # Copy log file to output folder as $buildfolder$book/m4b-tool.$book.log
         mv "$logfile" "$book.m4b-tool.log"
 
-        ecko "Moving to converted books folder → $(tint_path "$final_m4bfile")"
+        ecko "Moving to converted books folder → $(tint_path "$(split_path "$final_m4bfile" "" 35)")"
 
         ecko "Verifing id3 tags..."
         verify_id3_tags "$build_m4bfile"
