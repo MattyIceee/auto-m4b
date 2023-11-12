@@ -1281,11 +1281,11 @@ extract_metadata() {
             elif [ "$sortalbum_is_in_folder_name" = "true" ] || [ -z "$id3_album" ]; then
                 title="$id3_sortalbum"
                 id3_sortalbum_is_title="true"
-            # We can't figure out what it is, so just leave it as title
-            else
-                title="$id3_title"
-                id3_title_is_title="true"
             fi
+        fi
+        if [ -z "$title" ]; then
+            title="$id3_title"
+            id3_title_is_title="true"
         fi
     fi
 
