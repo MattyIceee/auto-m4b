@@ -22,39 +22,39 @@ mergefolder="${MERGE_FOLDER:-"/tmp/auto-m4b/merge/"}"
 binfolder="${BIN_FOLDER:-"/tmp/auto-m4b/delete/"}"
 
 audio_exts=( 
-    -name '*.mp3' 
-    -o -name '*.m4a' 
-    -o -name '*.m4b' 
-    -o -name '*.wma'
+    -iname '*.mp3' 
+    -o -iname '*.m4a' 
+    -o -iname '*.m4b' 
+    -o -iname '*.wma'
 )
 
 other_exts=(
-    -name '*.jpg'
-    -o -name '*.jpeg'
-    -o -name '*.png'
-    -o -name '*.gif'
-    -o -name '*.bmp'
-    -o -name '*.tiff'
-    -o -name '*.svg'
-    -o -name '*.epub'
-    -o -name '*.mobi'
-    -o -name '*.azw'
-    -o -name '*.pdf'
-    -o -name '*.txt'
-    -o -name '*.log'
+    -iname '*.jpg'
+    -o -iname '*.jpeg'
+    -o -iname '*.png'
+    -o -iname '*.gif'
+    -o -iname '*.bmp'
+    -o -iname '*.tiff'
+    -o -iname '*.svg'
+    -o -iname '*.epub'
+    -o -iname '*.mobi'
+    -o -iname '*.azw'
+    -o -iname '*.pdf'
+    -o -iname '*.txt'
+    -o -iname '*.log'
 )
 
 hidden_files=(
-    -name '.DS_Store'
-    -o -name '._*'
-    -o -name '.AppleDouble'
-    -o -name '.LSOverride'
-    -o -name '.Spotlight-V100'
-    -o -name '.Trashes'
-    -o -name '__MACOSX'
-    -o -name 'ehthumbs.db'
-    -o -name 'Thumbs.db'
-    -o -name '@eaDir'
+    -iname '.DS_Store'
+    -o -iname '._*'
+    -o -iname '.AppleDouble'
+    -o -iname '.LSOverride'
+    -o -iname '.Spotlight-V100'
+    -o -iname '.Trashes'
+    -o -iname '__MACOSX'
+    -o -iname 'ehthumbs.db'
+    -o -iname 'Thumbs.db'
+    -o -iname '@eaDir'
 )
 
 # -----------------------------------------------------------------------
@@ -1770,10 +1770,10 @@ while [ $m -ge 0 ]; do
         ecko "\nPreparing to convert..."
 
         # check if book is a set of mp3 files that need to be converted to m4b
-        mp3_count=$(find "$book_rel_path" -type f -name '*.mp3' | wc -l)
-        m4a_count=$(find "$book_rel_path" -type f -name '*.m4a' | wc -l)
-        m4b_count=$(find "$book_rel_path" -type f -name '*.m4b' | wc -l)
-        wma_count=$(find "$book_rel_path" -type f -name '*.wma' | wc -l)
+        mp3_count=$(find "$book_rel_path" -type f -iname '*.mp3' | wc -l)
+        m4a_count=$(find "$book_rel_path" -type f -iname '*.m4a' | wc -l)
+        m4b_count=$(find "$book_rel_path" -type f -iname '*.m4b' | wc -l)
+        wma_count=$(find "$book_rel_path" -type f -iname '*.wma' | wc -l)
 
         is_mp3=$( [ "$mp3_count" -gt 0 ] && echo "true" || echo "false" )
         is_m4a=$( [ "$m4a_count" -gt 0 ] && echo "true" || echo "false" )
