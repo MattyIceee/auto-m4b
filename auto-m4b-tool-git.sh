@@ -1809,6 +1809,7 @@ while [ $m -ge 0 ]; do
 
         book_audio_dirs=$(find_dirs_with_audio_files "$book_rel_path")
         book_audio_dirs_count=$(echo "$book_audio_dirs" | wc -l)
+        roman_numerals_count=$(detect_roman_numeral_part )
 
         # check if the current dir was modified in the last 1m and skip if so
         if [ "$(find "$book_rel_path" -mmin -0.5)" ]; then
@@ -1829,6 +1830,17 @@ while [ $m -ge 0 ]; do
             print_error "Error: This book contains multiple folders with audio files"
             ecko "Maybe this is a multi-disc book, or maybe it is multiple books?"
             ecko "All files must be in a single folder, named alphabetically in the correct order\n"
+            dir_to_move=$(join_paths "$inboxfolder" "$book_rel_path")
+            ecko "Moving to fix folder → $(tint_path "$(join_paths "$fixitfolder" "$book")")\n"
+            ensure_dir_exists_and_is_writable "$fixitfolder"
+            mv_dir "$dir_to_move" "$fixitfolder"
+            continue
+        fi
+
+        if [ "$roman_numerals_count" -ge 2 ]; then
+            ecko ""
+            print_error "Error: Some of this book's files appear to be named with roman numerals"
+            ecko "Roman numerals do not sort in alphabetical order; please make sure files are named alphabetically in the correct order, then remove roman numerals from filenames\n"
             dir_to_move=$(join_paths "$inboxfolder" "$book_rel_path")
             ecko "Moving to fix folder → $(tint_path "$(join_paths "$fixitfolder" "$book")")\n"
             ensure_dir_exists_and_is_writable "$fixitfolder"
