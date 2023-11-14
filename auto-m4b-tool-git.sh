@@ -378,37 +378,88 @@ swap_first_last() {
     fi
 }
 
+greatest_common_string() {
+  path="$1"
+  common_string=$(python3 -c "
+import os
+from itertools import combinations
+
+def find_common_prefix(files):
+    if not files:
+        return ''
+    
+    common_prefixes = set()
+    
+    for file1, file2 in combinations(files, 2):
+        prefix = os.path.commonprefix([file1, file2])
+        common_prefixes.add(prefix)
+    
+    valid_prefixes = [prefix for prefix in common_prefixes if any(f.startswith(prefix) for f in files)]
+    
+    return max(valid_prefixes, key=len, default='')
+
+files = [f for f in os.listdir('$path') if os.path.isfile(os.path.join('$path', f))]
+print(find_common_prefix(files))
+")
+  echo "$common_string"
+}
+
 author_pattern="^(.*?)[\W\s]*[-_–—\(]"
 book_title_pattern="(?<=[-_–—])[\W\s]*(?<book_title>[\w\s]+?)\s*(?=\d{4}|\(|\[|$)"
 year_pattern="(?P<year>\d{4})"
 narrator_pattern="(?:read by|narrated by|narrator)\W+(?<narrator>(?:\w+(?:\s\w+\.?\s)?[\w-]+))(?:\W|$)"
-extract_folder_info() {
-    local _folder_name="$1"
+extract_path_info() {
+    local _path_name="$1"
 
     # Replace single occurrences of . with spaces
-    _folder_name=$(echo "$_folder_name" | sed 's/\./ /g')
+    _path_name=$(echo "$_path_name" | sed 's/\./ /g')
 
-    local dir_author=$(echo "$_folder_name" | perl -n -e "/$author_pattern/ && print \$1")
-    local dir_author=$(swap_first_last "$dir_author")
+    fs_author=$(echo "$_path_name" | perl -n -e "/$author_pattern/ && print \$1")
+    fs_author=$(swap_first_last "$fs_author")
 
-    local dir_author=$(echo "$givennames $lastname")
-    local dir_title=$(echo "$_folder_name" | perl -n -e "/$book_title_pattern/ && print \$+{book_title}")
-    local dir_year=$(echo "$_folder_name" | perl -n -e "/$year_pattern/ && print \$+{year}")
-    local dir_narrator=$(echo "$_folder_name" | perl -n -e "/$narrator_pattern/i && print \$+{narrator}")
+    fs_author=$(echo "$givennames $lastname")
+    fs_title=$(echo "$_path_name" | perl -n -e "/$book_title_pattern/ && print \$+{book_title}")
+    fs_year=$(echo "$_path_name" | perl -n -e "/$year_pattern/ && print \$+{year}")
+    fs_narrator=$(echo "$_path_name" | perl -n -e "/$narrator_pattern/i && print \$+{narrator}")
 
-    local dir_extrajunk="$_folder_name"
+    fs_extrajunk="$_path_name"
+
+    # Get filename common text (e.g., if there are 3 files in the folder, get whatever they have in common - start at the beginning of the filename, and stop as soon as there is a difference)
+    local _gcs=$(greatest_common_string "$_path_name")
+    _gcs=$(strip_part_number "$_gcs")
+    # remove "part", "chapter", and "ch." (case sensitive) from end of the string
+    _gcs=$(echo "$_gcs" | sed -E 's/(part|chapter|ch\.)[[:space:]]*$//i')
+    # remove trailing whitespace and punctuation
+    _gcs=$(echo "$_gcs" | sed -E 's/[[:space:]]*$//;s/[[:punct:]]*$//')
+
+    file_author=$(echo "$_gcs" | perl -n -e "/$author_pattern/ && print \$1")
+    file_title=$(echo "$_gcs" | perl -n -e "/$book_title_pattern/ && print \$+{book_title}")
+    file_year=$(echo "$_gcs" | perl -n -e "/$year_pattern/ && print \$+{year}")
+
+    # if file_ prop is longer than fs_ prop, set fs_ to file_
+    for property in "author" "title" "year"; do
+        # if length of file_ string is greater than fs_ string, set fs_ to file_
+        local file_len=$(eval echo "\${#file_$property}")
+        local fs_len=$(eval echo "\${#fs_$property}")
+        if [ "$file_len" -gt "$fs_len" ]; then
+            echo "file_$property is longer than fs_$property, setting fs_$property to $(eval echo "\$file_$property")"
+            eval fs_$property="\$file_$property"
+        fi
+    done
 
     # Iterate through properties in reverse order of priority
-    for property in "dir_narrator" "dir_year" "dir_title" "dir_author"; do
+    for property in "fs_narrator" "fs_year" "fs_title" "fs_author"; do
       local property_value=$(eval echo "\$$property")
       if [ -n "$property_value" ]; then
-        # Split dir_extrajunk on property_value
-        dir_extrajunk=$(echo "$dir_extrajunk" | awk -F"$property_value" '{print $2}')
+        # Split fs_extrajunk on property_value
+        fs_extrajunk=$(echo "$fs_extrajunk" | awk -F"$property_value" '{print $2}')
         # Trim leading and contiguous .,)]} and whitespace
-        dir_extrajunk=$(echo "$dir_extrajunk" | sed -E 's/^[[:space:],.)}\]]*//')
+        fs_extrajunk=$(echo "$fs_extrajunk" | sed -E 's/^[[:space:],.)}\]]*//')
         break  # Add break to exit loop after first non-empty property
       fi
     done
+
+    # Return a dict of the properties
 }
 
 rm_audio_ext() {
@@ -551,6 +602,17 @@ get_total_dir_size() {
     # If no path is specified, uses current directory
     local _path="${1:-"."}"
     du -s "$_path" | awk '{print $1}'
+}
+
+detect_roman_numeral_part() {
+    # Detects if any of the files in the current directory match "Part {roman numeral}"
+    # If so, returns the number of unique roman numerals found
+    # If not, returns 0
+    local _roman_numeral_pattern="Part *[IVXLCDM]+"
+    local _roman_numerals=()
+    local _roman_numeral_count=0
+
+    find . -type f \( "${audio_exts[@]}" \) | grep -E -o "$_roman_numeral_pattern" | sort -u | uniq | wc -l
 }
 
 ok_to_del() {
@@ -1271,9 +1333,8 @@ extract_metadata() {
     # Title:
     if [ -z "$id3_title" ] && [ -z "$id3_album" ] && [ -z "$id3_sortalbum" ]; then
         # If no id3_title, id3_album, or id3_sortalbum, use the extracted title
-        title="$dir_title"
+        title="$fs_title"
     else
-        echo
         # If (sort)album is in title, it's likely that title is something like {book name}, ch. 6
         # So if album is in title, prefer album
         if [ "$album_is_in_title" = "true" ]; then
@@ -1315,7 +1376,7 @@ extract_metadata() {
     elif [ -n "$id3_sortalbum" ]; then
         album="$id3_sortalbum"
     else
-        album="$dir_title"
+        album="$fs_title"
     fi
     print_list "- Album: $album"
 
@@ -1324,7 +1385,7 @@ extract_metadata() {
     elif [ -n "$id3_album" ]; then
         sortalbum="$id3_album"
     else
-        sortalbum="$dir_title"
+        sortalbum="$fs_title"
     fi
     # ecko "  Sort album: $sortalbum"
 
@@ -1368,16 +1429,18 @@ extract_metadata() {
         # Only Album Artist is set, using it for both
         artist="$id3_albumartist"
         albumartist="$id3_albumartist"
+
         id3_albumartist_is_author="true"
     elif [ -n "$id3_artist" ]; then
         # Artist is set, prefer it
         artist="$id3_artist"
         albumartist="$id3_artist"
+
         id3_artist_is_author="true"
     else
         # Neither Artist nor Album Artist is set, use folder Author for both
-        artist="$dir_author"
-        albumartist="$dir_author"
+        artist="$fs_author"
+        albumartist="$fs_author"
     fi
 
     # Narrator
@@ -1397,7 +1460,7 @@ extract_metadata() {
         narrator=$(echo "$id3_composer" | perl -n -e "/$narrator_pattern/i && print $+{narrator}")
         composer=""
     else
-        narrator="$dir_narrator"
+        narrator="$fs_narrator"
     fi
 
     # Swap first and last names if a comma is present
@@ -1420,15 +1483,15 @@ extract_metadata() {
     print_list "- Narrator: $narrator"
 
     # Date:
-    if [ -n "$id3_date" ] && [ -z "$dir_year" ]; then
+    if [ -n "$id3_date" ] && [ -z "$fs_year" ]; then
         date="$id3_date"
-    elif [ -n "$dir_year" ] && [ -z "$id3_date" ]; then
-        date="$dir_year"
-    elif [ -n "$id3_date" ] && [ -n "$dir_year" ]; then
-        if [ "$id3_year" -lt "$dir_year" ]; then
+    elif [ -n "$fs_year" ] && [ -z "$id3_date" ]; then
+        date="$fs_year"
+    elif [ -n "$id3_date" ] && [ -n "$fs_year" ]; then
+        if [ "$id3_year" -lt "$fs_year" ]; then
             date="$id3_date"
         else
-            date="$dir_year"
+            date="$fs_year"
         fi
     fi
     print_list "- Date: $date"
@@ -1759,8 +1822,9 @@ while [ $m -ge 0 ]; do
             ecko
             print_notice "No audio files found, skipping"
             continue
+        fi
 
-        elif [ "$book_audio_dirs_count" -ge 2 ]; then
+        if [ "$book_audio_dirs_count" -ge 2 ]; then
             ecko ""
             print_error "Error: This book contains multiple folders with audio files"
             ecko "Maybe this is a multi-disc book, or maybe it is multiple books?"
@@ -1770,8 +1834,9 @@ while [ $m -ge 0 ]; do
             ensure_dir_exists_and_is_writable "$fixitfolder"
             mv_dir "$dir_to_move" "$fixitfolder"
             continue
-            
-        elif [ "$book_audio_dirs_count" -eq 1 ] && [ "$book_audio_dirs" != "$book" ]; then
+        fi
+
+        if [ "$book_audio_dirs_count" -eq 1 ] && [ "$book_audio_dirs" != "$book" ]; then
             ecko "Audio files for this book are a subfolder: $(tint_path ./"$book_audio_dirs")"
             root_of_book=$(join_paths "$inboxfolder" "$book_rel_path")
             dir_to_move=$(join_paths "$root_of_book" "$book_audio_dirs")
@@ -1860,7 +1925,7 @@ while [ $m -ge 0 ]; do
             fi
         fi
         
-        extract_folder_info "$book"
+        extract_path_info "$book"
 
         # Set up destination paths
         build_m4bfile="$buildfolder$book/$book.m4b"
