@@ -997,15 +997,18 @@ strip_part_number() {
     #      "The Name of the Wind Part 002" becomes "The Name of the Wind"
     #      "The Name of the Wind - 012" becomes "The Name of the Wind"
     local _string="$1"
-    local _part_number_pattern=",?[-_–—]?\s*\d*\s*(?:[-_–—]|\bpart|\bof\b|\d+)?\s*\d+$"
-    local _ignore_if_pattern="(?:book|vol(?:ume)?)\s*\d+$"
-    
-    # use perl to check ignore pattern; if matches, return original
-    if perl -pnE "s/$_ignore_if_pattern//i" <<< "$_string" | grep -qE "$_ignore_if_pattern"; then
-        return
-    fi
+    local _part_number_pattern=",?[-_–—.\s]*?(?:part|ch(?:\.|apter))?[-_–—.\s]*?(?<part1>\d+)(?:$|[-_–—.\s]*?(?:of|-)[-_–—.\s]*?(?<part2>\d+)$)"
+    local _ignore_if_pattern="(?:\bbook\b|\bvol(?:ume)?)\s*\d+$"
 
-    perl -pnE "s/$_part_number_pattern//i" <<< "$_string"
+    local _matches_part_number=$(perl -nE "print if /$_part_number_pattern/i" <<< "$_string")
+    local _matches_ignore_if=$(perl -nE "print if /$_ignore_if_pattern/i" <<< "$_string")
+
+    # if it matches both the part number and ignore, return original string
+    if [ -n "$_matches_part_number" ] && [ -z "$_matches_ignore_if" ]; then
+        perl -pe "s/$_part_number_pattern//i" <<< "$_string"
+    else
+        echo "$_string"
+    fi
 }
 
 fix_smart_quotes() {
