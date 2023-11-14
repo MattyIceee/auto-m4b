@@ -1106,6 +1106,7 @@ round_bitrate() {
     local bitrate=$1
     local standard_bitrates=(32 40 48 56 64 80 96 112 128 160 192 224 256 320) # see https://superuser.com/a/465660/254022
     local closest_bitrate=${standard_bitrates[0]}
+    local min_bitrate=${standard_bitrates[0]}
 
     local bitrate_k=$(echo "$bitrate / 1000" | bc)
 
@@ -1134,6 +1135,11 @@ round_bitrate() {
         closest_bitrate="$upper_bitrate"
     else
         closest_bitrate="$lower_bitrate"
+    fi
+
+    # if the closest bitrate is less than the minimum bitrate, use the minimum bitrate
+    if [ "$closest_bitrate" -lt "$min_bitrate" ]; then
+        closest_bitrate="$min_bitrate"
     fi
 
     printf "%d000" "$closest_bitrate"
