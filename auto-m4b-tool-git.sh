@@ -573,10 +573,15 @@ mv_dir() {
 
     # Remove trailing slash from source and add trailing slash to destination
     local _source_dir=$(rm_trailing_slash "$1")
-    local _dest_dir=$(rm_trailing_slash "$2")
+    local _dest_dir=$(add_trailing_slash "$2")
 
     # valid overwrite modes are "skip" (default), "overwrite", and "overwrite-silent"
     local _overwrite_mode="${3:-"skip"}"
+
+    # Create destination dir if it doesn't exist
+    if [ ! -d "$_dest_dir" ]; then
+        mkdir -p "$_dest_dir" >/dev/null 2>&1
+    fi
 
     # Check if both dirs exist, otherwise exit with error
     if [ ! -d "$_source_dir" ]; then
@@ -617,9 +622,9 @@ mv_dir() {
     fi
 
     if [ -z "$files_expecting_overwrite" ] || [ "$_overwrite_mode" == "skip" ]; then
-        mv -n "$_source_dir"/* "$_dest_dir" >/dev/null 2>&1
+        mv -n "$_source_dir"* "$_dest_dir" >/dev/null 2>&1
     else
-        mv -f "$_source_dir"/* "$_dest_dir" >/dev/null 2>&1 
+        mv -f "$_source_dir"* "$_dest_dir" >/dev/null 2>&1 
     fi
     
 
