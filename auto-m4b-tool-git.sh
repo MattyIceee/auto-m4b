@@ -608,11 +608,12 @@ detect_roman_numeral_part() {
     # Detects if any of the files in the current directory match "Part {roman numeral}"
     # If so, returns the number of unique roman numerals found
     # If not, returns 0
-    local _roman_numeral_pattern="Part *[IVXLCDM]+"
+    local _roman_numeral_pattern="(?:part|ch(?:\.|apter))[-_.\s]*[IVXLCDM]+"
     local _roman_numerals=()
     local _roman_numeral_count=0
 
-    find . -type f \( "${audio_exts[@]}" \) | grep -E -o "$_roman_numeral_pattern" | sort -u | uniq | wc -l
+    # case insensitive regex match on all files in current directory
+    find . -type f \( "${audio_exts[@]}" \) | grep -qiEo "$_roman_numeral_pattern" | sort -u | uniq | wc -l | xargs
 }
 
 ok_to_del() {
