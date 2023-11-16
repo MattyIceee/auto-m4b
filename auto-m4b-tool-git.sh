@@ -1,5 +1,5 @@
 #!/bin/bash
-DEFAULT_SLEEP_TIME=30s
+DEFAULT_SLEEP_TIME=10s
 
 # set m to 1
 m=1
@@ -44,28 +44,32 @@ other_exts=(
     -o -iname '*.log'
 )
 
-hidden_files=(
-    -iname '.DS_Store'
-    -o -iname '._*'
-    -o -iname '.AppleDouble'
-    -o -iname '.LSOverride'
-    -o -iname '.Spotlight-V100'
-    -o -iname '.Trashes'
-    -o -iname '__MACOSX'
-    -o -iname 'ehthumbs.db'
-    -o -iname 'Thumbs.db'
-    -o -iname '@eaDir'
+ignore_files=(
+    '.DS_Store'
+    '._*'
+    '.AppleDouble'
+    '.LSOverride'
+    '.Spotlight-V100'
+    '.Trashes'
+    '__MACOSX'
+    'ehthumbs.db'
+    'Thumbs.db'
+    '@eaDir'
 )
 
 # -----------------------------------------------------------------------
 # Printing and fancy colors
 # -----------------------------------------------------------------------
 
+tint() {
+    echo -ne "\033[38;5;${1}m${*:2}\033[m"
+}
+
 # Initialize a variable to store the last output
-__last_output=""
+__this_line_is_empty=false
+__this_line_is_alert=false
 __last_line_was_empty=false
 __last_line_was_alert=false
-__last_line_ends_with_newline=false
 
 line_is_empty() {
     # Check if the line is entirely whitespace
@@ -76,50 +80,114 @@ line_is_empty() {
     fi
 }
 
-line_ends_with_newline() {
-    # Check if the line ends with a newline
-    if [[ "$*" =~ \n$ ]]; then
+line_starts_with_newline() {
+    # Check if the line starts with a newline escape sequence '\n'
+    if [[ "$1" =~ ^\\n ]]; then
         echo "true"
     else
         echo "false"
     fi
 }
 
-tint() {
-    echo -ne "\033[38;5;${1}m${*:2}\033[m"
+line_ends_with_newline() {
+    # Check if the line ends with a newline escape sequence '\n'
+    if [[ "$1" =~ \\n$ ]]; then
+        echo "true"
+    else
+        echo "false"
+    fi
+}
+
+strip_leading_newlines() {
+    # takes a string and strips leading newlines
+    local _string="$1"
+    perl -pe 's/^\n*//' <<< "$_string"
+}
+
+strip_trailing_newlines() {
+    # takes a string and strips trailing newlines
+    local _string="$1"
+    perl -pe 's/\n*$//' <<< "$_string"
+}
+
+ensure_trailing_newline() {
+    # takes a string and ensures it ends with a newline
+    local _string="$1"
+    perl -pe 's/\n*$/\n/' <<< "$_string"
+}
+
+ensure_leading_newline() {
+    # takes a string and ensures it starts with a newline
+    local _string="$1"
+    perl -pe 's/^\n*/\n/' <<< "$_string"
+}
+
+trim_newlines() {
+    # takes a string and strips leading and trailing newlines
+    local _string="$1"
+    perl -pe 's/^([\\n\R])*//; s/([\\n\R])*$//' <<< "$_string"
 }
 
 # Custom echo function that also stores the output
 ecko() {
-    local _this_line_is_empty=$(line_is_empty "$@")
-    local _this_line_ends_with_newline=$(line_ends_with_newline "$@")
-    local _color=""
+    __this_line_is_empty=$(line_is_empty "$@")
+    local _color="$__default"
     local _text="$*"
+    if [[ "$1" == "color:"* ]]; then
+        _color="${1#color:}"
+        _text="${*:2}"
+    fi
+    local _this_line_starts_with_newline=$(line_starts_with_newline "$_text")
+    local _this_line_ends_with_newline=$(line_ends_with_newline "$_text")
 
-    if [ "$__last_line_was_empty" = true ] && [ "$_this_line_is_empty" = true ]; then
+    # _text=$(trim_newlines "$_text")
+    # printf %s "↑ alert? $__last_line_was_alert"
+
+    if [ "$__last_line_was_empty" = true ] && [ "$__this_line_is_empty" = true ]; then
+        # prevent double empty lines
+        # echo -ne " [ ←↑ 2x empty ]"
         return
     fi
 
-    if [[ "$1" == "color:"* ]]; then
-        _color="${1#color:}"
-        _text="\033[38;5;${_color}m${*:2}\033[0m"
-    fi
 
-    if [ "$__last_line_was_alert" = true ] && [ "$_this_line_is_empty" = true ]; then
-        echo -ne "$_text"
-    elif [ "$__last_line_was_empty" = true ]; then
-        echo -e "$(strip_leading_newlines "$_text")"
+    if [ "$__this_line_is_alert" = true ]; then
+        _text="$(ensure_trailing_newline "$(trim_newlines "$_text")")"
+        if [ "$__last_line_was_empty" != true ] && [ "$__last_line_ends_with_newline" != true ] && [ "$__last_line_was_alert" != true ]; then
+            _text="$(ensure_leading_newline "$_text")"
+        fi
+        # if previous line was empty, trim newlines and echo -ne
+        if [ "$__last_line_was_empty" = true ]; then
+            echo -ne "$(tint "$_color" "$_text")"
+        else
+            echo -e "$(tint "$_color" "$_text")"
+        fi
+        __last_line_was_empty=false
+        __last_line_ends_with_newline=true
     else
-        echo -e "$_text"
+        if [ "$__last_line_was_alert" = true ] && [ "$__last_line_was_empty" != true ] && [ "$__last_line_ends_with_newline" != true ]; then
+            _text="$(ensure_leading_newline "$_text")" 
+        fi
+        # if last line was empty or ended in newline, strip leading newlines and echo -e
+        if [ "$__last_line_was_empty" = true ] || [ "$__last_line_ends_with_newline" = true ]; then
+            echo -e "$(tint "$_color" "$(strip_leading_newlines "$_text")")"
+            __last_line_was_empty=false
+            __last_line_ends_with_newline=$_this_line_ends_with_newline
+        else
+            echo -e "$(tint "$_color" "$_text")"
+        fi
+        __last_line_was_empty=$__this_line_is_empty
+        __last_line_ends_with_newline=$_this_line_ends_with_newline
+        __last_line_was_alert=false
+        __this_line_is_alert=false
     fi
-
-    __last_line_was_alert=false
-    __last_line_was_empty=$_this_line_is_empty
-    __last_line_ends_with_newline=$_this_line_ends_with_newline
 }
 
 print_underline() {
     ecko "\033[4m$1\033[0m"
+}
+
+reset() {
+    echo -ne "\033[m"
 }
 
 __default="256"
@@ -185,32 +253,32 @@ print_list() {
     ecko "color:$__grey" "$@"
 }
 
+rmline() {
+    # removes the last line printed
+    echo -ne "\033[1A\033[2K"
+}
+
 _print_alert() {
     local _color="$1"
     local _accent_color="${2:-"$_color"}"
     local _line="$3"
 
+    __this_line_is_alert=true
     _line=$(trim_newlines "$_line")
     
-    if [ "$__last_line_was_empty" = true ] || [ "$__last_line_ends_with_newline" = true ] || [ "$__last_line_was_alert" = true ]; then
-        _line=$(strip_leading_newlines " *** $_line")
+    _line=" *** $_line"
+
+    # if color does not equal accent color, replace {{some text}} with accent color, then reset color to _color
+    if [ "$_color" != "$_accent_color" ]; then
+        _line=$(echo "$_line" | perl -pe 's/\{\{(.*?)\}\}/\033[38;5;'"$_accent_color"'m$1\033[38;5;'"$_color"'m/g')
+    # otherwise, just remove all {{ and }}
     else
-        _line="\n *** $_line"
+        _line=$(echo "$_line" | perl -pe 's/\{\{(.*?)\}\}/$1/g')
     fi
 
-    # Do a regex match on _line to see if it contains {{some text}}. If so, replace it with accent color
-    # then reset color to _color after
-    # do this for every instance of {{some text}}
-    _line=$(echo "$_line" | perl -pe 's/\{\{(.*?)\}\}/\033[38;5;'"$_accent_color"'m$1\033[38;5;'"$_color"'m/g')
-
-    if [ "$__last_line_was_alert" = true ]; then
-        tint "$_color" "$_line\n"
-    else
-        ecko "color:$_color" "$_line\n"
-    fi
-
+    ecko "color:$_color" "$_line"
     __last_line_was_alert=true
-    __last_line_was_empty=false
+    __this_line_is_alert=false
 }
 
 
@@ -458,8 +526,6 @@ extract_path_info() {
         break  # Add break to exit loop after first non-empty property
       fi
     done
-
-    # Return a dict of the properties
 }
 
 rm_audio_ext() {
@@ -515,88 +581,6 @@ escape_special_chars() {
     echo "$_string" | sed 's/[][()*?|&]/\\&/g'
 }
 
-ensure_dir_exists_and_is_writable() {
-    local _dir="$1"
-    local _exit_on_error="${2:-"true"}"
-    if [ ! -d "$_dir" ]; then
-        ecko "$(tint_path "$_dir") does not exist, creating it..."
-        mkdir -p "$_dir"
-    fi
-
-    if [ ! -w "$_dir" ]; then
-        if [ "$_exit_on_error" == "true" ]; then
-            print_error "Error: {{$_dir}} is not writable by current user, please fix permissions and try again"
-            exit 1
-        else
-            print_warning "Warning: {{$_dir}} is not writable by current user, this may result in data loss"
-            return 1
-        fi
-    fi
-}
-
-cp_dir() {
-
-    # Remove trailing slash from source and add trailing slash to destination
-    local _source_dir=$(rm_trailing_slash "$1")
-    local _dest_dir=$(add_trailing_slash "$2")
-
-    # Check if both dirs exist, otherwise exit with error
-    if [ ! -d "$_source_dir" ]; then
-        print_error "Error: Source directory {{$_source_dir}} does not exist"
-        exit 1
-    fi
-
-    if [ ! -d "$_dest_dir" ]; then
-        print_error "Error: Destination directory {{$_dest_dir}} does not exist"
-        exit 1
-    fi
-
-    # Make sure both paths are dirs
-    if [ ! -d "$_source_dir" ]; then
-        print_error "Error: Source {{$_source_dir}} is not a directory"
-        exit 1
-    fi
-
-    if [ ! -d "$_dest_dir" ]; then
-        print_error "Error: Destination {{$_dest_dir}} is not a directory"
-        exit 1
-    fi
-
-    cp -rf "$_source_dir"* "$_dest_dir"
-}
-
-cp_file_to_dir() {
-
-    # Add trailing slash to destination
-    local _source_file="$1"
-    local _dest_dir=$(add_trailing_slash "$2")
-
-    # Check if both dirs exist, otherwise exit with error
-    if [ ! -f "$_source_file" ]; then
-        print_error "Error: Source file {{$_source_file}} does not exist"
-        exit 1
-    fi
-
-    if [ ! -d "$_dest_dir" ]; then
-        print_error "Error: Destination directory {{$_dest_dir}} does not exist"
-        exit 1
-    fi
-
-    # Make sure destination path is a dir
-    if [ ! -d "$_dest_dir" ]; then
-        print_error "Error: Destination {{$_dest_dir}} is not a directory"
-        exit 1
-    fi
-
-    cp -rf "$_source_file" "$_dest_dir"
-}
-
-join_paths() {
-    local _path1=$(rm_trailing_slash "$1")
-    local _path2=$(rm_leading_dot_slash "$2")
-    echo "$_path1/$_path2"
-}
-
 get_total_dir_size() {
     # Takes a path and returns the total size of all files in the path
     # If no path is specified, uses current directory
@@ -616,128 +600,200 @@ detect_roman_numeral_part() {
     find . -type f \( "${audio_exts[@]}" \) | grep -qiEo "$_roman_numeral_pattern" | sort -u | uniq | wc -l | xargs
 }
 
+ensure_dir_exists_and_is_writable() {
+    local _dir="$1"
+    local _exit_on_error="${2:-"true"}"
+    if [ ! -d "$_dir" ]; then
+        ecko "$(tint_path "$_dir") does not exist, creating it..."
+        mkdir -p "$_dir"
+    fi
+
+    if [ ! -w "$_dir" ]; then
+        if [ "$_exit_on_error" == "true" ]; then
+            print_error "Error: {{$_dir}} is not writable by current user, please fix permissions and try again"
+            exit 1
+        else
+            print_warning "Warning: {{$_dir}} is not writable by current user, this may result in data loss"
+            return 1
+        fi
+    fi
+}
+
+join_paths() {
+    local _path1=$(rm_trailing_slash "$1")
+    local _path2=$(rm_leading_dot_slash "$2")
+    echo "$_path1/$_path2"
+}
+
 ok_to_del() {
     local _path="$1"
     local _max_size="${2:-"10240"}"  # default to 10kb
     local _ignore_hidden="${3:-"true"}"  # default to true
 
-    src_dir_size=$(get_total_dir_size "$_source_dir")
+    src_dir_size=$(get_total_dir_size "$_src_dir")
     if [ "$_ignore_hidden" = "true" ]; then
-        files_count=$(ls "$_source_dir" | wc -l)
+        files_count=$(ls "$_src_dir" | wc -l)
     else
-        files_count=$(ls -A "$_source_dir" | wc -l)
+        files_count=$(ls -A "$_src_dir" | wc -l)
     fi
 
     #ok to delete if no visible files or if size is less than 10kb
     [ "$files_count" -eq 0 ] || [ "$src_dir_size" -lt "$_max_size" ] && echo "true" || echo "false"
 }
 
-mv_dir() {
+path_exists() {
+    local _path="$1"
+    [ -e "$_path" ] && echo "true"
+}
 
-    # Remove trailing slash from source and add trailing slash to destination
-    local _source_dir=$(rm_trailing_slash "$1")
-    local _dest_dir=$(add_trailing_slash "$2")
-
+check_src_dst() {
+    local _src="$(rm_trailing_slash "$1")"
+    local _src_type="$2"
+    local _dst="$(rm_trailing_slash "$3")"
+    local _dst_type="$4"
+    
     # valid overwrite modes are "skip" (default), "overwrite", and "overwrite-silent"
     local _overwrite_mode="${3:-"skip"}"
 
-    # Create destination dir if it doesn't exist
-    if [ ! -d "$_dest_dir" ]; then
-        mkdir -p "$_dest_dir" >/dev/null 2>&1
+    local _dst_parent_dir=$(dirname "$_dst")
+
+    # if dst should be dir but does not exist, try to create it
+    if [ "$_dst_type" == "dir" ] && [ ! -d "$_dst" ]; then
+        mkdir -p "$_dst" > /dev/null || (print_error "Error: Could not create destination dir {{$_dst}}" && return 1)
     fi
 
-    # Check if both dirs exist, otherwise exit with error
-    if [ ! -d "$_source_dir" ]; then
-        print_error "Error: Source directory $(tint_error "$_source_dir") does not exist"
-        exit 1
+    # if src or dst do not exist, return 1
+    if [ -z "$(path_exists "$_src")" ]; then
+        print_error "Error: Source $_src_type {{$_src}} does not exist"
+        return 1
     fi
 
-    if [ ! -d "$_dest_dir" ]; then
-        print_error "Error: Destination directory $(tint_error "$_dest_dir") does not exist"
-        exit 1
+    if [ -z "$(path_exists "$_dst")" ]; then
+        print_error "Error: Destination $_dst_type {{$_dst}} does not exist"
+        return 1
     fi
 
-    # Make sure both paths are dirs
-    if [ ! -d "$_source_dir" ]; then
-        print_error "Error: Source $(tint_error "$_source_dir") is not a directory"
-        exit 1
-    fi
-
-    if [ ! -d "$_dest_dir" ]; then
-        print_error "Error: Destination $(tint_error "$_dest_dir") is not a directory"
-        exit 1
-    fi
-
-    # Move the source dir to the destination dir by moving all files in source dir to dest dir
-    # Overwrite existing files, then remove the source dir
-
-    files_expecting_overwrite=$(ls -A "$_source_dir" | while read -r file; do
-        if [ -f "$_dest_dir/$file" ]; then
-            ecko "$file"
+    if [ "$_src_type" == "dir" ]; then
+        # if not dir check via -d, return 1
+        if [ ! -d "$_src" ]; then
+            print_error "Error: Source {{$_src}} is not a directory"
+            return 1
         fi
-    done)
+    elif [ "$_src_type" == "file" ]; then
+        if [ ! -f "$_src" ]; then
+            print_error "Error: Source {{$_src}} is not a file"
+            return 1
+        fi
+    fi
 
-    if [ "$_overwrite_mode" == "overwrite" ]; then
-        print_warning "Warning: Some files in {{$_dest_dir}} will be replaced with files from {{$_source_dir}}:"
+    if [ "$_dst_type" == "dir" ]; then
+        if [ ! -d "$_dst" ]; then
+            print_error "Error: Destination {{$_dst}} is not a directory"
+            return 1
+        fi
+    elif [ "$_dst_type" == "file" ]; then
+        if [ ! -d "$_dst_parent_dir" ]; then
+            print_error "Error: Destination parent dir {{$_dst_parent_dir}} does not exist"
+            return 1
+        elif [ -n "$_dst_is_file" ] && [ "$_overwrite_mode" == "skip" ]; then
+            # Messaging for overwrite file mode != skip is handled by caller
+            return 1
+        fi
+    fi
+}
+
+mv_or_cp_dir_contents() {
+    local _operation="$1"  # 'move' or 'copy'
+    local _src_dir=$(rm_trailing_slash "$2")
+    local _dst_dir=$(add_trailing_slash "$3")
+    local _overwrite_mode="${4:-"skip"}"
+
+    # Check source and destination directories
+    check_src_dst "$_src_dir" "dir" "$_dst_dir" "dir" "$_overwrite_mode" || return 1
+
+    # Check for files that may require overwriting
+    local files_expecting_overwrite=$(comm -12 <(ls -A "$_src_dir") <(ls -A "$_dst_dir") | tr '\n' ' ')
+
+    if [ "$_overwrite_mode" == "overwrite" ] && [ -n "$files_expecting_overwrite" ]; then
+        print_warning "Warning: Some files in {{$_dst_dir}} will be replaced with files from {{$_src_dir}}:"
         for file in $files_expecting_overwrite; do
-            print_orange "     - $file"
+            echo -ne "     - $file\n"
         done
     fi
 
-    if [ -z "$files_expecting_overwrite" ] || [ "$_overwrite_mode" == "skip" ]; then
-        mv -n "$_source_dir"* "$_dest_dir" >/dev/null 2>&1
-    else
-        mv -f "$_source_dir"* "$_dest_dir" >/dev/null 2>&1 
-    fi
-    
-
-    find "$_source_dir" -type f \( "${hidden_files[@]}" \) -delete >/dev/null 2>&1
-
-    failed_to_mv=$(ls -A "$_source_dir" | while read -r file; do
-        if [ ! -f "$_dest_dir/$file" ]; then
-            echo "$file"
+    # Move or copy files from source to destination directory based on operation and overwrite mode
+    if [ "$_operation" == "move" ]; then
+        if [ "$_overwrite_mode" == "skip" ]; then
+            mv -n "$_src_dir"/* "$_dst_dir" >/dev/null 2>&1 || return 1
+        else
+            mv "$_src_dir"/* "$_dst_dir" >/dev/null 2>&1 || return 1
         fi
-    done)
-    
-    if [ -n "$failed_to_mv" ]; then
+    elif [ "$_operation" == "copy" ]; then
+        if [ "$_overwrite_mode" == "skip" ]; then
+            cp -r --no-clobber "$_src_dir"/* "$_dst_dir" >/dev/null 2>&1 || return 1
+        else
+            cp -r "$_src_dir"/* "$_dst_dir" >/dev/null 2>&1 || return 1
+        fi
+    else
+        print_error "Invalid operation for 'mv_or_cp_dir_contents' - please specify 'move' or 'copy'."
+        return 1
+    fi
 
-        print_error "Error moving files: some files in {{$_source_dir}} could not be moved:"
-        # print files with print_error that didn't move, nicely indended with " - "
-        ls -A "$_source_dir" | while read -r file; do
-            print_red "     - $file"
+    # Check for files that failed to move or copy, except for those in ignored_files
+    local failed_files=$(comm -23 <(ls -A "$_src_dir") <(ls -A "$_dst_dir") | grep -vE "$(echo "${ignore_files[@]}" | tr ' ' '|')" | tr '\n' ' ')
+
+    # Display files that failed to move
+    if [ -n "$failed_files" ]; then
+        local _verbed="$([[ "$_operation" == "move" ]] && echo "moved" || echo "copied")"
+        local _verbing="$([[ "$_operation" == "move" ]] && echo "moving" || echo "copying")"
+        print_error "Error: Some files in {{$_src_dir}} could not be $_verbed:"
+        # echo -ne each failed file with \n at the end except the last one
+        for file in $failed_files; do
+            echo -ne "$(tint_error "     - $file")\n"
         done
         return 1
     fi
 
-    if [ "$(ok_to_del "$_source_dir")" = "true" ]; then
-        rm -rf "$_source_dir"
+    # Remove the source directory if empty and conditions permit
+    if [ "$(ok_to_del "$_src_dir")" = "true" ]; then
+        rm -rf "$_src_dir"
     fi
+}
+
+mv_dir_contents() {
+    mv_or_cp_dir_contents "move" "$@"
+}
+
+cp_dir_contents() {
+    mv_or_cp_dir_contents "copy" "$@"
+}
+
+mv_dir() {
+    mv_or_cp_dir_contents "move" "$1" "$(join_paths "$2" "$(basename "$1")")"
+}
+
+cp_dir() {
+    mv_or_cp_dir_contents "copy" "$1" "$(join_paths "$2" "$(basename "$1")")"
 }
 
 mv_file_to_dir() {
 
     # Add trailing slash to destination
     local _source_file="$1"
-    local _dest_dir=$(add_trailing_slash "$2")
+    local _dst_dir=$(add_trailing_slash "$2")
 
-    # Check if both dirs exist, otherwise exit with error
-    if [ ! -f "$_source_file" ]; then
-        print_error "Error: Source file {{$_source_file}} does not exist"
-        exit 1
-    fi
+    check_src_dst "$_source_file" "file" "$_dst_dir" "dir" || return 1
+    mv "$_source_file" "$_dst_dir"
+}
 
-    if [ ! -d "$_dest_dir" ]; then
-        print_error "Error: Destination directory {{$_dest_dir}} does not exist"
-        exit 1
-    fi
+cp_file_to_dir() {
 
-    # Make sure destination path is a dir
-    if [ ! -d "$_dest_dir" ]; then
-        print_error "Error: Destination {{$_dest_dir}} is not a directory"
-        exit 1
-    fi
+    # Add trailing slash to destination
+    local _source_file="$1"
+    local _dst_dir=$(add_trailing_slash "$2")
 
-    mv "$_source_file" "$_dest_dir"
+    check_src_dst "$_source_file" "file" "$_dst_dir" "dir" || return 1
+    cp "$_source_file" "$_dst_dir"
 }
 
 cd_merge_folder() {
@@ -795,6 +851,16 @@ handle_single_m4b() {
             ecko "Successfully moved to $(tint_path "$unique_target")"
         else
             print_error "Error: Failed to move to {{$unique_target}}"
+        fi
+    done
+}
+
+rm_all_empty_dirs() {
+    # Recursively remove all empty directories in the current directory, using ok_to_del
+    
+    find . -depth -type d -print0 | while IFS= read -r -d $'\0' dir; do
+        if [ "$(ok_to_del "$dir")" = "true" ]; then
+            rmdir_force "$dir"
         fi
     done
 }
@@ -1039,24 +1105,6 @@ get_log_entry() {
     local _book_src=$(basename "$1")
     local _log_entry=$(grep "$_book_src" "$outputfolder/auto-m4b.log")
     echo "$_log_entry"
-}
-
-strip_leading_newlines() {
-    # takes a string and strips leading newlines
-    local _string="$1"
-    perl -pe 's/^\n*//' <<< "$_string"
-}
-
-strip_training_newlines() {
-    # takes a string and strips trailing newlines
-    local _string="$1"
-    perl -pe 's/\n*$//' <<< "$_string"
-}
-
-trim_newlines() {
-    # takes a string and strips leading and trailing newlines
-    local _string="$1"
-    perl -pe 's/^\n*//' <<< "$_string" | perl -pe 's/\n*$//'
 }
 
 strip_part_number() {
@@ -1319,6 +1367,7 @@ extract_metadata() {
             echo "false"
         fi
     )
+
     
     album_is_in_title=$(str_in_str "$id3_album" "$id3_title" && echo "true")
     sortalbum_is_in_title=$(str_in_str "$id3_sortalbum" "$id3_title" && echo "true")
@@ -1525,7 +1574,7 @@ extract_metadata() {
     description_file="$mergefolder$book/description.txt"
 
     # Write the description to the file with newlines, ensure utf-8 encoding
-    ecko "Book title: $title\n\
+    echo -e "Book title: $title\n\
 Author: $author\n\
 Date: $date\n\
 Narrator: $narrator\n\
@@ -1796,7 +1845,7 @@ while [ $m -ge 0 ]; do
 
     ecko "Found $books_count $(pluralize "$books_count" book) to convert\n"
 
-    echo "$audio_dirs" | while IFS= read -r book_rel_path; do
+    while IFS= read -r book_rel_path; do
 
         # get real path of book
         book_full_path=$(realpath "$book_rel_path")
@@ -1854,9 +1903,8 @@ while [ $m -ge 0 ]; do
             root_of_book=$(join_paths "$inboxfolder" "$book_rel_path")
             dir_to_move=$(join_paths "$root_of_book" "$book_audio_dirs")
             ecko "Moving them to book's root → $(tint_path "$root_of_book")"
-
             # move all files in dir to $inboxfolder/$book
-            mv_dir "$dir_to_move" "$root_of_book"
+            mv_dir_contents "$dir_to_move" "$root_of_book"
         fi
         
         ecko "\nPreparing to convert..."
@@ -1951,9 +1999,12 @@ while [ $m -ge 0 ]; do
         ecko "\nCopying files to build folder...\n"
         cp_dir "$book_full_path" "$mergefolder"
 
+        # Remove empty dirs from merge folder
+        rm_all_empty_dirs "$mergefolder" &>/dev/null
+
         cd_merge_folder "$book"
 
-        extract_metadata "$book"
+        extract_metadata "$book" || continue
 
         # if output file already exists, check if OVERWRITE_EXISTING is set to Y; if so, overwrite, if not, exit with error
         if [ -f "$final_m4bfile" ]; then
@@ -1970,11 +2021,10 @@ while [ $m -ge 0 ]; do
             else
                 print_warning "Warning: Output file already exists, it and any other {{.m4b}} files will be overwritten"
                 # delete all m4b files in output folder that have $book as a substring, and print_error "Deleted {file}"
-                find "$outputfolder" -maxdepth 1 -type f -name "*$book*.m4b" -print0 | while IFS= read -r -d $'\0' m4b_file; do
-                    print_error "Deleted $(tint_path "$m4b_file")"
-                    rm "$m4b_file"
-                done
-                sleep 1
+                # find "$outputfolder" -maxdepth 1 -type f -name "*$book*.m4b" -print0 | while IFS= read -r -d $'\0' m4b_file; do
+                #     print_error "Deleted $(tint_path "$m4b_file")"
+                #     rm "$m4b_file"
+                # done
             fi
             ecko
         fi
@@ -2070,10 +2120,10 @@ while [ $m -ge 0 ]; do
                 ecko "\nMoving to fix folder → $(tint_path "$fixitfolder$book")"
                 
                 if [ "$(ensure_dir_exists_and_is_writable "$fixitfolder" "false")" != "1" ]; then
-                    mv_dir "$mergefolder$book" "$fixitfolder"
+                    mv_dir "$mergefolder$book" "$fixitfolder" || continue
 
                     # move every file from $inboxfolder$book to $fixitfolder$book but do not overwrite
-                    mv -v -n "$inboxfolder$book/"* "$fixitfolder$book" 2>/dev/null
+                    mv_dir_contents "$inboxfolder$book" "$fixitfolder$book" > /dev/null || continue
 
                     # delete files from $inboxfolder$book if they also exist in $fixitfolder$book
                     find "$inboxfolder$book" -maxdepth 1 -type f -exec basename {} \; | while IFS= read -r file; do
@@ -2126,20 +2176,12 @@ while [ $m -ge 0 ]; do
 
         m4b_num_parts=1 # hardcode for now, until we know if we need to split parts
 
-        # for ., $buildfolder$book, and $mergefolder$book, do:
-            # found_desc=$(find {thedir} -type f -name "$book \[*kHz*\].txt" | head -n 1)
-            # if [ -n "$found_desc" ]; then
-            #     found_desc=$(basename "$found_desc")
-            #     print_notice "Removing old description file - $found_desc"
-            #     rm "{thedir}/$book \[*kHz*\].txt"
-            # fi
-        # end loop
-
         # Remove old description files from current dir, $buildfolder$book and $mergefolder$book
         did_remove_old_desc=false
         for dir in . "$buildfolder$book" "$mergefolder$book"; do
-            find "$dir" -type f -name "$book \[*kHz*\].txt" | while read found_desc; do
-                rm "$found_desc"
+            IFS=$'\n' read -rd '' -a desc_files <<< "$(find "$dir" -type f -name "$book \[*kHz*\].txt")"
+            for desc_file in "${desc_files[@]}"; do
+                rm "$desc_file"
                 did_remove_old_desc=true
             done
         done
@@ -2180,8 +2222,7 @@ while [ $m -ge 0 ]; do
         if [ "$on_complete" = "move" ]; then
             ecko "Archiving original from inbox..."
 
-            mkdir -p "$donefolder$book" 2>/dev/null
-            mv_dir "$inboxfolder$book" "$donefolder$book" "overwrite-silent"
+            mv_dir "$inboxfolder$book" "$donefolder" "overwrite-silent"
             
             # delete all files in $inboxfolder$book that also exist in $outputfolder$book
             # delete all files in $inboxfolder$book that exist in $backupfolder$book
@@ -2210,7 +2251,7 @@ while [ $m -ge 0 ]; do
 
         # cd back to inbox folder
         cd_inbox_folder
-    done
+    done <<< "$audio_dirs"
         
     # clear the folders
     divider
