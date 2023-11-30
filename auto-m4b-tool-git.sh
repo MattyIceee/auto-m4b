@@ -1,5 +1,5 @@
 #!/bin/bash
-DEFAULT_SLEEP_TIME=10s
+DEFAULT_SLEEP_TIME=30s
 
 # set loop counter to 1
 m=1
@@ -696,19 +696,22 @@ ok_to_del() {
 
 path_exists() {
     local _path="$1"
-    [ -e "$_path" ] && echo "true"
+    [ -e "$_path" ] && echo "$_path"
 }
 
 check_src_dst() {
-    local _src="$(rm_trailing_slash "$1")"
+    local _src
+    _src="$(rm_trailing_slash "$1")"
     local _src_type="$2"
-    local _dst="$(rm_trailing_slash "$3")"
+    local _dst
+    _dst="$(rm_trailing_slash "$3")"
     local _dst_type="$4"
     
     # valid overwrite modes are "skip" (default), "overwrite", and "overwrite-silent"
     local _overwrite_mode="${3:-"skip"}"
 
-    local _dst_parent_dir=$(dirname "$_dst")
+    local _dst_parent_dir
+    _dst_parent_dir=$(dirname "$_dst")
 
     # if dst should be dir but does not exist, try to create it
     if [ "$_dst_type" == "dir" ] && [ ! -d "$_dst" ]; then
@@ -756,15 +759,13 @@ check_src_dst() {
 }
 
 mv_or_cp_dir_contents() {
+    
     local _operation="$1"  # 'move' or 'copy'
     local _src_dir=$(rm_trailing_slash "$2")
     local _dst_dir=$(add_trailing_slash "$3")
-    local _dst_dir_no_slash=$(rm_trailing_slash "$3")
+    local _dst_dir_no_slash=$(rm_trailing_slash "$_dst_dir")
     local _overwrite_mode="${4:-"skip"}"
     local _addl_rsync_args=("${@:5}")
-
-    local _current_pwd=$(pwd)
-    cd ~ || return 1
 
     # ignore if src ends in .bak
     if [[ "$_src_dir" =~ \.bak$ ]]; then
@@ -812,10 +813,10 @@ mv_or_cp_dir_contents() {
         return 1
     # if copy, use rsync:
     elif [ "$_operation" == "copy" ]; then
-        rsync -avI $_handle_existing_cp --times --exclude=".*" "${_addl_rsync_args[@]}" "$_src_dir/" "$_dst_dir" > /dev/null || return 1
+        rsync -avI $_handle_existing_cp --times --exclude=".*" "${_addl_rsync_args[@]}" "$_src_dir/" "$_dst_dir" &> /dev/null
     # if move, use mv
     elif [ "$_operation" == "move" ]; then
-        mv -v $_handle_existing_mv "$_src_dir"/* "$_dst_dir" > /dev/null || return 1
+        mv -v $_handle_existing_mv "$_src_dir"/* "$_dst_dir" &> /dev/null
     fi
 
     # Check for files that failed to move or copy, except for those in ignored_files
@@ -833,6 +834,7 @@ mv_or_cp_dir_contents() {
             echo -ne "$(tint_error "     - $file")\n"
         done
         nl
+        unset IFS; set +f
         return 1
     fi
 
@@ -841,14 +843,11 @@ mv_or_cp_dir_contents() {
     # Remove the source directory if empty and conditions permit, if moving
     if [ "$_operation" == "move" ]; then
         if [ "$(ok_to_del "$_src_dir")" = "true" ]; then
-            rmdir_force "$_src_dir" || return 1
+            rmdir_force "$_src_dir" &> /dev/null
         else 
             print_warning "Warning: {{$_src_dir}} was not deleted after $_verbing files because it is not empty"
         fi
     fi
-
-    # silently try to cd back to original directory
-    cd "$_current_pwd" &> /dev/null
 }
 
 mv_dir_contents() {
@@ -1980,6 +1979,7 @@ while [ $m -ge 0 ]; do
     if [ -n "$unfinished_dirs" ]; then
         print_notice "The inbox folder was recently modified, waiting for a bit to make sure all files are done copying..."
         nl
+        sleep $sleeptime
         exit 0
     fi
 
@@ -1994,8 +1994,8 @@ while [ $m -ge 0 ]; do
     # If no books to convert, print, sleep, and exit
     if [ "$books_count" -eq 0 ]; then
         print "No books to convert, next check in $sleeptime"
-        sleep $sleeptime
         nl
+        sleep $sleeptime
         exit 0
     fi
 
@@ -2204,7 +2204,7 @@ while [ $m -ge 0 ]; do
             print "Starting $(tinted_file $file_type) ➜ $(tinted_m4b) conversion at $(tint_light_grey "$starttime_friendly")..."
 
             $m4btool merge . -n $debug_switch --audio-bitrate="$bitrate" --audio-samplerate="$samplerate"$skipcoverimage --use-filenames-as-chapters --no-chapter-reindexing --max-chapter-length="$maxchapterlength" --audio-codec=libfdk_aac --jobs="$CPUcores" --output-file="$build_m4bfile" --logfile="$logfile" "$id3tags" >$logfile 2>&1
-            
+
         elif [ "$is_m4a" = "true" ] || [ "$is_m4b" = "true" ]; then
 
             print "Starting merge/passthrough ➜ $(tinted_m4b) at $(tint_light_grey "$starttime_friendly")..."
@@ -2356,7 +2356,6 @@ while [ $m -ge 0 ]; do
         # Copy log file to output folder as $buildfolder$book/m4b-tool.$book.log
         mv "$logfile" "$book.m4b-tool.log"
 
-
         print "Moving to converted books folder → $(tint_path "$(split_path "$final_m4bfile" "" 35)")"
 
         print "Verifing id3 tags..."
@@ -2365,6 +2364,7 @@ while [ $m -ge 0 ]; do
 
         # Move all built audio files to output folder
         find "$buildfolder$book" -maxdepth 1 -type f \( "${audio_exts[@]}" -o "${other_exts[@]}" \) -exec mv {} "$output_full_path/" \;
+
         # Copy other jpg, png, and txt files from mergefolder to output folder
         find "$mergefolder$book" -maxdepth 1 -type f \( "${other_exts[@]}" \) -exec mv {} "$output_full_path/" \;
 
@@ -2381,23 +2381,35 @@ while [ $m -ge 0 ]; do
         if [ "$on_complete" = "move" ]; then
             print "Archiving original from inbox..."
 
-            mv_dir_contents "$inboxfolder$book" "$donefolder$book" "overwrite" "--dry-run"
+            # echo "3"
+            # ls "$inboxfolder$book"
+            # echo "4"
+            # ls "$inboxfolder$book"
+
+            # sleep 5s
+
+            # echo "5"
+            # ls "$inboxfolder$book"
+            # echo "6"
+            # ls "$inboxfolder$book"
+
+            # sleep 5s
+            
+            mv_dir_contents "$inboxfolder$book" "$donefolder$book" "overwrite"
             
             # delete all files in $inboxfolder$book that also exist in $output_full_path
             # delete all files in $inboxfolder$book that exist in $backupfolder$book
             # delete all files in $inboxfolder$book that are not in other_exts
-            find "$inboxfolder$book" -maxdepth 1 -type f -type f \( "${audio_exts[@]}" -o "${other_exts[@]}" \) -exec basename {} \; | while IFS= read -r file; do
-                if [ -f "$output_full_path/$file" ] || [ -f "$backupfolder$book/$file" ] || [ -f "$donefolder$book/$file" ]; then
-                    rm "$inboxfolder$book/$file"
-                fi
-            done
-
+            # find "$inboxfolder$book" -maxdepth 1 -type f -type f \( "${audio_exts[@]}" -o "${other_exts[@]}" \) -exec basename {} \; | while IFS= read -r file; do
+            #     if [ -f "$output_full_path/$file" ] || [ -f "$backupfolder$book/$file" ] || [ -f "$donefolder$book/$file" ]; then
+            #         rm "$inboxfolder$book/$file"
+            #     fi
+            # done
         elif [ "$on_complete" = "delete" ]; then
             print "Deleting original from inbox..."
-        fi
-
-        if [ "$(ok_to_del "$inboxfolder$book")" = "true" ]; then
-            rm -rf "$inboxfolder$book" 2>/dev/null
+            if [ "$(ok_to_del "$inboxfolder$book")" = "true" ]; then
+                rm -rf "$inboxfolder$book" 2>/dev/null
+            fi
         fi
 
         # Check if for some reason this is still in the inbox and warn
