@@ -2,3 +2,4 @@
 .DS_Store
 .gitbak
 *.gitbak
+docker-compose.yml

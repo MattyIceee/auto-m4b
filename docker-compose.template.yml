@@ -1,8 +1,8 @@
-version: '3.7'
+version: "3.7"
 name: auto-m4b
 
 services:
-   auto-m4b:
+  auto-m4b:
     image: seanap/auto-m4b
     # build: https://github.com/brandonscript/auto-m4b.git
     build: .
@@ -20,7 +20,6 @@ services:
       - SKIP_COVERS=N
       - OVERWRITE_EXISTING=Y
       - TZ=America/Vancouver
-
 # volumes:
 #   downloads:
 #     driver_opts:
