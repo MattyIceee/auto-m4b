@@ -1,5 +1,8 @@
-
 .DS_Store
 .gitbak
 *.gitbak
 docker-compose.yml
+**/__pycache__
+.env.local*
+**/*.mp3
+**/*.m4b

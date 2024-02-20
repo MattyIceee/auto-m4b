@@ -1,0 +1,30 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+inflect = "*"
+humanize = "*"
+ffmpeg = "*"
+ffmpeg-python = "*"
+numpy = "*"
+pydantic = "*"
+eyed3 = "*"
+tinta = {file = "../tinta", editable = true}
+python-dotenv = "*"
+
+[dev-packages]
+ruff = "*"
+black = "*"
+mypy = "*"
+pytest = "*"
+
+[requires]
+python_version = "3.12"
+
+[pipenv]
+allow_prereleases = true
+
+[scripts]
+app = "python src"

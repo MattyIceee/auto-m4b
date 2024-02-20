@@ -1,20 +1,20 @@
 #!/bin/bash
-DEFAULT_SLEEP_TIME=30s
+DEFAULT_SLEEP_TIME=10s
 
 # set loop counter to 1
 m=1
 
 #variable defenition
-inboxfolder="${INBOX_FOLDER:-"/volume1/Downloads/#done/#books/#convert/inbox/"}"
-# outputfolder="${OUTPUT_FOLDER:-"/volume1/Downloads/#done/#books/#convert/converted/"}"
-outputfolder="${OUTPUT_FOLDER:-"/volume1/Books/Audiobooks/_Updated plex copies/"}"
-donefolder="${DONE_FOLDER:-"/volume1/Downloads/#done/#books/#convert/processed/"}"
-fixitfolder="${FIXIT_FOLDER:-"/volume1/Downloads/#done/#books/#convert/fix/"}"
-backupfolder="${BACKUP_FOLDER:-"/volume1/Downloads/#done/#books/#convert/backup/"}"
+inboxfolder="${INBOX_FOLDER:-"/media/Downloads/#done/#books/#convert/inbox/"}"
+# outputfolder="${OUTPUT_FOLDER:-"/media/Downloads/#done/#books/#convert/converted/"}"
+outputfolder="${OUTPUT_FOLDER:-"/media/Books/Audiobooks/_Updated plex copies/"}"
+donefolder="${DONE_FOLDER:-"/media/Downloads/#done/#books/#convert/processed/"}"
+fixitfolder="${FIXIT_FOLDER:-"/media/Downloads/#done/#books/#convert/fix/"}"
+backupfolder="${BACKUP_FOLDER:-"/media/Downloads/#done/#books/#convert/backup/"}"
 
-remote_buildfolder="${BUILD_FOLDER:-"/volume1/Downloads/#done/#books/#convert/#tmp/build/"}"
-remote_mergefolder="${MERGE_FOLDER:-"/volume1/Downloads/#done/#books/#convert/#tmp/merge/"}"
-remote_binfolder="${BIN_FOLDER:-"/volume1/Downloads/#done/#books/#convert/#tmp/delete/"}"
+remote_buildfolder="${BUILD_FOLDER:-"/media/Downloads/#done/#books/#convert/#tmp/build/"}"
+remote_mergefolder="${MERGE_FOLDER:-"/media/Downloads/#done/#books/#convert/#tmp/merge/"}"
+remote_binfolder="${BIN_FOLDER:-"/media/Downloads/#done/#books/#convert/#tmp/delete/"}"
 
 buildfolder="${BUILD_FOLDER:-"/tmp/auto-m4b/build/"}"
 # buildfolder="$remote_buildfolder"
@@ -463,6 +463,30 @@ rm_leading_dot_slash() {
 # If it does exist, print startup notice
 # If it does, do nothing.
 
+ensure_dir_exists_and_is_writable() {
+    local _dir="$1"
+    local _exit_on_error="${2:-"true"}"
+    if [ ! -d "$_dir" ]; then
+        print "$(tint_path "$_dir") does not exist, creating it..."
+        mkdir -p "$_dir"
+    fi
+
+    if [ ! -w "$_dir" ]; then
+        if [ "$_exit_on_error" == "true" ]; then
+            print_error "Error: {{$_dir}} is not writable by current user, please fix permissions and try again"
+            exit 1
+        else
+            print_warning "Warning: {{$_dir}} is not writable by current user, this may result in data loss"
+            return 1
+        fi
+    fi
+}
+
+# check that all dirs exist and are writable
+for folder in "$inboxfolder" "$outputfolder" "$donefolder" "$fixitfolder" "$backupfolder" "$buildfolder" "$mergefolder" "$binfolder"; do
+    ensure_dir_exists_and_is_writable "$folder"
+done
+
 if [ ! -f "/tmp/auto-m4b/running" ]; then
     sleep 5
     mkdir -p "/tmp/auto-m4b/"
@@ -650,25 +674,6 @@ detect_roman_numeral_part() {
     find . -type f \( "${audio_exts[@]}" \) | grep -qiEo "$_roman_numeral_pattern" | sort -u | uniq | wc -l | xargs
 }
 
-ensure_dir_exists_and_is_writable() {
-    local _dir="$1"
-    local _exit_on_error="${2:-"true"}"
-    if [ ! -d "$_dir" ]; then
-        print "$(tint_path "$_dir") does not exist, creating it..."
-        mkdir -p "$_dir"
-    fi
-
-    if [ ! -w "$_dir" ]; then
-        if [ "$_exit_on_error" == "true" ]; then
-            print_error "Error: {{$_dir}} is not writable by current user, please fix permissions and try again"
-            exit 1
-        else
-            print_warning "Warning: {{$_dir}} is not writable by current user, this may result in data loss"
-            return 1
-        fi
-    fi
-}
-
 join_paths() {
     local _path1=$(rm_trailing_slash "$1")
     local _path2=$(rm_leading_dot_slash "$2")
@@ -758,6 +763,7 @@ check_src_dst() {
 
 mv_or_cp_dir_contents() {
 
+    set -x
     local _operation="$1" # 'move' or 'copy'
     local _src_dir=$(rm_trailing_slash "$2")
     local _dst_dir=$(add_trailing_slash "$3")
@@ -1968,7 +1974,7 @@ while [ $m -ge 0 ]; do
     clean_workdir "$binfolder"
 
     #for each folder, check if current user has write access to each folder and exit if not
-    for folder in "$mergefolder" "$outputfolder" "$inboxfolder" "$backupfolder" "$binfolder" "$buildfolder" "$donefolder"; do
+    for folder in "$inboxfolder" "$mergefolder" "$outputfolder" "$backupfolder" "$binfolder" "$buildfolder" "$donefolder"; do
         ensure_dir_exists_and_is_writable "$folder"
     done
 
