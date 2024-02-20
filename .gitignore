@@ -4,5 +4,4 @@
 docker-compose.yml
 **/__pycache__
 .env.local*
-**/*.mp3
-**/*.m4b
+**/tests/tmp/**/*

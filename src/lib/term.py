@@ -22,9 +22,9 @@ BLUE_COLOR = Tinta().inspect(name="blue")
 PURPLE_COLOR = Tinta().inspect(name="purple")
 AMBER_COLOR = Tinta().inspect(name="amber")
 ORANGE_COLOR = Tinta().inspect(name="orange")
-ORANGE_ACCENT_COLOR = Tinta().inspect(name="orange_accent")
+ORANGE_HIGHLIGHT_COLOR = Tinta().inspect(name="orange_accent")
 RED_COLOR = Tinta().inspect(name="red")
-RED_ACCENT_COLOR = Tinta().inspect(name="red_accent")
+RED_HIGHLIGHT_COLOR = Tinta().inspect(name="red_accent")
 PINK_COLOR = Tinta().inspect(name="pink")
 
 
@@ -152,15 +152,15 @@ def nl(num_newlines=1):
     smart_print("\n" * num_newlines, end="")
 
 
-def print_grey(*args: Any, highlight_color: int | None = None):
+def print_grey(*args: Any, highlight_color: int | None = LIGHT_GREY_COLOR):
     smart_print(" ".join(args), color=GREY_COLOR, highlight_color=highlight_color)
 
 
-def print_dark_grey(*args: Any, highlight_color: int | None = None):
+def print_dark_grey(*args: Any, highlight_color: int | None = GREY_COLOR):
     smart_print(" ".join(args), color=DARK_GREY_COLOR, highlight_color=highlight_color)
 
 
-def print_light_grey(*args: Any, highlight_color: int | None = None):
+def print_light_grey(*args: Any, highlight_color: int | None = LIGHT_GREY_COLOR + 2):
     smart_print(" ".join(args), color=LIGHT_GREY_COLOR, highlight_color=highlight_color)
 
 
@@ -184,11 +184,11 @@ def print_amber(*args: Any, highlight_color: int | None = None):
     smart_print(" ".join(args), color=AMBER_COLOR, highlight_color=highlight_color)
 
 
-def print_orange(*args: Any, highlight_color: int | None = None):
+def print_orange(*args: Any, highlight_color: int | None = ORANGE_HIGHLIGHT_COLOR):
     smart_print(" ".join(args), color=ORANGE_COLOR, highlight_color=highlight_color)
 
 
-def print_red(*args: Any, highlight_color: int | None = None):
+def print_red(*args: Any, highlight_color: int | None = RED_HIGHLIGHT_COLOR):
     smart_print(" ".join(args), color=RED_COLOR, highlight_color=highlight_color)
 
 
@@ -215,11 +215,11 @@ def _print_alert(color: int, highlight_color: int, line: str):
 
 
 def print_error(*args: Any):
-    _print_alert(RED_COLOR, RED_ACCENT_COLOR, " ".join(args))
+    _print_alert(RED_COLOR, RED_HIGHLIGHT_COLOR, " ".join(args))
 
 
 def print_warning(*args: Any):
-    _print_alert(ORANGE_COLOR, ORANGE_ACCENT_COLOR, " ".join(args))
+    _print_alert(ORANGE_COLOR, ORANGE_HIGHLIGHT_COLOR, " ".join(args))
 
 
 def print_notice(*args: Any):
@@ -250,7 +250,7 @@ def tint_warning(*args: Any):
 
 
 def tint_warning_accent(*args: Any):
-    return Tinta().tint(ORANGE_ACCENT_COLOR, *args).to_str()
+    return Tinta().tint(ORANGE_HIGHLIGHT_COLOR, *args).to_str()
 
 
 def tint_error(*args: Any):
@@ -258,7 +258,7 @@ def tint_error(*args: Any):
 
 
 def tint_error_accent(*args: Any):
-    return Tinta().tint(RED_ACCENT_COLOR, *args).to_str()
+    return Tinta().tint(RED_HIGHLIGHT_COLOR, *args).to_str()
 
 
 def tinted_mp3(*args: Any):

@@ -10,7 +10,7 @@ from typing import Any, cast, Literal, overload, TYPE_CHECKING
 
 from dotenv import dotenv_values
 
-from src.lib.term import print_dark_grey, print_warning, smart_print
+from src.lib.term import print_dark_grey, print_warning
 
 DEFAULT_SLEEPTIME = 10  # Set this to your default sleep time
 AUDIO_EXTS = [".mp3", ".m4a", ".m4b", ".wma"]
@@ -53,11 +53,14 @@ OnComplete = Literal["move", "delete"]
 
 
 def ensure_dir_exists_and_is_writable(path: Path, throw: bool = True) -> None:
-    if not path.exists():
-        smart_print(f"{path} does not exist, creating it...")
-        path.mkdir(parents=True, exist_ok=True)
+    path.mkdir(parents=True, exist_ok=True)
+    exists = path.exists()
+    is_writable = os.access(path, os.W_OK)
 
-    if not os.access(path, os.W_OK):
+    if not exists:
+        raise FileNotFoundError(f"{path} does not exist and could not be created")
+
+    if not is_writable:
         if throw:
             raise PermissionError(
                 f"{path} is not writable by current user, please fix permissions and try again"
@@ -106,12 +109,18 @@ class Config(metaclass=_MetaSingleton):
 
     @cached_property
     def max_chapter_length(self):
+        """Max chapter length in seconds, default is 15-30m, and is converted to m4b-tool's seconds format."""
         max_chapter_length = os.getenv("MAX_CHAPTER_LENGTH", "15,30")
         return ",".join(str(int(x) * 60) for x in max_chapter_length.split(","))
 
     @cached_property
     def max_chapter_length_friendly(self):
-        return self.max_chapter_length.replace(",", "-") + "m"
+        return (
+            "-".join(
+                [str(int(int(t) / 60)) for t in self.max_chapter_length.split(",")]
+            )
+            + "m"
+        )
 
     @cached_property
     def should_skip_covers(self):
@@ -186,6 +195,19 @@ class Config(metaclass=_MetaSingleton):
     @cached_property
     def debug_arg(self):
         return "--debug" if self.DEBUG == "Y" else "-q"
+
+    @cached_property
+    def info_str(self):
+        info = f"{self.CPU_CORES} CPU cores / "
+        info += f"{self.SLEEPTIME}s sleep / "
+        info += f"Max chapter length: {self.max_chapter_length_friendly} / "
+        info += f"Cover images: {'off' if self.should_skip_covers else 'on'} / "
+        if self.VERSION == "latest":
+            info += " / m4b-tool: latest (preview)"
+        else:
+            info += " / m4b-tool: stable"
+
+        return info
 
     @cached_property
     def ENV(self):

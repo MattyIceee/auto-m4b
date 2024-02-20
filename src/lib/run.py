@@ -5,8 +5,6 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from tinta import Tinta
-
 from src.lib.audiobook import Audiobook
 from src.lib.config import AUDIO_EXTS, cfg
 from src.lib.ffmpeg_utils import build_id3_tags_args
@@ -33,7 +31,6 @@ from src.lib.term import (
     divider,
     fmt_linebreak_path,
     nl,
-    PATH_COLOR,
     print_aqua,
     print_blue,
     print_error,
@@ -68,10 +65,7 @@ def print_launch_and_set_running():
                 f"auto-m4b started at {current_local_time}, watching {cfg.inbox_dir}\n"
             )
         print_aqua("\nStarting auto-m4b...")
-        print_grey(
-            f"Watching {{{{{cfg.inbox_dir}}}}} for books to convert ⌐◒-◒\n",
-            highlight_color=PATH_COLOR,
-        )
+        print_grey(cfg.info_str)
 
 
 def process_standalone_files():
@@ -143,11 +137,7 @@ def process_inbox():
         f"-------------------  ⌐◒-◒  auto-m4b • {current_local_time}  ---------------------"
     )
 
-    print_grey(cfg.config_info_str)
-
-    smart_print(
-        Tinta("Checking for new books in").light_grey(cfg.inbox_dir)._("ꨄ︎").to_str()
-    )
+    print_grey(f"Checking for new books in {{{{{cfg.inbox_dir}}}}} ꨄ︎")
 
     if was_recently_modified(
         cfg.inbox_dir
@@ -171,7 +161,7 @@ def process_inbox():
         smart_print(f"No books to convert, next check in {cfg.SLEEPTIME}\n")
         return
 
-    smart_print(f"Found {pluralize(books_count, 'book')} to convert\n")
+    smart_print(f"Found {books_count} {pluralize(books_count, 'book')} to convert\n")
 
     for book_dir_name in audio_dirs:
         smart_print(book_dir_name)

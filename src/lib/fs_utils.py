@@ -443,7 +443,7 @@ def find_root_dirs_with_audio_files(
         return len(p.parts) - len(root.parts)
 
     all_roots_with_audio_files = [
-        d
+        d.relative_to(root)
         for d in root.rglob("*")
         if d.is_dir()
         and count_audio_files_in_dir(d, mindepth=0, maxdepth=1) > 0
@@ -452,32 +452,7 @@ def find_root_dirs_with_audio_files(
     ]
 
     # get the root dirs and remove duplicates
-    return list(set([get_root_dir(d) for d in all_roots_with_audio_files]))
-
-
-def get_root_dir(path: Path) -> Path:
-    # Takes a path and returns the root dir
-    # e.g. /path/to/folder1/folder2/file1 becomes /path
-    #      ./folder1/folder2/file1 becomes folder1
-    #      ./this-file.txt becomes .
-
-    # if arg is empty, throw
-    if not path:
-        raise ValueError("Error: get_root_dir() requires a path as an argument.")
-
-    # if path ends in a file extension or is a file, get the dirname and recursive call get_root_dir
-    # make sure to only allow .ext files, not .ext/ folders or ./ext folders
-
-    # if path begins with / and > 0 chars, return the first dir e.g. /path/ or /path >> path
-    # if path begins with ./ and > 2 chars, return the second dir e.g. ./path/ or ./path >> path
-    # if path does not start with / or ./, but contains a /, get the left-most part before /
-    # if path is ./, return .
-    # if path is . or /, return as-is
-
-    # if path is ./, return .
-    if path == Path(".") or path == Path("./"):
-        return Path(".")
-    return Path(path.parts[0])
+    return list(sorted(set([root / d.parts[0] for d in all_roots_with_audio_files])))
 
 
 def clean_dir(dir_path: Path) -> None:
@@ -557,6 +532,8 @@ def find_recently_modified_files_and_dirs(
 
 
 def was_recently_modified(path: Path, minutes: float = 0.1) -> bool:
+    if cfg.TEST:
+        return False
     current_time = time.time()
     return current_time - path.stat().st_mtime < minutes * 60
 

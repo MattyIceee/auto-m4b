@@ -16,7 +16,8 @@
     "m4b-tool/home*": true,
     "m4b-tool/src": true,
     "m4b-tool/tests": true,
-    "m4b-tool/tools": true
+    "m4b-tool/tools": true,
+    "**/*.mp3": true
   },
   "python.testing.pytestArgs": ["src/tests", "-rP", "-vv", "--color=yes"],
   "python.testing.unittestEnabled": false,

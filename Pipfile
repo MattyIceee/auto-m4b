@@ -28,3 +28,4 @@ allow_prereleases = true
 
 [scripts]
 app = "python src"
+tests = "python -m pytest -c pyproject.toml"
