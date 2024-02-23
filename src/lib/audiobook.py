@@ -1,21 +1,22 @@
+import import_debug
+
+import_debug.bug.push("src/lib/audiobook.py")
 from functools import cached_property
 from pathlib import Path
 from typing import cast, Literal, overload
 
-from lib.config import cfg
 from pydantic import BaseModel
 
+from src.lib.config import cfg
 from src.lib.ffmpeg_utils import DurationFmt, get_duration
 from src.lib.fs_utils import (
     count_audio_files_in_dir,
-    DirName,
     find_first_audio_file,
     find_next_audio_file,
     get_size,
-    SizeFmt,
 )
 from src.lib.parsers import extract_metadata, extract_path_info
-from src.lib.typing import AudiobookFmt
+from src.lib.typing import AudiobookFmt, DirName, SizeFmt
 
 
 class Audiobook(BaseModel):
@@ -37,6 +38,7 @@ class Audiobook(BaseModel):
     fs_narrator: str = ""
     dir_extra_junk: str = ""
     file_extra_junk: str = ""
+    orig_file_name: str = ""
     title: str = ""
     artist: str = ""
     albumartist: str = ""
@@ -52,12 +54,13 @@ class Audiobook(BaseModel):
     m4b_num_parts: int = 1
 
     def __init__(self, path: Path):
-        super().__init__()
 
-        self.path = path if path.is_absolute() else cfg.inbox_dir / path
+        if not path.is_absolute():
+            path = cfg.inbox_dir / path
 
-        extract_path_info(self)
-        extract_metadata(self)
+        super().__init__(path=path)
+
+        self.path = path
 
     def __str__(self):
         return f"{self.dir_name}"
@@ -65,41 +68,47 @@ class Audiobook(BaseModel):
     def __repr__(self):
         return f"{self.dir_name}"
 
+    def extract_path_info(self):
+        extract_path_info(self)
+
+    def extract_metadata(self):
+        extract_metadata(self)
+
     @property
     def inbox_dir(self):
-        return cfg.inbox_dir / self.dir_name
+        return cfg.inbox_dir.resolve() / self.dir_name
 
     @property
     def fix_dir(self) -> Path:
-        return cfg.fix_dir / self.dir_name
+        return cfg.fix_dir.resolve() / self.dir_name
 
     @property
     def backup_dir(self) -> Path:
-        return cfg.backup_dir / self.dir_name
+        return cfg.backup_dir.resolve() / self.dir_name
 
     @property
     def build_dir(self) -> Path:
-        return cfg.build_dir / self.dir_name
+        return cfg.build_dir.resolve() / self.dir_name
 
     @property
     def build_tmp_dir(self) -> Path:
-        return self.build_dir / f"{self.dir_name}-tmpfiles"
+        return self.build_dir.resolve() / f"{self.dir_name}-tmpfiles"
 
     @property
     def converted_dir(self) -> Path:
-        return cfg.converted_dir / self.dir_name
+        return cfg.converted_dir.resolve() / self.dir_name
 
     @property
     def archive_dir(self) -> Path:
-        return cfg.archive_dir / self.dir_name
+        return cfg.archive_dir.resolve() / self.dir_name
 
     @property
     def merge_dir(self) -> Path:
-        return cfg.merge_dir / self.dir_name
+        return cfg.merge_dir.resolve() / self.dir_name
 
     @property
     def build_file(self) -> Path:
-        return self.build_dir / f"{self.dir_name}.m4b"
+        return self.build_dir.resolve() / f"{self.dir_name}.m4b"
 
     @property
     def converted_file(self) -> Path:
@@ -197,3 +206,14 @@ Original duration: {self.duration("inbox", "human")}
         # check to make sure the file was created
         if not out_path.exists():
             raise ValueError(f"Failed to create {out_path}")
+
+    def metadata(self):
+        """Prints all known metadata for the book"""
+
+        for k, v in self.model_dump().items():
+            if k.startswith("_") or v is None or v == "":
+                continue
+            print(f"- {k}: {v}")
+
+
+import_debug.bug.pop("src/lib/audiobook.py")

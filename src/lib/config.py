@@ -1,3 +1,14 @@
+import time
+from contextlib import contextmanager
+from datetime import datetime
+
+import import_debug
+from dotenv import dotenv_values
+
+from src.lib.misc import get_git_root
+from src.lib.term import nl
+
+import_debug.bug.push("src/lib/config.py")
 import argparse
 import os
 import shutil
@@ -6,11 +17,9 @@ import tempfile
 from functools import cached_property
 from multiprocessing import cpu_count
 from pathlib import Path
-from typing import Any, cast, Literal, overload, TYPE_CHECKING
+from typing import Any, cast, Literal, overload, TYPE_CHECKING, TypeVar
 
-from dotenv import dotenv_values
-
-from src.lib.term import print_dark_grey, print_warning
+from src.lib.typing import OverwriteMode
 
 DEFAULT_SLEEPTIME = 10  # Set this to your default sleep time
 AUDIO_EXTS = [".mp3", ".m4a", ".m4b", ".wma"]
@@ -44,15 +53,21 @@ IGNORE_FILES = [
     "*.sh",
 ]
 
-ENV_SRC: Any = None
-
 if TYPE_CHECKING:
     pass
 
 OnComplete = Literal["move", "delete"]
 
+parser = argparse.ArgumentParser()
+parser.add_argument("--env", help="Path to .env file", type=Path)
+parser.add_argument("--debug", help="Enable debug mode", action="store_true")
+parser.add_argument("--test", help="Enable test mode", action="store_true")
+parser.add_argument("-l", "--loops", help="Max loops", type=int)
+
 
 def ensure_dir_exists_and_is_writable(path: Path, throw: bool = True) -> None:
+    from src.lib.term import print_warning
+
     path.mkdir(parents=True, exist_ok=True)
     exists = path.exists()
     is_writable = os.access(path, os.W_OK)
@@ -72,16 +87,61 @@ def ensure_dir_exists_and_is_writable(path: Path, throw: bool = True) -> None:
             return
 
 
-class _MetaSingleton(type):
-    _instances = {}
-
-    def __call__(cls, *args, **kwargs):
-        if cls not in cls._instances:
-            cls._instances[cls] = super(_MetaSingleton, cls).__call__(*args, **kwargs)
-        return cls._instances[cls]
+C = TypeVar("C")
 
 
-class Config(metaclass=_MetaSingleton):
+def singleton(class_: type[C]) -> type[C]:
+    class class_w(class_):
+        _instance = None
+
+        def __new__(cls, *args, **kwargs):
+            if class_w._instance is None:
+                import_debug.bug.push("src/lib/config.py -> new Config()")
+                class_w._instance = super(class_w, cls).__new__(cls, *args, **kwargs)
+                class_w._instance._sealed = False
+            return class_w._instance
+
+        def __init__(self, *args, **kwargs):
+            if self._sealed:
+                return
+            super(class_w, self).__init__(*args, **kwargs)
+            self._sealed = True
+
+    class_w.__name__ = class_.__name__
+    return cast(type[C], class_w)
+
+
+@singleton
+class Config:
+
+    _ENV: dict[str, str | None] = {}
+    _ENV_SRC: Any = None
+
+    def startup(self):
+        from src.lib.term import print_aqua, print_dark_grey, print_grey
+
+        with self.load_env() as env_msg:
+            if self.SLEEPTIME and not self.TEST:
+                time.sleep(min(2, self.SLEEPTIME / 2))
+            if not self.PID_FILE.is_file():
+                self.PID_FILE.touch()
+                current_local_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                with self.PID_FILE.open("a") as f:
+                    f.write(
+                        f"auto-m4b started at {current_local_time}, watching {self.inbox_dir}\n"
+                    )
+                print_aqua("\nStarting auto-m4b...")
+                print_grey(self.info_str)
+                if env_msg:
+                    print_dark_grey(env_msg)
+
+        nl()
+
+        self.clean()
+
+        self.clear_cached_attrs()
+        self.check_dirs()
+        self.check_m4b_tool()
 
     @cached_property
     def on_complete(self):
@@ -96,7 +156,7 @@ class Config(metaclass=_MetaSingleton):
         return "--overwrite" if self.OVERWRITE_EXISTING else "--no-overwrite"
 
     @cached_property
-    def default_overwrite_mode(self):
+    def default_overwrite_mode(self) -> OverwriteMode:
         return "overwrite" if self.OVERWRITE_EXISTING else "skip"
 
     @cached_property
@@ -172,29 +232,37 @@ class Config(metaclass=_MetaSingleton):
         path = Path(env).expanduser() if env else default
         if not path and not allow_empty:
             raise EnvironmentError(
-                f"{key} is not set, please make sure to set it in .env or as an ENV var"
+                f"{key} is not set, please make sure to set it in a .env file or as an ENV var"
             )
         return path
 
     @cached_property
     def ARGS(self):
-        # use argparser to get --env file
-        parser = argparse.ArgumentParser()
-        parser.add_argument("--env", help="Path to .env file", type=Path)
-        args, _ = parser.parse_known_args()
-        return args
+        return parser.parse_known_args()[0]
+
+    @property
+    def ENV(self):
+        return self._ENV
 
     @cached_property
     def TEST(self):
+        if self.ARGS.test:
+            return True
         return True if os.getenv("TEST", "N") == "Y" else False
 
     @cached_property
     def DEBUG(self):
+        if self.ARGS.debug:
+            return True
         return True if os.getenv("DEBUG", "N") == "Y" else False
 
     @cached_property
     def debug_arg(self):
         return "--debug" if self.DEBUG == "Y" else "-q"
+
+    @property
+    def MAX_LOOPS(self):
+        return self.ARGS.loops if self.ARGS.loops else -1
 
     @cached_property
     def info_str(self):
@@ -203,28 +271,11 @@ class Config(metaclass=_MetaSingleton):
         info += f"Max chapter length: {self.max_chapter_length_friendly} / "
         info += f"Cover images: {'off' if self.should_skip_covers else 'on'} / "
         if self.VERSION == "latest":
-            info += " / m4b-tool: latest (preview)"
+            info += "m4b-tool: latest (preview)"
         else:
-            info += " / m4b-tool: stable"
+            info += "m4b-tool: stable"
 
         return info
-
-    @cached_property
-    def ENV(self):
-        global ENV_SRC
-        if self.ARGS.env:
-            if ENV_SRC != self.ARGS.env:
-                print_dark_grey(f"Loading ENV from {self.ARGS.env}")
-            ENV_SRC = self.ARGS.env
-            return dotenv_values(self.ARGS.env)
-        elif self.TEST:
-            env_file = Path(__file__).parent.parent / ".env.test"
-            if ENV_SRC != env_file:
-                print_dark_grey(f"Loading test ENV from {env_file}")
-            ENV_SRC = env_file
-            return dotenv_values(env_file)
-        else:
-            return {}
 
     @cached_property
     def AUDIO_EXTS(self):
@@ -298,14 +349,15 @@ class Config(metaclass=_MetaSingleton):
         return pid_file
 
     def clean(self):
-        from lib.fs_utils import clean_dir
+        from src.lib.fs_utils import clean_dir
 
         # Pre-clean working folders
-        clean_dir(cfg.merge_dir)
-        clean_dir(cfg.build_dir)
-        clean_dir(cfg.trash_dir)
+        clean_dir(self.merge_dir)
+        clean_dir(self.build_dir)
+        clean_dir(self.trash_dir)
 
     def check_dirs(self):
+
         dirs = [
             self.inbox_dir,
             self.converted_dir,
@@ -335,7 +387,7 @@ class Config(metaclass=_MetaSingleton):
 
         # docker images -q sandreas/m4b-tool:latest
         has_docker = bool(shutil.which("docker"))
-        docker_image_exists = bool(
+        docker_image_exists = has_docker and bool(
             subprocess.check_output(
                 ["docker", "images", "-q", "sandreas/m4b-tool:latest"]
             ).strip()
@@ -350,22 +402,31 @@ class Config(metaclass=_MetaSingleton):
             f"{{{{{self.m4b_tool}}}}} is not installed or not in PATH, please install it and try again\n     (See https://github.com/sandreas/m4b-tool)\n\n     If you are using Docker, make sure the image 'sandreas/m4b-tool:latest' is available and you have added an appropriate alias (hint: run ./install-m4b-tool.sh)."
         )
 
-    @classmethod
-    def startup(cls):
-
-        global cfg
-        cfg = cls()
-        cfg.clean()
-
-        cfg.clear_cached_attrs()
-        cfg.check_dirs()
-        cfg.check_m4b_tool()
+    @contextmanager
+    def load_env(self):
+        msg = ""
+        if self.ARGS.env:
+            if self._ENV_SRC != self.ARGS.env:
+                msg = f"Loading ENV from {self.ARGS.env}"
+            self._ENV_SRC = self.ARGS.env
+            self._ENV = dotenv_values(self.ARGS.env)
+        elif self.TEST:
+            env_file = get_git_root() / ".env.test"
+            if self._ENV_SRC != env_file:
+                msg = f"Loading test ENV from {env_file}"
+            self._ENV_SRC = env_file
+            self._ENV = dotenv_values(env_file)
+        else:
+            self._ENV = {}
+        yield msg
 
     def reload(self):
         self.__init__()
         self.clear_cached_attrs()
+        self.load_env()
 
 
 cfg = Config()
 
 __all__ = ["cfg"]
+import_debug.bug.pop("src/lib/config.py")

@@ -1,14 +1,17 @@
+import import_debug
+
+import_debug.bug.push("src/lib/parsers.py")
 import os
 import re
+import string
 from itertools import combinations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from tinta import Tinta
-
+from src.lib.config import cfg
 from src.lib.ffmpeg_utils import extract_id3_tag_py, get_bitrate_py, get_samplerate_py
 from src.lib.misc import count_numbers_in_string, fix_smart_quotes, re_group
-from src.lib.term import print_list
+from src.lib.term import PATH_COLOR, print_light_grey, print_list
 
 author_pattern = r"^(?P<author>.*?)[\W\s]*[-_–—\(]"
 book_title_pattern = r"(?<=[-_–—])[\W\s]*(?P<book_title>[\w\s]+?)\s*(?=\d{4}|\(|\[|$)"
@@ -96,7 +99,8 @@ def extract_path_info(
     orig_file_name = strip_part_number(orig_file_name)
     orig_file_name = re.sub(r"(part|chapter|ch\.)\s*$", "", orig_file_name, flags=re.I)
     orig_file_name = re.sub(r"\s*$", "", orig_file_name)
-    orig_file_name = re.sub(r"\p{P}$", "", orig_file_name)
+
+    orig_file_name = orig_file_name.rstrip().rstrip(string.punctuation)
 
     file_author = swap_firstname_lastname(
         re_group(re.search(author_pattern, orig_file_name), "author")
@@ -136,9 +140,7 @@ def extract_path_info(
             r"^[ \,.\)\}\]]*", "", re.sub(f, "", orig_file_name, flags=re.I)
         )
 
-    book.original_file_name = re.sub(
-        r"^[^a-zA-Z0-9]+|[^a-zA-Z0-9]+$", "", orig_file_name
-    )
+    book.orig_file_name = re.sub(r"^[^a-zA-Z0-9]+|[^a-zA-Z0-9]+$", "", orig_file_name)
 
     return book
 
@@ -147,11 +149,10 @@ def extract_metadata(
     book: "Audiobook",
 ):
 
-    Tinta("Sampling").light_grey(book.sample_audio1)._(
-        " for id3 tags and quality information..."
-    ).print()
-
-    # print "Sampling $(tint_light_grey "$(rm_leading_dot_slash "$sample_audio")") for id3 tags and quality information..."
+    print_light_grey(
+        f"Sampling {{{{{book.sample_audio1.relative_to(book.inbox_dir)}}}}} for id3 tags and quality information...",
+        highlight_color=PATH_COLOR,
+    )
 
     book.bitrate = get_bitrate_py(book.sample_audio1)
     book.samplerate = get_samplerate_py(book.sample_audio1)
@@ -183,18 +184,30 @@ def extract_metadata(
     album_matches_album2 = book.id3_album == id3_album_2
     title_matches_title2 = book.id3_title == id3_title_2
 
-    album_is_in_title = book.id3_album.lower() in book.id3_title.lower()
-    sortalbum_is_in_title = book.id3_sortalbum.lower() in book.id3_title.lower()
+    album_is_in_title = (
+        book.id3_album
+        and book.id3_title
+        and book.id3_album.lower() in book.id3_title.lower()
+    )
+    sortalbum_is_in_title = (
+        book.id3_sortalbum
+        and book.id3_title
+        and book.id3_sortalbum.lower() in book.id3_title.lower()
+    )
 
-    title_is_in_folder_name = book.id3_title.lower() in book.dir_name.lower()
-    album_is_in_folder_name = book.id3_album.lower() in book.dir_name.lower()
-    sortalbum_is_in_folder_name = book.id3_sortalbum.lower() in book.dir_name.lower()
+    title_is_in_folder_name = (
+        book.id3_title and book.id3_title.lower() in book.dir_name.lower()
+    )
+    album_is_in_folder_name = (
+        book.id3_album and book.id3_album.lower() in book.dir_name.lower()
+    )
+    sortalbum_is_in_folder_name = (
+        book.id3_sortalbum and book.id3_sortalbum.lower() in book.dir_name.lower()
+    )
 
     id3_title_is_title = False
     id3_album_is_title = False
     id3_sortalbum_is_title = False
-
-    print()
 
     # Title:
     if not book.id3_title and not book.id3_album and not book.id3_sortalbum:
@@ -205,16 +218,16 @@ def extract_metadata(
         # If (sort)album is in title, it's likely that title is something like {book name}, ch. 6
         # So if album is in title, prefer album
         if album_is_in_title:
-            print("Album is in title")
+            print("id3_album is in title")
             book.title = book.id3_album
             id3_album_is_title = True
         elif sortalbum_is_in_title:
-            print("Sort album is in title")
+            print("id3_sortalbum is in title")
             book.title = book.id3_sortalbum
             id3_sortalbum_is_title = True
         # If id3_title is in _folder_name, prefer id3_title
         elif title_is_in_folder_name:
-            print("Title is in folder name")
+            print("id3_title is in folder name")
             book.title = book.id3_title
             id3_title_is_title = True
         # If both sample files' album name matches, prefer album
@@ -224,7 +237,7 @@ def extract_metadata(
             id3_album_is_title = True
         # If both sample files' title name matches, prefer title
         elif title_matches_title2:
-            print("Title matches title2")
+            print("id3_title matches sample2 id3_title")
             book.title = book.id3_title
             id3_title_is_title = True
         # If title is a part no., we should use album or sortalbum
@@ -382,18 +395,18 @@ def extract_metadata(
 
     # Date:
     if book.id3_date and not book.fs_year:
-        date = book.id3_date
+        book.date = book.id3_date
     elif book.fs_year and not book.id3_date:
-        date = book.fs_year
+        book.date = book.fs_year
     elif book.id3_date and book.fs_year:
         if int(book.id3_year) < int(book.fs_year):
-            date = book.id3_date
+            book.date = book.id3_date
         else:
-            date = book.fs_year
+            book.date = book.fs_year
 
-    print_list(f"Date: {date}")
+    print_list(f"Date: {book.date}")
     # extract 4 digits from date
-    book.year = re_group(re.search(r"\d{4}", date)) if date else None
+    book.year = re_group(re.search(r"\d{4}", book.date)) if book.date else None
 
     # convert bitrate and sample rate to friendly to kbit/s, rounding to nearest tenths, e.g. 44.1 kHz
     print_list(f"Quality: {book.bitrate_friendly} @ {book.samplerate_friendly}")
@@ -406,7 +419,7 @@ def count_roman_numerals(d: Path) -> int:
     roman_numerals = set()
 
     for file in d.rglob("*"):
-        if any(file.suffix == ext for ext in AUDIO_EXTS):
+        if any(file.suffix == ext for ext in cfg.AUDIO_EXTS):
             match = re.search(roman_numeral_pattern, str(file), re.I)
             if match:
                 roman_numerals.add(match.group())
@@ -416,3 +429,6 @@ def count_roman_numerals(d: Path) -> int:
 
 def get_year_from_date(date: str | None) -> str:
     return re_group(re.search(r"\d{4}", date or ""), default="")
+
+
+import_debug.bug.pop("src/lib/parsers.py")

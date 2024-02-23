@@ -1,10 +1,13 @@
+import import_debug
+
+import_debug.bug.push("src/lib/ffmpeg_utils.py")
 import subprocess
 from pathlib import Path
 from typing import Literal, overload
 
 import ffmpeg
-from lib.config import AUDIO_EXTS
 
+from src.lib.config import AUDIO_EXTS
 from src.lib.formatters import round_bit_rate
 
 DurationFmt = Literal["seconds", "human"]
@@ -67,7 +70,7 @@ def extract_id3_tag_py(file: Path | None, tag: str) -> str:
     if file is None:
         return ""
     probe_result = ffmpeg.probe(str(file))
-    return probe_result["format"]["tags"][tag]
+    return probe_result["format"]["tags"].get(tag, "")
 
 
 def get_bitrate(file: Path, round: bool = True) -> int:
@@ -131,3 +134,6 @@ def build_id3_tags_args(
     id3tags += ' --encoded-by="PHNTM" --genre="Audiobook"'
 
     return id3tags
+
+
+import_debug.bug.pop("src/lib/fs_utils.py")

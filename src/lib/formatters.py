@@ -1,3 +1,6 @@
+import import_debug
+
+import_debug.bug.push("src/lib/formatters.py")
 from datetime import datetime
 
 import inflect
@@ -5,7 +8,7 @@ import numpy as np
 
 
 def friendly_date() -> str:
-    return datetime.now().strftime("%a, %d %b %Y %I:%M:%S %Z")
+    return datetime.now().strftime("%I:%M:%S %p – %a, %d %b %Y")
 
 
 def round_bit_rate(bitrate: int) -> int:
@@ -52,3 +55,6 @@ def pluralize(count: int, singular: str, plural: str | None = None) -> str:
         return p.plural(singular) if plural is None else plural
     else:
         return f"{singular}(s)"
+
+
+import_debug.bug.pop("src/lib/formatters.py")

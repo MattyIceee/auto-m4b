@@ -1,3 +1,6 @@
+import import_debug
+
+import_debug.bug.push("src/lib/term.py")
 import re
 from pathlib import Path
 from typing import Any
@@ -149,56 +152,82 @@ def nl(num_newlines=1):
     LAST_LINE_WAS_EMPTY = True
     LAST_LINE_WAS_ALERT = False
 
-    smart_print("\n" * num_newlines, end="")
+    smart_print("\n" * num_newlines)
 
 
 def print_grey(*args: Any, highlight_color: int | None = LIGHT_GREY_COLOR):
-    smart_print(" ".join(args), color=GREY_COLOR, highlight_color=highlight_color)
+    smart_print(
+        " ".join(map(str, args)), color=GREY_COLOR, highlight_color=highlight_color
+    )
 
 
 def print_dark_grey(*args: Any, highlight_color: int | None = GREY_COLOR):
-    smart_print(" ".join(args), color=DARK_GREY_COLOR, highlight_color=highlight_color)
+    smart_print(
+        " ".join(map(str, args)), color=DARK_GREY_COLOR, highlight_color=highlight_color
+    )
 
 
-def print_light_grey(*args: Any, highlight_color: int | None = LIGHT_GREY_COLOR + 2):
-    smart_print(" ".join(args), color=LIGHT_GREY_COLOR, highlight_color=highlight_color)
+def print_light_grey(*args: Any, highlight_color: int | None = GREY_COLOR):
+    smart_print(
+        " ".join(map(str, args)),
+        color=LIGHT_GREY_COLOR,
+        highlight_color=highlight_color,
+    )
 
 
 def print_aqua(*args: Any, highlight_color: int | None = None):
-    smart_print(" ".join(args), color=AQUA_COLOR, highlight_color=highlight_color)
+    smart_print(
+        " ".join(map(str, args)), color=AQUA_COLOR, highlight_color=highlight_color
+    )
 
 
 def print_green(*args: Any, highlight_color: int | None = None):
-    smart_print(" ".join(args), color=GREEN_COLOR, highlight_color=highlight_color)
+    smart_print(
+        " ".join(map(str, args)), color=GREEN_COLOR, highlight_color=highlight_color
+    )
 
 
 def print_blue(*args: Any, highlight_color: int | None = None):
-    smart_print(" ".join(args), color=BLUE_COLOR, highlight_color=highlight_color)
+    smart_print(
+        " ".join(map(str, args)), color=BLUE_COLOR, highlight_color=highlight_color
+    )
 
 
 def print_purple(*args: Any, highlight_color: int | None = None):
-    smart_print(" ".join(args), color=PURPLE_COLOR, highlight_color=highlight_color)
+    smart_print(
+        " ".join(map(str, args)), color=PURPLE_COLOR, highlight_color=highlight_color
+    )
 
 
 def print_amber(*args: Any, highlight_color: int | None = None):
-    smart_print(" ".join(args), color=AMBER_COLOR, highlight_color=highlight_color)
+    smart_print(
+        " ".join(map(str, args)), color=AMBER_COLOR, highlight_color=highlight_color
+    )
 
 
 def print_orange(*args: Any, highlight_color: int | None = ORANGE_HIGHLIGHT_COLOR):
-    smart_print(" ".join(args), color=ORANGE_COLOR, highlight_color=highlight_color)
+    smart_print(
+        " ".join(map(str, args)), color=ORANGE_COLOR, highlight_color=highlight_color
+    )
 
 
 def print_red(*args: Any, highlight_color: int | None = RED_HIGHLIGHT_COLOR):
-    smart_print(" ".join(args), color=RED_COLOR, highlight_color=highlight_color)
+    smart_print(
+        " ".join(map(str, args)), color=RED_COLOR, highlight_color=highlight_color
+    )
 
 
 def print_pink(*args: Any, highlight_color: int | None = None):
-    smart_print(" ".join(args), color=PINK_COLOR, highlight_color=highlight_color)
+    smart_print(
+        " ".join(map(str, args)), color=PINK_COLOR, highlight_color=highlight_color
+    )
 
 
 def print_list(*args: Any, highlight_color: int | None = None):
     smart_print(
-        "- " + " ".join(args), color=GREY_COLOR, highlight_color=highlight_color
+        "- " + " ".join(map(str, args)),
+        color=GREY_COLOR,
+        highlight_color=highlight_color,
     )
 
 
@@ -215,15 +244,15 @@ def _print_alert(color: int, highlight_color: int, line: str):
 
 
 def print_error(*args: Any):
-    _print_alert(RED_COLOR, RED_HIGHLIGHT_COLOR, " ".join(args))
+    _print_alert(RED_COLOR, RED_HIGHLIGHT_COLOR, " ".join(map(str, args)))
 
 
 def print_warning(*args: Any):
-    _print_alert(ORANGE_COLOR, ORANGE_HIGHLIGHT_COLOR, " ".join(args))
+    _print_alert(ORANGE_COLOR, ORANGE_HIGHLIGHT_COLOR, " ".join(map(str, args)))
 
 
 def print_notice(*args: Any):
-    _print_alert(LIGHT_GREY_COLOR, DEFAULT_COLOR, " ".join(args))
+    _print_alert(LIGHT_GREY_COLOR, DEFAULT_COLOR, " ".join(map(str, args)))
 
 
 PATH_COLOR = PURPLE_COLOR
@@ -276,21 +305,23 @@ def tinted_m4b(*args):
 
 
 def tinted_file(*args):
-    _known_file_types = ["mp3", "m4b", "m4a", "wma"]
-    _is_known_file_type = any(arg in _known_file_types for arg in args)
-    _line = args[1] if len(args) > 1 else args[0]
+    from src.lib.config import cfg
 
-    if _is_known_file_type:
+    audio_exts = [a.replace(".", "") for a in cfg.AUDIO_EXTS]
+    is_audio_file = any(arg in audio_exts for arg in args)
+    s = args[1] if len(args) > 1 else args[0]
+
+    if is_audio_file:
         if "mp3" in args:
-            tinted_mp3(_line)
+            return tinted_mp3(s)
         elif "m4b" in args:
-            tinted_m4b(_line)
+            return tinted_m4b(s)
         elif "m4a" in args:
-            tint_aqua(_line)
+            return tint_aqua(s)
         elif "wma" in args:
-            Tinta().tint(AMBER_COLOR, _line).to_str()
+            return Tinta().tint(AMBER_COLOR, s).to_str()
     else:
-        Tinta().tint(DEFAULT_COLOR, _line).to_str()
+        return Tinta().tint(DEFAULT_COLOR, s).to_str()
 
 
 def divider():
@@ -337,3 +368,6 @@ def fmt_linebreak_path(path: Path, limit: int = 120, indent: int = 0) -> str:
             output += "/" + part
 
     return output
+
+
+import_debug.bug.pop("src/lib/term.py")

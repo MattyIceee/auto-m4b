@@ -1,3 +1,6 @@
+import import_debug
+
+import_debug.bug.push("src/lib/fs_utils.py")
 import os
 import shutil
 import time
@@ -6,22 +9,14 @@ from typing import Literal, NamedTuple, overload
 
 import humanize
 
-from src.lib.config import AUDIO_EXTS, cfg
+from src.lib.config import AUDIO_EXTS
 from src.lib.term import (
     print_error,
     print_grey,
     print_notice,
     print_warning,
 )
-
-Operation = Literal["move", "copy"]
-OverwriteMode = Literal["skip", "overwrite", "overwrite-silent"]
-PathType = Literal["dir", "file"]
-
-SizeFmt = Literal["bytes", "human"]
-DirName = Literal[
-    "inbox", "converted", "archive", "fix", "backup", "build", "merge", "trash"
-]
+from src.lib.typing import Operation, OverwriteMode, PathType, SizeFmt
 
 
 def count_audio_files_in_dir(
@@ -197,6 +192,8 @@ def _mv_or_cp_dir_contents(
     ignore_files: list[str] = [],
     only_file_exts: list[str] = [],
 ):
+
+    from src.lib.config import cfg
 
     if operation not in ["move", "copy"]:
         raise ValueError("Invalid operation")
@@ -490,7 +487,7 @@ def find_first_audio_file(path: Path, throw: bool = True) -> Path | None:
         return path
 
     for ext in AUDIO_EXTS:
-        audio_file = next(path.rglob(ext), None)
+        audio_file = next(iter(sorted(path.rglob(f"*{ext}"))), None)
         if audio_file:
             return audio_file
     if throw:
@@ -532,6 +529,8 @@ def find_recently_modified_files_and_dirs(
 
 
 def was_recently_modified(path: Path, minutes: float = 0.1) -> bool:
+    from src.lib.config import cfg
+
     if cfg.TEST:
         return False
     current_time = time.time()
@@ -590,3 +589,6 @@ def get_flat_list_of_files_in_dir(
 
 def dir_is_empty(path: Path) -> bool:
     return not any(path.iterdir())
+
+
+import_debug.bug.pop("src/lib/fs_utils.py")

@@ -1,6 +1,5 @@
 import os
 import shutil
-import subprocess
 import sys
 from pathlib import Path
 
@@ -9,14 +8,7 @@ from dotenv import dotenv_values
 
 sys.path.append(str(Path(__file__).parent.parent))
 
-
-def get_git_root():
-    return Path(
-        subprocess.check_output(["git", "rev-parse", "--show-toplevel"])
-        .strip()
-        .decode("utf-8")
-    )
-
+from src.lib.misc import get_git_root
 
 GIT_ROOT = get_git_root()
 SRC_ROOT = Path(__file__).parent.parent

@@ -7,6 +7,13 @@ P = ParamSpec("P")
 R = TypeVar("R")
 
 AudiobookFmt = Literal["m4b", "mp3", "m4a", "wma"]
+Operation = Literal["move", "copy"]
+OverwriteMode = Literal["skip", "overwrite", "overwrite-silent"]
+PathType = Literal["dir", "file"]
+SizeFmt = Literal["bytes", "human"]
+DirName = Literal[
+    "inbox", "converted", "archive", "fix", "backup", "build", "merge", "trash"
+]
 
 
 # Source: https://stackoverflow.com/a/71968448/1214800

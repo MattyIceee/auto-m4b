@@ -1,3 +1,6 @@
+import import_debug
+
+import_debug.bug.push("src/lib/id3_utils.py")
 import shutil
 import subprocess
 from pathlib import Path
@@ -148,3 +151,6 @@ def verify_and_update_id3_tags(
     # write with exiftool
     if exiftool_args:
         write_id3_tags(m4b_to_check, exiftool_args)
+
+
+import_debug.bug.pop("src/lib/id3_utils.py")

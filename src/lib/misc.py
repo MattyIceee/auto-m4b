@@ -1,6 +1,20 @@
+import subprocess
+
+import import_debug
+
+import_debug.bug.push("src/lib/misc.py")
 import re
 from pathlib import Path
 from typing import cast, TypeVar
+
+
+def get_git_root():
+    return Path(
+        subprocess.check_output(["git", "rev-parse", "--show-toplevel"])
+        .strip()
+        .decode("utf-8")
+    )
+
 
 T = TypeVar("T", bound=str | Path)
 
@@ -67,3 +81,6 @@ def re_group(
 
 def compare_trim(a: str, b: str) -> bool:
     return " ".join(a.split()) == " ".join(b.split())
+
+
+import_debug.bug.pop("src/lib/misc.py")

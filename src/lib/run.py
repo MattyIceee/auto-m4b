@@ -1,3 +1,6 @@
+import import_debug
+
+import_debug.bug.push("src/lib/run.py")
 import re
 import shutil
 import subprocess
@@ -53,11 +56,9 @@ from src.lib.term import (
 
 def print_launch_and_set_running():
 
-    from src.lib.config import cfg
-
+    if cfg.SLEEPTIME and not cfg.TEST:
+        time.sleep(min(2, cfg.SLEEPTIME / 2))
     if not cfg.PID_FILE.is_file():
-        if cfg.SLEEPTIME and not cfg.TEST:
-            time.sleep(cfg.SLEEPTIME / 2)
         cfg.PID_FILE.touch()
         current_local_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         with cfg.PID_FILE.open("a") as f:
@@ -65,7 +66,7 @@ def print_launch_and_set_running():
                 f"auto-m4b started at {current_local_time}, watching {cfg.inbox_dir}\n"
             )
         print_aqua("\nStarting auto-m4b...")
-        print_grey(cfg.info_str)
+        print_grey(f"{cfg.info_str}\n")
 
 
 def process_standalone_files():
@@ -122,8 +123,6 @@ def process_standalone_files():
 
 def process_inbox():
 
-    cfg.startup()
-
     audiobooks_count = count_audio_files_in_dir(
         cfg.inbox_dir, only_file_exts=AUDIO_EXTS
     )
@@ -163,10 +162,9 @@ def process_inbox():
 
     smart_print(f"Found {books_count} {pluralize(books_count, 'book')} to convert\n")
 
-    for book_dir_name in audio_dirs:
-        smart_print(book_dir_name)
+    for book_full_path in audio_dirs:
 
-        book = Audiobook(book_dir_name)
+        book = Audiobook(book_full_path)
 
         m4b_count = count_audio_files_in_dir(book.inbox_dir, only_file_exts=["m4b"])
         root_only_audio_files_count = count_audio_files_in_dir(
@@ -175,7 +173,7 @@ def process_inbox():
 
         divider()
 
-        print_blue(book_dir_name)
+        print_blue(book.dir_name)
 
         nested_audio_dirs = find_root_dirs_with_audio_files(book.inbox_dir, mindepth=2)
         nested_audio_dirs_count = len(nested_audio_dirs)
@@ -202,12 +200,12 @@ def process_inbox():
             mv_dir_contents(book.inbox_dir, book.converted_dir)
             continue
 
-        if not nested_audio_dirs or book.num_files("inbox") == 0:
+        if book.num_files("inbox") == 0:
             print_notice("No audio files found, skipping")
             continue
 
         # Check if a copy of this book is in fix_dir and bail
-        if (cfg.fix_dir / book_dir_name).exists():
+        if (cfg.fix_dir / book.dir_name).exists():
             print_error(
                 "Error: A copy of this book is in the fix folder, please fix it and try again"
             )
@@ -274,38 +272,30 @@ def process_inbox():
 
             # Check that files count and folder size match
             orig_files_count = book.num_files("inbox")
-            orig_files_size = book.size("inbox", "bytes")
+            orig_size_b = book.size("inbox", "bytes")
+            orig_size_human = book.size("inbox", "human")
             orig_plural = pluralize(orig_files_count, "file")
 
             backup_files_count = book.num_files("backup")
-            backup_files_size = book.size("backup", "bytes")
+            backup_size_b = book.size("backup", "bytes")
+            backup_size_human = book.size("backup", "human")
             backup_plural = pluralize(backup_files_count, "file")
 
-            if (
-                orig_files_count == backup_files_count
-                and orig_files_size == backup_files_size
-            ):
+            if orig_files_count == backup_files_count and orig_size_b == backup_size_b:
                 smart_print(
-                    f"Backup successful - {backup_files_count} {orig_plural} ({backup_files_size})"
+                    f"Backup successful - {backup_files_count} {orig_plural} ({backup_size_human})"
                 )
-            elif (
-                orig_files_count < backup_files_count
-                or orig_files_size < backup_files_size
-            ):
+            elif orig_files_count < backup_files_count or orig_size_b < backup_size_b:
                 print_light_grey(
-                    f"Backup successful - but expected {orig_plural} ({orig_files_size}), found {backup_files_count} {backup_plural} ({backup_files_size})"
+                    f"Backup successful - but expected {orig_plural} ({orig_size_human}), found {backup_files_count} {backup_plural} ({backup_size_human})"
                 )
                 print_light_grey("Assuming this is a previous backup and continuing")
             else:
                 print_error(
-                    f"Backup failed - expected {orig_files_count} {orig_plural} ({orig_files_size}), found {backup_files_count} {backup_plural} ({backup_files_size})"
+                    f"Backup failed - expected {orig_files_count} {orig_plural} ({orig_size_human}), found {backup_files_count} {backup_plural} ({backup_size_human})"
                 )
                 smart_print("Skipping this book")
                 continue
-
-        # Move from inbox to merge folder
-        smart_print("\nCopying files to build folder...\n")
-        cp_dir(book.inbox_dir, cfg.merge_dir, "overwrite-silent")
 
         if book.converted_file.is_file():
             if cfg.OVERWRITE_EXISTING == "N":
@@ -326,6 +316,14 @@ def process_inbox():
                 print_warning(
                     "Warning: Output file already exists, it and any other {{.m4b}} files will be overwritten"
                 )
+
+        # Move from inbox to merge folder
+        smart_print("\nCopying files to build folder...", end="")
+        cp_dir(book.inbox_dir, cfg.merge_dir, "overwrite-silent")
+        print_aqua(f" ✓\n")
+
+        book.extract_path_info()
+        book.extract_metadata()
 
         # Pre-create tempdir for m4b-tool in "$buildfolder$book-tmpfiles" and ensure writable
         clean_dir(book.build_dir)
@@ -378,6 +376,8 @@ def process_inbox():
 
         stdout = subprocess.PIPE if cfg.DEBUG else subprocess.DEVNULL
         stderr = subprocess.STDOUT if cfg.DEBUG else subprocess.DEVNULL
+
+        return
 
         subprocess.run(m4btool_merge_command, shell=True, stdout=stdout, stderr=stderr)
 
@@ -553,3 +553,6 @@ def process_inbox():
 
     divider()
     nl()
+
+
+import_debug.bug.pop("src/lib/run.py")

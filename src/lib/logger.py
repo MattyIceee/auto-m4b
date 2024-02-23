@@ -1,3 +1,6 @@
+import import_debug
+
+import_debug.bug.push("src/lib/logger.py")
 from datetime import datetime
 from pathlib import Path
 
@@ -52,3 +55,6 @@ def get_log_entry(book_src: Path) -> str:
     with open(cfg.GLOBAL_LOG_FILE, "r") as f:
         log_entry = next((line for line in f if book_name in line), "")
     return log_entry
+
+
+import_debug.bug.pop("src/lib/logger.py")
