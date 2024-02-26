@@ -130,7 +130,7 @@ def smart_print(
     if highlight_color != color:
         parts = [p for p in re.split(r"(\{\{.*?\}\})", text) if p]
         # if trim at most one leading and trailing space from each part
-        parts = [trim_single_spaces(p) for p in parts]
+        # parts = [trim_single_spaces(p) for p in parts]
         for part in parts:
             if part.startswith("{{") and part.endswith("}}"):
                 t.tint(highlight_color, part[2:-2])

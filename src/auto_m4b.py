@@ -30,7 +30,6 @@ def handle_err(e: Exception):
 def app(**kwargs):
 
     args = AutoM4bArgs(**kwargs)
-    print(args)
     global LOOP_COUNT, EXIT_CODE
     try:
         cfg.startup(args)

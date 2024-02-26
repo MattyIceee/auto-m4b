@@ -30,7 +30,7 @@ from src.lib.fs_utils import (
 )
 from src.lib.id3_utils import verify_and_update_id3_tags
 from src.lib.logger import log_results
-from src.lib.misc import dockerize_volume, human_elapsed_time
+from src.lib.misc import dockerize_volume, human_elapsed_time, re_group
 from src.lib.parsers import count_roman_numerals
 from src.lib.term import (
     divider,
@@ -45,7 +45,6 @@ from src.lib.term import (
     print_list,
     print_notice,
     print_orange,
-    print_red,
     print_warning,
     smart_print,
     tint_light_grey,
@@ -420,8 +419,6 @@ def process_inbox():
 
         book.write_description_txt()
 
-        stdout = subprocess.PIPE if cfg.DEBUG else subprocess.DEVNULL
-        stderr = subprocess.PIPE if cfg.DEBUG else subprocess.DEVNULL
         err = False
 
         cmd = m4b_tool.cmd()
@@ -429,13 +426,15 @@ def process_inbox():
         if cfg.DEBUG:
             print_dark_grey(" ".join(cmd))
 
-        proc = subprocess.run(cmd, stdout=stdout, stderr=stderr)
+        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         if proc.stderr:
             nl()
             raise RuntimeError(proc.stderr.decode())
+        else:
+            stdout = proc.stdout.decode()
 
-        elif cfg.DEBUG:
-            smart_print(proc.stdout.decode())
+        if cfg.DEBUG:
+            smart_print(stdout)
         # if proc.returncode != 0 or proc.stderr:
         # print_error(f"m4b-tool failed to convert {book}")
         # raise RuntimeError(
@@ -455,63 +454,78 @@ def process_inbox():
         elapsed_time = int(time.time() - starttime)
         elapsedtime_friendly = human_elapsed_time(elapsed_time)
 
-        with open(book.log_file, "r") as f:
-            logfile = f.read()
+        # with open(book.log_file, "r") as f:
+        #     logfile = f.read()
 
-            valid_err_blocks = []
-            if re.search(r"error", logfile, re.I):
+        if re.search(r"error", stdout, re.I):
 
-                # ignorable errors:
-                ###################
-                # an error occured, that has not been caught:
-                # Array
-                # (
-                #     [type] => 8192
-                #     [message] => Implicit conversion from float 9082109.64 to int loses precision
-                #     [file] => phar:///usr/local/bin/m4b-tool/src/library/M4bTool/Parser/SilenceParser.php
-                #     [line] => 61
-                # )
-                ###################
-                # regex: an error occured[\s\S]*?Array[\s\S]*?Implicit conversion from float[\s\S]*?\)
-                ###################
+            # ignorable errors:
+            ###################
+            # an error occured, that has not been caught:
+            # Array
+            # (
+            #     [type] => 8192
+            #     [message] => Implicit conversion from float 9082109.64 to int loses precision
+            #     [file] => phar:///usr/local/bin/m4b-tool/src/library/M4bTool/Parser/SilenceParser.php
+            #     [line] => 61
+            # )
+            ###################
+            # regex: an error occured[\s\S]*?Array[\s\S]*?Implicit conversion from float[\s\S]*?\)
+            ###################
 
-                err_blocks = [r"an error occured[\s\S]*?Array[\s\S]*?\)"]
+            err_blocks = [r"an error occured[\s\S]*?Array[\s\S]*?\)"]
 
-                # ignorable errors:
-                ignorable_errors = [
-                    r"failed to save key",
-                    r"implicit conversion from float",
-                    r"ffmpeg version .* or higher is .* likely to cause errors",
-                ]
+            # ignorable errors:
+            ignorable_errors = [
+                r"failed to save key",
+                r"implicit conversion from float",
+                r"ffmpeg version .* or higher is .* likely to cause errors",
+            ]
 
-                # if any of the err_blocks do not match any of the ignorable errors, then it's a valid error
-                valid_err_blocks = [
-                    block
-                    for block in err_blocks
-                    if not any(re.search(err, block) for err in ignorable_errors)
-                ]
-                print_error(f"Error: m4b-tool found an error in the log file")
-                print_red(f"     Last error message: '{valid_err_blocks[-1]}'")
-                smart_print(
-                    f"     See log file in {tint_light_grey(book.fix_dir)} for details"
+            # if any of the err_blocks do not match any of the ignorable errors, then it's a valid error
+            msg = (
+                re_group(
+                    re.search(
+                        rf"PHP (?:Warning|Fatal error):  ([\s\S]*?)Stack trace",
+                        stdout,
+                        re.I | re.M,
+                    ),
+                    1,
                 )
-                err = True
-            elif not book.build_file.exists():
-                print_error(
-                    f"Error: m4b-tool failed to convert {{{{{book}}}}}, no output .m4b file was found"
-                )
-                err = True
+                .replace("\n", "\n     ")
+                .strip()
+            )
+            if not msg:
+                for block in [
+                    re_group(re.search(err, stdout, re.I)) for err in err_blocks
+                ]:
+                    if block and not any(
+                        re.search(err, block) for err in ignorable_errors
+                    ):
+                        msg = re_group(
+                            re.search(rf"\[message\] => (.*$)", block, re.I | re.M), 1
+                        )
+            print_error(f"m4b-tool Error: {msg}")
+            smart_print(
+                f"See log file in {tint_light_grey(book.fix_dir)} for details\n"
+            )
+            err = True
+        elif not book.build_file.exists():
+            print_error(
+                f"Error: m4b-tool failed to convert {{{{{book}}}}}, no output .m4b file was found"
+            )
+            err = True
 
-            if err:
-                mv_to_fix_dir()
-                reason = proc.stderr.decode() if proc.stderr else "Unknown error"
-                log_results(book, "FAILED", reason)
-                continue
-            else:
-                with open(book.log_file, "a") as f:
-                    f.write(
-                        f"{endtime_friendly} :: {book} :: Converted in {elapsedtime_friendly}\n"
-                    )
+        if err:
+            mv_to_fix_dir()
+            reason = proc.stderr.decode() if proc.stderr else "Unknown error"
+            log_results(book, "FAILED", reason)
+            continue
+        else:
+            with open(book.log_file, "a") as f:
+                f.write(
+                    f"{endtime_friendly} :: {book} :: Converted in {elapsedtime_friendly}\n"
+                )
 
         # create converted dir
         book.converted_dir.mkdir(parents=True, exist_ok=True)

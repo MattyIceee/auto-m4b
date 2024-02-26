@@ -111,6 +111,9 @@ class AutoM4bArgs:
     def __str__(self) -> str:
         return to_json(self.__dict__)
 
+    def __repr__(self) -> str:
+        return f"AutoM4bArgs({self.__str__()})"
+
 
 def ensure_dir_exists_and_is_writable(path: Path, throw: bool = True) -> None:
     from src.lib.term import print_warning
@@ -485,17 +488,22 @@ class Config:
 
             uid = os.getuid()
             gid = os.getgid()
+            is_tty = os.isatty(0)
             # Set the m4b_tool to the docker image
             self._m4b_tool = [
-                "docker",
-                "run",
-                "-it",
-                "--rm",
-                "-u",
-                f"{uid}:{gid}",
-                "-v",
-                f"{self.merge_dir}:/mnt",
-                "sandreas/m4b-tool:latest",
+                c
+                for c in [
+                    "docker",
+                    "run",
+                    "-it" if is_tty else "",
+                    "--rm",
+                    "-u",
+                    f"{uid}:{gid}",
+                    "-v",
+                    f"{self.merge_dir}:/mnt:rw",
+                    "sandreas/m4b-tool:latest",
+                ]
+                if c
             ]
 
             self.use_docker = True
