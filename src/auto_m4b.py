@@ -4,11 +4,13 @@ import traceback
 import import_debug
 from tinta import Tinta
 
+from src.lib.typing import copy_kwargs_classless
+
 import_debug.bug.push("src/auto_m4b.py")
 import time
 
 from src.lib import run
-from src.lib.config import cfg
+from src.lib.config import AutoM4bArgs, cfg
 from src.lib.term import print_error
 
 LOOP_COUNT = 0
@@ -24,16 +26,20 @@ def handle_err(e: Exception):
         print_error(f"Error: {e}")
 
 
-def app(max_loops: int = cfg.MAX_LOOPS):
+@copy_kwargs_classless(AutoM4bArgs.__init__)
+def app(**kwargs):
+
+    args = AutoM4bArgs(**kwargs)
+    print(args)
     global LOOP_COUNT, EXIT_CODE
     try:
-        cfg.startup()
-        while max_loops == -1 or LOOP_COUNT < max_loops:
+        cfg.startup(args)
+        while args.max_loops == -1 or LOOP_COUNT < args.max_loops:
             try:
                 run.process_inbox()
             finally:
                 LOOP_COUNT += 1
-                if max_loops != -1 and LOOP_COUNT < max_loops:
+                if args.max_loops != -1 and LOOP_COUNT < args.max_loops:
                     time.sleep(cfg.SLEEPTIME)
     except Exception as e:
         handle_err(e)

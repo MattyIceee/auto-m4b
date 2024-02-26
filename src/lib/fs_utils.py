@@ -71,8 +71,13 @@ def get_size(
     # takes a file or directory and returns the size in either bytes or human readable format, only counting audio files
     # if no path specified, assume current directory
 
+    if not path.exists():
+        raise FileNotFoundError(f"Cannot get size, '{path}' does not exist")
+
     def file_ext_ok(f: Path) -> bool:
         return f.suffix in only_file_exts if only_file_exts else True
+
+    size_int: int
 
     # if path is a file, return its size
     if path.is_file():

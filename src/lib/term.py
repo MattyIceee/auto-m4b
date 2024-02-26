@@ -1,5 +1,7 @@
 import import_debug
 
+from src.lib.misc import re_group
+
 import_debug.bug.push("src/lib/term.py")
 import re
 from pathlib import Path
@@ -126,7 +128,7 @@ def smart_print(
     t = Tinta()
 
     if highlight_color != color:
-        parts = re.split(r"(\{\{.*?\}\})", text)
+        parts = [p for p in re.split(r"(\{\{.*?\}\})", text) if p]
         # if trim at most one leading and trailing space from each part
         parts = [trim_single_spaces(p) for p in parts]
         for part in parts:
@@ -305,23 +307,18 @@ def tinted_m4b(*args):
 
 
 def tinted_file(*args):
-    from src.lib.config import cfg
-
-    audio_exts = [a.replace(".", "") for a in cfg.AUDIO_EXTS]
-    is_audio_file = any(arg in audio_exts for arg in args)
-    s = args[1] if len(args) > 1 else args[0]
-
-    if is_audio_file:
-        if "mp3" in args:
-            return tinted_mp3(s)
-        elif "m4b" in args:
-            return tinted_m4b(s)
-        elif "m4a" in args:
-            return tint_aqua(s)
-        elif "wma" in args:
-            return Tinta().tint(AMBER_COLOR, s).to_str()
-    else:
-        return Tinta().tint(DEFAULT_COLOR, s).to_str()
+    s = " ".join(args)
+    if found := re_group(re.search(r"\b(mp3|m4b|m4a|wma)\b", s, re.I)):
+        match found:
+            case "mp3":
+                return tinted_mp3(s)
+            case "m4b":
+                return tinted_m4b(s)
+            case "m4a":
+                return tint_aqua(s)
+            case "wma":
+                return Tinta().tint(AMBER_COLOR, s).to_str()
+    return s
 
 
 def divider():

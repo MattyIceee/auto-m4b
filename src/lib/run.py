@@ -1,3 +1,5 @@
+from typing import Any
+
 import import_debug
 
 import_debug.bug.push("src/lib/run.py")
@@ -28,7 +30,7 @@ from src.lib.fs_utils import (
 )
 from src.lib.id3_utils import verify_and_update_id3_tags
 from src.lib.logger import log_results
-from src.lib.misc import human_elapsed_time
+from src.lib.misc import dockerize_volume, human_elapsed_time
 from src.lib.parsers import count_roman_numerals
 from src.lib.term import (
     divider,
@@ -36,6 +38,7 @@ from src.lib.term import (
     nl,
     print_aqua,
     print_blue,
+    print_dark_grey,
     print_error,
     print_grey,
     print_light_grey,
@@ -45,7 +48,6 @@ from src.lib.term import (
     print_red,
     print_warning,
     smart_print,
-    tint_error_accent,
     tint_light_grey,
     tint_path,
     tint_warning,
@@ -117,6 +119,83 @@ def process_standalone_files():
             shutil.move(str(audio_file), str(new_folder))
 
 
+class m4btool:
+
+    _cmd: list[Any]
+
+    def __init__(self, book: Audiobook):
+
+        def _(*new_arg: str | tuple[str, Any]):
+            if isinstance(new_arg, tuple):
+                self._cmd.extend(new_arg)
+            else:
+                self._cmd.append(new_arg)
+
+        self.book = book
+        self._cmd = cfg._m4b_tool + [
+            "merge",
+            dockerize_volume(book.merge_dir, cfg.merge_dir),
+            "-n",
+        ]
+
+        _("--debug" if cfg.DEBUG == "Y" else "-q")
+
+        if self.should_copy:
+            _(("--audio-codec", "copy"))
+        else:
+            _((f"--audio-codec", "libfdk_aac"))
+            _((f"--audio-bitrate", book.bitrate))
+            _((f"--audio-samplerate", book.samplerate))
+
+        _(("--jobs", cfg.CPU_CORES))
+        _(("--output-file", dockerize_volume(book.build_file, cfg.build_dir)))
+        _(("--logfile", dockerize_volume(book.log_file, cfg.build_dir)))
+        _("--no-chapter-reindexing")
+
+        if cfg.SKIP_COVERS:
+            _("--no-cover-image")
+
+        if cfg.USE_FILENAMES_AS_CHAPTERS:
+            _("--use-filenames-as-chapters")
+
+        if chapters_files := list(
+            dockerize_volume(self.book.merge_dir, cfg.merge_dir).glob("*chapters.txt")
+        ):
+            chapters_file = chapters_files[0]
+            _(f'--chapters-file="{chapters_file}"')
+            smart_print(
+                f"Found {len(chapters_files)} chapters {pluralize(len(chapters_files), 'file')}, setting chapters from {tinted_file(chapters_file.name)}"
+            )
+
+        _(*build_id3_tags_args(book.title, book.author, book.year, book.comment))
+
+    def cmd(self) -> list[str]:
+        out = []
+        for arg in self._cmd:
+            if isinstance(arg, tuple):
+                k, v = arg
+                out.append(f'{k}="{v}"')
+            else:
+                out.append(str(arg))
+        return out
+
+    @property
+    def should_copy(self):
+        return self.book.orig_file_type in ["m4a", "m4b"]
+
+    def msg(self):
+
+        starttime_friendly = friendly_date()
+        if self.should_copy:
+            smart_print(
+                f"Starting merge/passthrough → {tinted_m4b()} at {tint_light_grey(starttime_friendly)}..."
+            )
+        else:
+            smart_print(
+                f"Starting {tinted_file(self.book.orig_file_type)} → {tinted_m4b()} conversion at {tint_light_grey(starttime_friendly)}..."
+            )
+
+
 # glasses 1: ⌐◒-◒
 # glasses 2: ᒡ◯ᴖ◯ᒢ
 
@@ -142,7 +221,7 @@ def process_inbox():
         cfg.inbox_dir
     ):  # replace 'unfinished_dirs' with your variable
         smart_print(
-            "The inbox folder was recently modified, waiting for a bit to make sure all files are done copying...\n"
+            "The inbox folder was recently modified, waiting in case files are being copied...\n"
         )
         return
 
@@ -157,7 +236,7 @@ def process_inbox():
     books_count = len(audio_dirs)
     # If no books to convert, print, sleep, and exit
     if books_count == 0:  # replace 'books_count' with your variable
-        smart_print(f"No books to convert, next check in {cfg.SLEEPTIME}\n")
+        smart_print(f"No books to convert, next check in {cfg.sleeptime_friendly}\n")
         return
 
     smart_print(f"Found {books_count} {pluralize(books_count, 'book')} to convert\n")
@@ -212,6 +291,8 @@ def process_inbox():
             continue
 
         def mv_to_fix_dir():
+            if cfg.NO_FIX:
+                return
             smart_print(f"Moving to fix folder → {tint_path(book.fix_dir)}")
             mv_dir(book.inbox_dir, cfg.fix_dir)
             cp_file_to_dir(
@@ -332,54 +413,36 @@ def process_inbox():
         book.log_file.unlink(missing_ok=True)
 
         starttime = time.time()
-        starttime_friendly = friendly_date()
+
+        m4b_tool = m4btool(book)
 
         nl()
 
-        id3tags = build_id3_tags_args(book.title, book.author, book.year, book.comment)
-
         book.write_description_txt()
 
-        if book.orig_file_type == "mp3" or book.orig_file_type == "wma":
-
-            smart_print(
-                f"Starting {tinted_file(book.orig_file_type)} → {tinted_m4b()} conversion at {tint_light_grey(starttime_friendly)}..."
-            )
-
-            chapters_args = f"{cfg.use_filenames_as_chapters_arg}--no-chapter-reindexing --max-chapter-length={cfg.max_chapter_length}"
-
-            m4btool_merge_command = f"{cfg.m4b_tool} merge {book.merge_dir} -n {cfg.debug_arg} --audio-bitrate={book.bitrate} --audio-samplerate={book.samplerate}{cfg.no_cover_image_arg} {chapters_args} --audio-codec=libfdk_aac --jobs={cfg.CPU_CORES} --output-file={book.build_file} --logfile={book.log_file} {id3tags}"
-
-            m4btool_merge_command = " ".join(m4btool_merge_command.split())
-
-        elif book.orig_file_type == "m4a" or book.orig_file_type == "m4b":
-
-            smart_print(
-                f"Starting merge/passthrough → {tinted_m4b()} at {tint_light_grey(starttime_friendly)}..."
-            )
-
-            # Merge the files directly as chapters (use chapters.txt if it exists) instead of converting
-            # Get existing chapters from file
-            chapters_args = (
-                f"{cfg.use_filenames_as_chapters_arg} --no-chapter-reindexing"
-            )
-            chapters_files = list(book.merge_dir.glob("*chapters.txt"))
-
-            if len(chapters_files) > 0:
-                chapters_file = chapters_files[0]
-                chapters_args = f'--chapters-file="{chapters_file}"'
-                smart_print(
-                    f"Found {len(chapters_files)} chapters {pluralize(len(chapters_files), 'file')}, setting chapters from {tinted_file(chapters_file.name)}"
-                )
-
-            m4btool_merge_command = f"{cfg.m4b_tool} merge {book.merge_dir} -n {cfg.debug_arg} --audio-codec=copy --jobs={cfg.CPU_CORES} --output-file={book.build_file} --logfile={book.log_file} {chapters_args} {id3tags}"
-
         stdout = subprocess.PIPE if cfg.DEBUG else subprocess.DEVNULL
-        stderr = subprocess.STDOUT if cfg.DEBUG else subprocess.DEVNULL
+        stderr = subprocess.PIPE if cfg.DEBUG else subprocess.DEVNULL
+        err = False
 
-        return
+        cmd = m4b_tool.cmd()
 
-        subprocess.run(m4btool_merge_command, shell=True, stdout=stdout, stderr=stderr)
+        if cfg.DEBUG:
+            print_dark_grey(" ".join(cmd))
+
+        proc = subprocess.run(cmd, stdout=stdout, stderr=stderr)
+        if proc.stderr:
+            nl()
+            raise RuntimeError(proc.stderr.decode())
+
+        elif cfg.DEBUG:
+            smart_print(proc.stdout.decode())
+        # if proc.returncode != 0 or proc.stderr:
+        # print_error(f"m4b-tool failed to convert {book}")
+        # raise RuntimeError(
+        #     f"{proc.stderr.decode()}"
+        #     if proc.stderr
+        #     else f"m4b-tool failed to convert {book}"
+        # )
 
         # print_error "Error: [TEST] m4b-tool failed to convert \"$book\""
         # print "     Moving \"$book\" to fix folder..."
@@ -395,7 +458,6 @@ def process_inbox():
         with open(book.log_file, "r") as f:
             logfile = f.read()
 
-            err = False
             valid_err_blocks = []
             if re.search(r"error", logfile, re.I):
 
@@ -436,13 +498,14 @@ def process_inbox():
                 err = True
             elif not book.build_file.exists():
                 print_error(
-                    f"Error: m4b-tool failed to convert {tint_error_accent(book)}, no output .m4b file was found"
+                    f"Error: m4b-tool failed to convert {{{{{book}}}}}, no output .m4b file was found"
                 )
                 err = True
 
             if err:
                 mv_to_fix_dir()
-                log_results(book, "FAILED", "")
+                reason = proc.stderr.decode() if proc.stderr else "Unknown error"
+                log_results(book, "FAILED", reason)
                 continue
             else:
                 with open(book.log_file, "a") as f:
@@ -546,10 +609,10 @@ def process_inbox():
 
     if books_count >= 1:
         smart_print(
-            f"Finished converting all available books, next check in {cfg.SLEEPTIME}"
+            f"Finished converting all available books, next check in {cfg.sleeptime_friendly}"
         )
     else:
-        smart_print(f"Next check in {cfg.SLEEPTIME}")
+        smart_print(f"Next check in {cfg.sleeptime_friendly}")
 
     divider()
     nl()

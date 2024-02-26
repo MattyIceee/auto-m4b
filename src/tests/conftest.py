@@ -4,11 +4,10 @@ import sys
 from pathlib import Path
 
 import pytest
-from dotenv import dotenv_values
 
 sys.path.append(str(Path(__file__).parent.parent))
 
-from src.lib.misc import get_git_root
+from src.lib.misc import get_git_root, load_env
 
 GIT_ROOT = get_git_root()
 SRC_ROOT = Path(__file__).parent.parent
@@ -34,15 +33,7 @@ def setup():
     os.environ["TEST"] = "Y"
     os.environ["SLEEPTIME"] = "0.1"
 
-    for k, v in dotenv_values(GIT_ROOT / ".env.test").items():
-        if v:
-            p = Path(v).expanduser()
-            if not p.is_absolute():
-                p = GIT_ROOT / p
-            os.environ[k] = str(p)
-            if Path(v).exists() and k != "INBOX_FOLDER":
-                shutil.rmtree(v)
-            p.mkdir(parents=True, exist_ok=True)
+    load_env(TESTS_ROOT / ".env.test", clean_working_dirs=True)
 
 
 def load_test_fixture(name: str):

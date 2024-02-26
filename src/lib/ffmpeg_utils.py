@@ -3,7 +3,7 @@ import import_debug
 import_debug.bug.push("src/lib/ffmpeg_utils.py")
 import subprocess
 from pathlib import Path
-from typing import Literal, overload
+from typing import Any, Literal, overload
 
 import ffmpeg
 
@@ -99,7 +99,7 @@ def get_samplerate_py(file: Path) -> int:
 
 def build_id3_tags_args(
     title: str = "", author: str = "", year: str | None = "", comment: str = ""
-) -> str:
+) -> list[tuple[str, Any]]:
 
     # build m4b-tool command switches based on which properties are defined
     # --name[=NAME]                              $title
@@ -116,24 +116,37 @@ def build_id3_tags_args(
     # --comment[=COMMENT]                        $comment
     # --encoded-by[=ENCODED-BY]                  always PHNTM
 
-    id3tags = ""
+    id3tags = {}
 
     if title:
-        id3tags += f' --name="{title}" --sortname="{title}" --album="{title}" --sortalbum="{title}"'
-        id3tags += f' --title="{title}" --sorttitle="{title}"'
+        id3tags.update(
+            {
+                "name": title,
+                "sortname": title,
+                "album": title,
+                "sortalbum": title,
+            }
+        )
 
     if author:
-        id3tags += f' --artist="{author}" --sortartist="{author}" --writer="{author}" --albumartist="{author}"'
+        id3tags.update(
+            {
+                "artist": author,
+                "sortartist": author,
+                "writer": author,
+                "albumartist": author,
+            }
+        )
 
     if year:
-        id3tags += f' --year="{year}"'
+        id3tags["year"] = year
 
     if comment:
-        id3tags += f' --comment="{comment}"'
+        id3tags["comment"] = comment
 
-    id3tags += ' --encoded-by="PHNTM" --genre="Audiobook"'
+    id3tags.update({"encoded-by": "PHNTM", "genre": "Audiobook"})
 
-    return id3tags
+    return [(f"--{k}", v) for k, v in id3tags.items()]
 
 
 import_debug.bug.pop("src/lib/fs_utils.py")

@@ -1,11 +1,15 @@
+import os
+import shutil
 import subprocess
+from collections.abc import Iterable
 
 import import_debug
+from dotenv import dotenv_values
 
 import_debug.bug.push("src/lib/misc.py")
 import re
 from pathlib import Path
-from typing import cast, TypeVar
+from typing import Any, cast, TypeVar
 
 
 def get_git_root():
@@ -83,4 +87,78 @@ def compare_trim(a: str, b: str) -> bool:
     return " ".join(a.split()) == " ".join(b.split())
 
 
+def is_boolish(v: Any) -> bool:
+    return str(v).lower() in ["true", "false", "y", "n", "yes", "no"]
+
+
+def parse_bool(v: Any) -> bool:
+    """Parses a string value to a boolean value."""
+    if isinstance(v, bool):
+        return v
+    return str(v).lower() in ("true", "1", "t", "y", "yes")
+
+
+def load_env(
+    env_file: str | Path, clean_working_dirs: bool = False
+) -> dict[str, str | None]:
+    from src.lib.config import WORKING_DIRS
+
+    env_file = Path(env_file)
+
+    def is_maybe_path(v: Any) -> bool:
+        v = str(v)
+        return v and Path(v).exists() or "." in v or "/" in v or "\\" in v or "~" in v
+
+    env_vars: dict[str, str | None] = {}
+
+    for k, v in dotenv_values(env_file).items():
+        if not v:
+            continue
+        if is_boolish(v):
+            os.environ[k] = "Y" if parse_bool(v) else "N"
+        elif is_maybe_path(v):
+            v = str(v)
+            p = Path(v).expanduser()
+            if not p.is_absolute():
+                p = get_git_root() / p
+            os.environ[k] = str(p)
+            if Path(v).exists() and k in WORKING_DIRS and clean_working_dirs:
+                shutil.rmtree(v)
+            p.mkdir(parents=True, exist_ok=True)
+        else:
+            os.environ[k] = str(v)
+        env_vars[k] = os.environ[k]
+
+    return env_vars
+
+
 import_debug.bug.pop("src/lib/misc.py")
+
+
+def dockerize_volume(path: str | Path, root_dir: Path) -> Path:
+    """Takes the incoming path and replaces root_dir in path with /mnt if cfg.use_docker is True"""
+    from src.lib.config import cfg
+
+    if cfg.use_docker:
+        return Path("/mnt") / Path(path).relative_to(root_dir)
+    else:
+        return Path(path)
+
+
+def sanitize(v):
+    if isinstance(v, (int, float, bool, str, type(None))):
+        return v
+    elif isinstance(v, Iterable):
+        return [sanitize(_v) for _v in v]
+    elif isinstance(v, dict):
+        return {k: sanitize(_v) for k, _v in v.items()}
+    return str(v)
+
+
+def to_json(obj: dict[str, Any]) -> str:
+    """Converts an object to a JSON string."""
+    import json
+
+    return json.dumps(
+        {k: sanitize(v) for k, v in obj.items()}, indent=4, sort_keys=True
+    )

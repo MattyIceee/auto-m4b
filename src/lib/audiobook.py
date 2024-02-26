@@ -149,7 +149,9 @@ class Audiobook(BaseModel):
 
     @property
     def log_file(self) -> Path:
-        return self.build_dir / f"{self.dir_name}.log"
+        log_file = self.build_dir / f"{self.dir_name}.log"
+        log_file.touch(exist_ok=True)
+        return log_file
 
     @property
     def author(self):
