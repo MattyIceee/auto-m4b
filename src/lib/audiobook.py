@@ -56,63 +56,64 @@ class Audiobook(BaseModel):
     def __init__(self, path: Path):
 
         if not path.is_absolute():
-            path = cfg.inbox_dir / path
+            path = cfg.inbox_dir.resolve() / path
 
         super().__init__(path=path)
 
         self.path = path
 
     def __str__(self):
-        return f"{self.dir_name}"
+        return f"{self.basename}"
 
     def __repr__(self):
-        return f"{self.dir_name}"
+        return f"{self.basename}"
 
-    def extract_path_info(self):
-        extract_path_info(self)
+    def extract_path_info(self, quiet: bool = False):
+        return extract_path_info(self, quiet)
 
-    def extract_metadata(self):
-        extract_metadata(self)
+    def extract_metadata(self, quiet: bool = False):
+        return extract_metadata(self, quiet)
 
     @property
     def inbox_dir(self):
-        return cfg.inbox_dir.resolve() / self.dir_name
+        return self.path
+        # return cfg.inbox_dir.resolve() / self.dir_name
 
     @property
     def fix_dir(self) -> Path:
-        return cfg.fix_dir.resolve() / self.dir_name
+        return cfg.fix_dir.resolve() / self.basename
 
     @property
     def backup_dir(self) -> Path:
-        return cfg.backup_dir.resolve() / self.dir_name
+        return cfg.backup_dir.resolve() / self.basename
 
     @property
     def build_dir(self) -> Path:
-        return cfg.build_dir.resolve() / self.dir_name
+        return cfg.build_dir.resolve() / self.basename
 
     @property
     def build_tmp_dir(self) -> Path:
-        return self.build_dir.resolve() / f"{self.dir_name}-tmpfiles"
+        return self.build_dir.resolve() / f"{self.basename}-tmpfiles"
 
     @property
     def converted_dir(self) -> Path:
-        return cfg.converted_dir.resolve() / self.dir_name
+        return cfg.converted_dir.resolve() / self.basename
 
     @property
     def archive_dir(self) -> Path:
-        return cfg.archive_dir.resolve() / self.dir_name
+        return cfg.archive_dir.resolve() / self.basename
 
     @property
     def merge_dir(self) -> Path:
-        return cfg.merge_dir.resolve() / self.dir_name
+        return cfg.merge_dir.resolve() / self.basename
 
     @property
     def build_file(self) -> Path:
-        return self.build_dir.resolve() / f"{self.dir_name}.m4b"
+        return self.build_dir.resolve() / f"{self.basename}.m4b"
 
     @property
     def converted_file(self) -> Path:
-        return self.converted_dir / f"{self.dir_name}.m4b"
+        return self.converted_dir / f"{self.basename}.m4b"
 
     @cached_property
     def orig_file_type(self):
@@ -141,7 +142,7 @@ class Audiobook(BaseModel):
 
     @cached_property
     def sample_audio1(self):
-        return find_first_audio_file(self.inbox_dir)
+        return find_first_audio_file(self.path)
 
     @cached_property
     def sample_audio2(self):
@@ -149,7 +150,7 @@ class Audiobook(BaseModel):
 
     @property
     def log_file(self) -> Path:
-        log_file = self.build_dir / f"{self.dir_name}.log"
+        log_file = self.build_dir / f"{self.basename}.log"
         log_file.touch(exist_ok=True)
         return log_file
 
@@ -166,7 +167,7 @@ class Audiobook(BaseModel):
         return f"{round(self.samplerate / 1000)} kHz"
 
     @property
-    def dir_name(self):
+    def basename(self):
         return self.path.name
 
     @property
@@ -188,7 +189,7 @@ Author: {self.author}
 Date: {self.date}
 Narrator: {self.narrator}
 Quality: {self.bitrate_friendly} @ {self.samplerate_friendly}
-Original folder name: {self.dir_name}
+Original folder name: {self.basename}
 Original file type: {self.orig_file_type}
 Original size: {self.size("inbox", "human")}
 Original duration: {self.duration("inbox", "human")}

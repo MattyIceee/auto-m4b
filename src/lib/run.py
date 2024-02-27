@@ -13,7 +13,7 @@ from pathlib import Path
 from src.lib.audiobook import Audiobook
 from src.lib.config import AUDIO_EXTS, cfg
 from src.lib.ffmpeg_utils import build_id3_tags_args
-from src.lib.formatters import friendly_date, pluralize
+from src.lib.formatters import friendly_date, log_date, pluralize
 from src.lib.fs_utils import (
     clean_dir,
     count_audio_files_in_dir,
@@ -25,6 +25,7 @@ from src.lib.fs_utils import (
     is_ok_to_delete,
     mv_dir,
     mv_dir_contents,
+    mv_file_to_dir,
     rm_all_empty_dirs,
     was_recently_modified,
 )
@@ -33,6 +34,7 @@ from src.lib.logger import log_results
 from src.lib.misc import dockerize_volume, human_elapsed_time, re_group
 from src.lib.parsers import count_roman_numerals
 from src.lib.term import (
+    BLUE_COLOR,
     divider,
     fmt_linebreak_path,
     nl,
@@ -133,7 +135,7 @@ class m4btool:
         self.book = book
         self._cmd = cfg._m4b_tool + [
             "merge",
-            dockerize_volume(book.merge_dir, cfg.merge_dir),
+            dockerize_volume(book.merge_dir),
             "-n",
         ]
 
@@ -147,8 +149,8 @@ class m4btool:
             _((f"--audio-samplerate", book.samplerate))
 
         _(("--jobs", cfg.CPU_CORES))
-        _(("--output-file", dockerize_volume(book.build_file, cfg.build_dir)))
-        _(("--logfile", dockerize_volume(book.log_file, cfg.build_dir)))
+        _(("--output-file", dockerize_volume(book.build_file)))
+        _(("--logfile", dockerize_volume(book.log_file)))
         _("--no-chapter-reindexing")
 
         if cfg.SKIP_COVERS:
@@ -158,7 +160,7 @@ class m4btool:
             _("--use-filenames-as-chapters")
 
         if chapters_files := list(
-            dockerize_volume(self.book.merge_dir, cfg.merge_dir).glob("*chapters.txt")
+            dockerize_volume(self.book.merge_dir).glob("*chapters.txt")
         ):
             chapters_file = chapters_files[0]
             _(f'--chapters-file="{chapters_file}"')
@@ -173,7 +175,7 @@ class m4btool:
         for arg in self._cmd:
             if isinstance(arg, tuple):
                 k, v = arg
-                out.append(f'{k}="{v}"')
+                out.append(f"{k}={v}")
             else:
                 out.append(str(arg))
         return out
@@ -210,9 +212,9 @@ def process_inbox():
 
     current_local_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    print_aqua(
-        f"-------------------  ⌐◒-◒  auto-m4b • {current_local_time}  ---------------------"
-    )
+    dash = "─" * 19
+
+    print_aqua(f"{dash}  ⌐◒-◒  auto-m4b • {current_local_time}  -{dash}")
 
     print_grey(f"Checking for new books in {{{{{cfg.inbox_dir}}}}} ꨄ︎")
 
@@ -249,9 +251,20 @@ def process_inbox():
             book.inbox_dir, only_file_exts=AUDIO_EXTS, maxdepth=1
         )
 
-        divider()
+        vline = "┃"
+        hline = "━"
+        tl = "┏"
+        tr = "┓"
+        bl = "┗"
+        br = "┛"
 
-        print_blue(book.dir_name)
+        blueline = lambda l, r: smart_print(
+            l + hline * (len(book.basename) + 2) + r, color=BLUE_COLOR
+        )
+
+        blueline(tl, tr)
+        print_blue(f"{vline} {book.basename} {vline}")
+        blueline(bl, br)
 
         nested_audio_dirs = find_root_dirs_with_audio_files(book.inbox_dir, mindepth=2)
         nested_audio_dirs_count = len(nested_audio_dirs)
@@ -283,7 +296,7 @@ def process_inbox():
             continue
 
         # Check if a copy of this book is in fix_dir and bail
-        if (cfg.fix_dir / book.dir_name).exists():
+        if (cfg.fix_dir / book.basename).exists():
             print_error(
                 "Error: A copy of this book is in the fix folder, please fix it and try again"
             )
@@ -331,13 +344,12 @@ def process_inbox():
             smart_print(f"Moving them to book's root → {tint_path(book.inbox_dir)}")
             flatten_files_in_dir(book.inbox_dir)
 
-        smart_print("\nPreparing to convert...")
+        smart_print("\nFile/folder info:")
 
         print_list(f"Output folder: {book.converted_dir}")
         print_list(f"File type: {book.orig_file_type}")
         print_list(f"Audio files: {book.num_files('inbox')}")
         print_list(f"Total size: {book.size('inbox', 'human')}")
-        print_list(f"Duration: {book.duration('inbox', 'human')}")
 
         nl()
 
@@ -378,18 +390,18 @@ def process_inbox():
                 continue
 
         if book.converted_file.is_file():
-            if cfg.OVERWRITE_EXISTING == "N":
+            if cfg.OVERWRITE_MODE == "skip":
                 if book.archive_dir.exists():
-                    smart_print(
+                    print_notice(
                         f"Found a copy of this book in {tint_path(cfg.archive_dir)}, it has probably already been converted"
                     )
-                    smart_print(
-                        'Skipping this book because OVERWRITE_EXISTING is not "Y"'
+                    print_notice(
+                        "Skipping this book because OVERWRITE_EXISTING is not enabled"
                     )
                     continue
                 elif book.size("converted", "bytes") > 0:
-                    print_error(
-                        f"Error: Output file already exists and OVERWRITE_EXISTING is not 'Y', skipping this book"
+                    print_notice(
+                        f"Output file already exists and OVERWRITE_EXISTING is not enabled, skipping this book"
                     )
                     continue
             else:
@@ -423,6 +435,8 @@ def process_inbox():
 
         cmd = m4b_tool.cmd()
 
+        m4b_tool.msg()
+
         if cfg.DEBUG:
             print_dark_grey(" ".join(cmd))
 
@@ -450,9 +464,10 @@ def process_inbox():
         # log_results "$book_full_path" "FAILED" ""
         # break
 
-        endtime_friendly = friendly_date()
-        elapsed_time = int(time.time() - starttime)
-        elapsedtime_friendly = human_elapsed_time(elapsed_time)
+        endtime_log = log_date()
+        # endtime_friendly = friendly_date()
+        elapsedtime = int(time.time() - starttime)
+        elapsedtime_friendly = human_elapsed_time(elapsedtime)
 
         # with open(book.log_file, "r") as f:
         #     logfile = f.read()
@@ -524,7 +539,7 @@ def process_inbox():
         else:
             with open(book.log_file, "a") as f:
                 f.write(
-                    f"{endtime_friendly} :: {book} :: Converted in {elapsedtime_friendly}\n"
+                    f"{endtime_log} :: {book} :: Converted in {elapsedtime_friendly}\n"
                 )
 
         # create converted dir
@@ -546,16 +561,18 @@ def process_inbox():
             )
 
         book.merge_desc_file.rename(book.final_desc_file)
-        smart_print(f"Finished in {elapsedtime_friendly}")
+        print_light_grey(f"Finished in {elapsedtime_friendly}")
 
-        log_results(book, "SUCCESS", elapsedtime_friendly)
+        log_results(book, "SUCCESS", elapsedtime)
 
         # Copy log file to output folder as $buildfolder$book/m4b-tool.$book.log
-        cp_file_to_dir(
-            book.log_file, book.converted_dir, new_filename=f"m4b-tool.{book}.log"
+        mv_file_to_dir(
+            book.log_file,
+            book.converted_dir,
+            new_filename=f"m4b-tool.{book}.log",
+            overwrite_mode="overwrite-silent",
         )
 
-        smart_print("Verifying id3 tags...")
         # TODO: Only handles single m4b output file, not multiple files.
         verify_and_update_id3_tags(book, "build")
 
@@ -565,12 +582,17 @@ def process_inbox():
             f"Moving to converted books folder → {tint_path(fmt_linebreak_path(book.converted_file, 120, 35))}"
         )
 
+        rm_all_empty_dirs(book.build_dir)
+
         # Move all built audio files to output folder
         mv_dir_contents(book.build_dir, book.converted_dir, only_file_exts=AUDIO_EXTS)
 
         # Copy other jpg, png, and txt files from mergefolder to output folder
         mv_dir_contents(
-            book.merge_dir, book.converted_dir, only_file_exts=cfg.OTHER_EXTS
+            book.merge_dir,
+            book.converted_dir,
+            only_file_exts=cfg.OTHER_EXTS,
+            overwrite_mode="overwrite-silent",
         )
 
         # Remove description.txt from output folder if "$book [$desc_quality].txt" exists
@@ -582,7 +604,8 @@ def process_inbox():
             )
             book.write_description_txt(book.final_desc_file)
 
-        # Remove temp copy in merge
+        # Remove temp copies in build and merge if it's still there
+        shutil.rmtree(book.build_dir, ignore_errors=True)
         shutil.rmtree(book.merge_dir, ignore_errors=True)
 
         if cfg.on_complete == "move":
@@ -605,28 +628,31 @@ def process_inbox():
                 print_notice(
                     "Notice: The original folder is not empty, it will not be deleted"
                 )
+        elif cfg.on_complete == "test_do_nothing":
+            print_notice("Test mode: The original folder will not be moved or deleted")
 
         smart_print("\nDone processing 🐾✨🥞\n")
 
     # clear the folders
-    divider()
-    shutil.rmtree(cfg.merge_dir, ignore_errors=True)
-    shutil.rmtree(cfg.build_dir, ignore_errors=True)
-    shutil.rmtree(cfg.trash_dir, ignore_errors=True)
+    divider("\n")
+    clean_dir(cfg.merge_dir)
+    clean_dir(cfg.build_dir)
+    clean_dir(cfg.trash_dir)
 
     # Delete all *-tmpfiles dirs inside $outputfolder
-    for d in list(book.build_dir.rglob("*-tmpfiles")) + list(
-        book.converted_dir.rglob("*-tmpfiles")
-    ):
-        if d.is_dir() and len(list(d.parents)) <= 2:
-            shutil.rmtree(d, ignore_errors=True)
+    # Shouldn't be required if the clean_dir methods work
+    # for d in list(book.build_dir.rglob("*-tmpfiles")) + list(
+    #     book.converted_dir.rglob("*-tmpfiles")
+    # ):
+    #     if d.is_dir() and len(list(d.parents)) <= 2:
+    #         shutil.rmtree(d, ignore_errors=True)
 
     if books_count >= 1:
         smart_print(
-            f"Finished converting all available books, next check in {cfg.sleeptime_friendly}"
+            f"✨ Finished converting all available books, next check in {cfg.sleeptime_friendly}"
         )
     else:
-        smart_print(f"Next check in {cfg.sleeptime_friendly}")
+        print_dark_grey(f"Next check in {cfg.sleeptime_friendly}")
 
     divider()
     nl()

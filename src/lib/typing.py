@@ -14,6 +14,7 @@ SizeFmt = Literal["bytes", "human"]
 DirName = Literal[
     "inbox", "converted", "archive", "fix", "backup", "build", "merge", "trash"
 ]
+ExifWriter = Literal["exiftool", "eyed3"]
 
 
 # Source: https://stackoverflow.com/a/71968448/1214800

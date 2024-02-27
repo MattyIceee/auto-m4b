@@ -135,11 +135,17 @@ def load_env(
 import_debug.bug.pop("src/lib/misc.py")
 
 
-def dockerize_volume(path: str | Path, root_dir: Path) -> Path:
+def dockerize_volume(
+    path: str | Path,
+    root_dir: Path | None = None,
+) -> Path:
     """Takes the incoming path and replaces root_dir in path with /mnt if cfg.use_docker is True"""
     from src.lib.config import cfg
 
-    if cfg.use_docker:
+    if not root_dir:
+        root_dir = cfg.working_dir
+
+    if cfg.USE_DOCKER:
         return Path("/mnt") / Path(path).relative_to(root_dir)
     else:
         return Path(path)

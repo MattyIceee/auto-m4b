@@ -1,4 +1,5 @@
 import import_debug
+from tinta import Tinta
 
 import_debug.bug.push("src/lib/id3_utils.py")
 import shutil
@@ -10,7 +11,9 @@ from eyed3 import AudioFile
 from eyed3.id3 import Tag
 
 from src.lib.misc import compare_trim
-from src.lib.term import smart_print
+from src.lib.term import (
+    smart_print,
+)
 
 MissingApplicationError = ValueError
 
@@ -18,7 +21,7 @@ if TYPE_CHECKING:
     from src.lib.audiobook import Audiobook
 
 
-def write_id3_tags(file: Path, exiftool_args: list[str]) -> None:
+def write_id3_tags_exiftool(file: Path, exiftool_args: list[str]) -> None:
     api_opts = ["-api", 'filter="s/ \\(approx\\)//"']  # remove (approx) from output
 
     # if file doesn't exist, throw error
@@ -28,7 +31,7 @@ def write_id3_tags(file: Path, exiftool_args: list[str]) -> None:
     # make sure the exiftool command exists
     if not shutil.which("exiftool"):
         raise RuntimeError(
-            "Error: exiftool is not available, please install it with (apt-get install exiftool) and try again"
+            "exiftool is not available, please install it with\n\n $ apt-get install exiftool\n\n...or make sure it is in your PATH variable, then try again"
         )
 
     # write tag to file, using eval so that quotes are not escaped
@@ -45,7 +48,7 @@ def write_id3_tags_eyed3(file: Path, book: "Audiobook") -> None:
         import eyed3
     except ImportError:
         raise MissingApplicationError(
-            "Error: eyed3 is not available, please install it with (pip install eyed3) and try again"
+            "Error: eyed3 is not available, please install it with\n\n $ pip install eyed3\n\n...then try again"
         )
 
     audiofile: AudioFile
@@ -70,9 +73,17 @@ def verify_and_update_id3_tags(
     # takes the inbound book, then checks the converted file and verifies that the id3 tags match the extracted metadata
     # if they do not match, it will print a notice and update the id3 tags
 
+    from src.lib.audiobook import Audiobook
+    from src.lib.config import cfg
+
     m4b_to_check = book.converted_file if in_dir == "converted" else book.build_file
 
-    book_to_check = Audiobook(m4b_to_check)
+    if not m4b_to_check.is_file():
+        raise FileNotFoundError(
+            f"Cannot verify id3 tags, {m4b_to_check} does not exist"
+        )
+
+    book_to_check = Audiobook(m4b_to_check).extract_metadata(quiet=True)
 
     exiftool_args = []
 
@@ -81,76 +92,106 @@ def verify_and_update_id3_tags(
     date_needs_updating = False
     comment_needs_updating = False
 
+    smart_print("\nVerifying id3 tags...", end="")
+
+    def _print_needs_updating(
+        what: str, left_value: str | None, right_value: str
+    ) -> None:
+        s = Tinta().dark_grey(f"- ").grey(what).dark_grey("needs updating:")
+        if left_value:
+            s.amber(left_value)
+        else:
+            s.light_grey("Missing")
+        s.dark_grey("»").aqua(right_value)
+        smart_print(s.to_str())
+
     if book.title and book_to_check.id3_title != book.title:
         title_needs_updating = True
-        smart_print(
-            f"Title needs updating: {book_to_check.id3_title if book_to_check.id3_title else '(Missing)'} » {book.title}"
-        )
+        _print_needs_updating("Title", book_to_check.id3_title, book.title)
 
     if book.author and book_to_check.id3_artist != book.author:
         author_needs_updating = True
-        smart_print(
-            f"Artist (author) needs updating: {book_to_check.id3_artist if book_to_check.id3_artist else '(Missing)'} » {book.author}"
-        )
+        _print_needs_updating("Artist (author)", book_to_check.id3_artist, book.author)
 
     if book.title and book_to_check.id3_album != book.title:
         title_needs_updating = True
-        smart_print(
-            f"Album (title) needs updating: {book_to_check.id3_album if book_to_check.id3_album else '(Missing)'} » {book.title}"
-        )
+        _print_needs_updating("Album (title)", book_to_check.id3_album, book.title)
 
     if book.title and book_to_check.id3_sortalbum != book.title:
         title_needs_updating = True
-        smart_print(
-            f"Sort album (title) needs updating: {book_to_check.id3_sortalbum if book_to_check.id3_sortalbum else '(Missing)'} » {book.title}"
+        _print_needs_updating(
+            "Sort album (title)", book_to_check.id3_sortalbum, book.title
         )
 
     if book.author and book_to_check.id3_albumartist != book.author:
         author_needs_updating = True
-        smart_print(
-            f"Album artist (author) needs updating: {book_to_check.id3_albumartist if book_to_check.id3_albumartist else '(Missing)'} » {book.author}"
+        _print_needs_updating(
+            "Album artist (author)", book_to_check.id3_albumartist, book.author
         )
 
     if book.date and book_to_check.id3_date != book.date:
         date_needs_updating = True
-        smart_print(
-            f"Date needs updating: {book_to_check.id3_date if book_to_check.id3_date else '(Missing)'} » {book.date}"
-        )
+        _print_needs_updating("Date", book_to_check.id3_date, book.date)
 
     if book.comment and compare_trim(book_to_check.id3_comment, book.comment):
         comment_needs_updating = True
-        smart_print(
-            f"Comment needs updating: {book_to_check.id3_comment if book_to_check.id3_comment else '(Missing)'} » {book.comment}"
-        )
+        _print_needs_updating("Comment", book_to_check.id3_comment, book.comment)
 
-    # for each of the id3 tags that need updating, write the id3 tags
-    if title_needs_updating:
+    if cfg.EXIF_WRITER == "exiftool":
+        # for each of the id3 tags that need updating, write the id3 tags
+        if title_needs_updating:
+            exiftool_args.extend(
+                [
+                    "-Title=" + book.title,
+                    "-Album=" + book.title,
+                    "-SortAlbum=" + book.title,
+                ]
+            )
+
+        if author_needs_updating:
+            exiftool_args.extend(
+                ["-Artist=" + book.author, "-SortArtist=" + book.author]
+            )
+
+        if date_needs_updating:
+            exiftool_args.append("-Date=" + book.date)
+
+        if comment_needs_updating:
+            exiftool_args.append("-Comment=" + book.comment)
+
+        # set track_number and other statics
         exiftool_args.extend(
-            ["-Title=" + book.title, "-Album=" + book.title, "-SortAlbum=" + book.title]
+            [
+                "-TrackNumber=1/" + str(book.m4b_num_parts),
+                "-EncodedBy=auto-m4b",
+                "-Genre=Audiobook",
+                "-Copyright=",
+            ]
         )
 
-    if author_needs_updating:
-        exiftool_args.extend(["-Artist=" + book.author, "-SortArtist=" + book.author])
+        # write with exiftool
+        if exiftool_args:
+            write_id3_tags_exiftool(m4b_to_check, exiftool_args)
 
-    if date_needs_updating:
-        exiftool_args.append("-Date=" + book.date)
+    elif cfg.EXIF_WRITER == "eyed3":
+        if (
+            title_needs_updating
+            or author_needs_updating
+            or date_needs_updating
+            or comment_needs_updating
+        ):
+            write_id3_tags_eyed3(m4b_to_check, book)
 
-    if comment_needs_updating:
-        exiftool_args.append("-Comment=" + book.comment)
-
-    # set track_number and other statics
-    exiftool_args.extend(
+    if not any(
         [
-            "-TrackNumber=1/" + str(book.m4b_num_parts),
-            "-EncodedBy=auto-m4b",
-            "-Genre=Audiobook",
-            "-Copyright=",
+            title_needs_updating,
+            author_needs_updating,
+            date_needs_updating,
+            comment_needs_updating,
         ]
-    )
-
-    # write with exiftool
-    if exiftool_args:
-        write_id3_tags(m4b_to_check, exiftool_args)
+    ):
+        Tinta.up()
+        smart_print(Tinta("\nVerifying id3 tags...").aqua("✓").to_str())
 
 
 import_debug.bug.pop("src/lib/id3_utils.py")

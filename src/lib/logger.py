@@ -19,7 +19,7 @@ def log_results(
     # format: [date] [time] [original book relative path] [info] ["result"=success|failed] [failure-message]
     # pad the relative path with spaces to 70 characters and truncate to 70 characters
     # sanitize book_src to remove multiple spaces and replace | with _
-    book_name = f"{book.dir_name[:70]:<70}".replace("  ", " ").replace("|", "_")
+    book_name = f"{book.basename[:70]:<70}".replace("  ", " ").replace("|", "_")
 
     # pad result with spaces to 9 characters
     result = f"{result:<10}"

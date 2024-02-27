@@ -70,13 +70,14 @@ def tower_treasure__all():
     load_test_fixture("tower_treasure__nested_mp3")
 
 
-def purge_tmp():
+def purge_all():
     for folder in [
         "INBOX_FOLDER",
         "CONVERTED_FOLDER",
         "ARCHIVE_FOLDER",
         "FIX_FOLDER",
         "BACKUP_FOLDER",
+        "WORKING_FOLDER",
         "BUILD_FOLDER",
         "MERGE_FOLDER",
         "TRASH_FOLDER",
@@ -88,12 +89,12 @@ def purge_tmp():
 @pytest.fixture(scope="function", autouse=False)
 def cleanup():
     yield
-    purge_tmp()
+    purge_all()
 
 
 @pytest.fixture(scope="function", autouse=False)
 def mock_inbox(setup, cleanup):
-    purge_tmp()
+    purge_all()
     """Populate INBOX_FOLDER with mocked sample audiobooks."""
     if env := os.getenv("INBOX_FOLDER"):
         inbox = Path(env)

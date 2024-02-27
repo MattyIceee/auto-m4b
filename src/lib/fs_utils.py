@@ -96,19 +96,26 @@ def get_size(
 
 
 def is_ok_to_delete(
-    path: Path, max_size: int = 10240, ignore_hidden: bool = True
+    path: Path,
+    max_size: int = 10240,
+    only_file_exts: list[str] = [],
+    ignore_hidden: bool = True,
 ) -> bool:
     src_dir_size = get_size(path, fmt="bytes")
 
     if ignore_hidden:
-        files_count = len(
-            [f for f in path.rglob("*") if f.is_file() and not f.name.startswith(".")]
-        )
+        files = [
+            f for f in path.rglob("*") if f.is_file() and not f.name.startswith(".")
+        ]
+
     else:
-        files_count = len([f for f in path.rglob("*") if f.is_file()])
+        files = [f for f in path.rglob("*") if f.is_file()]
+
+    if only_file_exts:
+        files = [f for f in files if f.suffix in only_file_exts]
 
     # ok to delete if no visible or un-ignored files or if size is less than 10kb
-    return files_count == 0 or src_dir_size < max_size
+    return len(files) == 0 or src_dir_size < max_size
 
 
 def check_src_dst(
@@ -205,7 +212,7 @@ def _mv_or_cp_dir_contents(
 
     rm_empty_src_dir = operation == "move"
 
-    overwrite_mode = overwrite_mode or cfg.default_overwrite_mode
+    overwrite_mode = overwrite_mode or cfg.OVERWRITE_MODE
 
     if overwrite_mode not in ["skip", "overwrite", "overwrite-silent"]:
         raise ValueError("Invalid overwrite mode")
@@ -259,26 +266,44 @@ def _mv_or_cp_dir_contents(
         will_overwrite = dst_file.is_file()
         return file_ok and (overwrite_mode != "skip" or not will_overwrite)
 
+    files_not_verbed = []
+
     for src_file in src_dir.glob("*"):
+        if src_file.is_dir():
+            _mv_or_cp_dir_contents(
+                operation,
+                src_file,
+                dst_dir / src_file.name,
+                overwrite_mode,
+                ignore_files,
+                only_file_exts,
+            )
         dst_file = dst_dir / src_file.name
         if ok_to_mv_or_cp(src_file, dst_file):
             if operation == "copy":
                 shutil.copy2(src_file, dst_file)
             elif operation == "move":
                 shutil.move(src_file, dst_file)
+        elif not only_file_exts or src_file.suffix in only_file_exts:
+            files_not_verbed.append(src_file)
 
-    files_not_in_right = set(find_files(src_dir, ignore_files)) - set(
-        find_files(dst_dir, ignore_files)
-    )
+    # files_not_in_right = set(find_files(src_dir, ignore_files)) - set(
+    #     find_files(dst_dir, ignore_files)
+    # )
 
-    if files_not_in_right:
+    if files_not_verbed:
         print_error(f"Error: Some files in {src_dir} could not be {verbed}:")
-        for file in files_not_in_right:
+        for file in files_not_verbed:
             print_grey(f"     - {file}")
-        raise FileNotFoundError(f"Error: Some files in {src_dir} could not be {verbed}")
+        err = f"Some files in {src_dir} could not be {verbed}"
+        raise FileNotFoundError(err)
 
     # Remove the source directory if empty and conditions permit, if moving
-    if rm_empty_src_dir and operation == "move" and is_ok_to_delete(src_dir):
+    if (
+        rm_empty_src_dir
+        and operation == "move"
+        and is_ok_to_delete(src_dir, only_file_exts=only_file_exts)
+    ):
         try:
             rmdir_force(src_dir)
         except OSError:
@@ -371,7 +396,12 @@ def cp_dir(
     _mv_or_copy_dir("copy", src_dir, dst_dir, overwrite_mode)
 
 
-def mv_file_to_dir(source_file: Path, dst_dir: Path, new_filename: str | None = None):
+def mv_file_to_dir(
+    source_file: Path,
+    dst_dir: Path,
+    new_filename: str | None = None,
+    overwrite_mode: OverwriteMode | None = None,
+) -> None:
     # Check source and destination
     if not source_file.is_file():
         raise FileNotFoundError(f"Source file {source_file} does not exist")
@@ -380,12 +410,22 @@ def mv_file_to_dir(source_file: Path, dst_dir: Path, new_filename: str | None = 
 
     dst = dst_dir if new_filename is None else dst_dir / new_filename
 
+    if dst.is_file() and overwrite_mode == "skip":
+        raise FileExistsError(
+            f"Destination file {dst} already exists and overwrite mode is 'skip'"
+        )
+    if dst.is_file() and overwrite_mode != "overwrite-silent":
+        print_warning(f"Warning: {dst} already exists and will be overwritten")
+
     # Move the file
     shutil.move(source_file, dst)
 
 
 def cp_file_to_dir(
-    source_file: Path, dst_dir: Path, new_filename: str | None = None
+    source_file: Path,
+    dst_dir: Path,
+    new_filename: str | None = None,
+    overwrite_mode: OverwriteMode | None = None,
 ) -> None:
     # Check source and destination
     if not source_file.is_file():
@@ -393,12 +433,21 @@ def cp_file_to_dir(
     if not dst_dir.is_dir():
         raise NotADirectoryError(f"Destination {dst_dir} is not a directory")
 
+    dst_file = dst_dir / new_filename if new_filename else dst_dir / source_file.name
+
+    if dst_file.is_file() and overwrite_mode == "skip":
+        raise FileExistsError(
+            f"Destination file {dst_file} already exists and overwrite mode is 'skip'"
+        )
+    if dst_file.is_file() and overwrite_mode != "overwrite-silent":
+        print_warning(f"Warning: {dst_file} already exists and will be overwritten")
+
     # Copy the file
     shutil.copy2(source_file, dst_dir)
 
     # Rename the file if new_filename is specified
     if new_filename:
-        shutil.move(dst_dir / source_file.name, dst_dir / new_filename)
+        shutil.move(dst_dir / source_file.name, dst_file)
 
 
 def flatten_files_in_dir(

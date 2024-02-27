@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 from src.lib.config import cfg
 from src.lib.ffmpeg_utils import extract_id3_tag_py, get_bitrate_py, get_samplerate_py
 from src.lib.misc import count_numbers_in_string, fix_smart_quotes, re_group
-from src.lib.term import PATH_COLOR, print_light_grey, print_list
+from src.lib.term import PATH_COLOR, print_debug, print_list, smart_print
 
 author_pattern = r"^(?P<author>.*?)[\W\s]*[-_–—\(]"
 book_title_pattern = r"(?<=[-_–—])[\W\s]*(?P<book_title>[\w\s]+?)\s*(?=\d{4}|\(|\[|$)"
@@ -78,18 +78,17 @@ def strip_part_number(string: str) -> str:
 
 
 def extract_path_info(
-    book: "Audiobook",
-) -> "Audiobook":
+    book: "Audiobook", quiet: bool = False) -> "Audiobook":
     # Replace single occurrences of . with spaces
 
     dir_author = swap_firstname_lastname(
-        re_group(re.search(author_pattern, book.dir_name), "author")
+        re_group(re.search(author_pattern, book.basename), "author")
     )
 
-    dir_title = re_group(re.search(book_title_pattern, book.dir_name), "book_title")
-    dir_year = re_group(re.search(year_pattern, book.dir_name), "year")
+    dir_title = re_group(re.search(book_title_pattern, book.basename), "book_title")
+    dir_year = re_group(re.search(year_pattern, book.basename), "year")
     dir_narrator = re_group(
-        re.search(narrator_pattern, book.dir_name, re.I), "narrator"
+        re.search(narrator_pattern, book.basename, re.I), "narrator"
     )
 
     files = [f.name for f in Path(book.inbox_dir).iterdir() if f.is_file()]
@@ -121,7 +120,7 @@ def extract_path_info(
         ["author", "title", "year"],
     ):
         if len(f) > len(d):
-            print(f"file_{f} is longer than {f}, setting {f} to {d}")
+            print_debug(f"file_{f} is longer than {f}, setting {f} to {d}")
             meta[o] = f
 
     book.fs_author = meta["author"]
@@ -134,7 +133,7 @@ def extract_path_info(
         [file_author, file_title, file_year], [dir_author, dir_title, dir_year]
     ):
         book.dir_extra_junk = re.sub(
-            r"^[ \,.\)\}\]]*", "", re.sub(d, "", book.dir_name, flags=re.I)
+            r"^[ \,.\)\}\]]*", "", re.sub(d, "", book.basename, flags=re.I)
         )
         book.file_extra_junk = re.sub(
             r"^[ \,.\)\}\]]*", "", re.sub(f, "", orig_file_name, flags=re.I)
@@ -146,13 +145,13 @@ def extract_path_info(
 
 
 def extract_metadata(
-    book: "Audiobook",
-):
+    book: "Audiobook", quiet: bool = False) -> "Audiobook":
 
-    print_light_grey(
-        f"Sampling {{{{{book.sample_audio1.relative_to(book.inbox_dir)}}}}} for id3 tags and quality information...",
-        highlight_color=PATH_COLOR,
-    )
+    if not quiet:
+        smart_print(
+            f"Sampling {{{{{book.sample_audio1.name}}}}} for book metadata and quality info:",
+            highlight_color=PATH_COLOR,
+        )
 
     book.bitrate = get_bitrate_py(book.sample_audio1)
     book.samplerate = get_samplerate_py(book.sample_audio1)
@@ -196,13 +195,13 @@ def extract_metadata(
     )
 
     title_is_in_folder_name = (
-        book.id3_title and book.id3_title.lower() in book.dir_name.lower()
+        book.id3_title and book.id3_title.lower() in book.basename.lower()
     )
     album_is_in_folder_name = (
-        book.id3_album and book.id3_album.lower() in book.dir_name.lower()
+        book.id3_album and book.id3_album.lower() in book.basename.lower()
     )
     sortalbum_is_in_folder_name = (
-        book.id3_sortalbum and book.id3_sortalbum.lower() in book.dir_name.lower()
+        book.id3_sortalbum and book.id3_sortalbum.lower() in book.basename.lower()
     )
 
     id3_title_is_title = False
@@ -212,37 +211,44 @@ def extract_metadata(
     # Title:
     if not book.id3_title and not book.id3_album and not book.id3_sortalbum:
         # If no id3_title, id3_album, or id3_sortalbum, use the extracted title
-        print("No id3_title, id3_album, or id3_sortalbum, so use extracted title")
+        if not quiet:
+            print_debug("No id3_title, id3_album, or id3_sortalbum, so use extracted title")
         book.title = book.fs_title
     else:
         # If (sort)album is in title, it's likely that title is something like {book name}, ch. 6
         # So if album is in title, prefer album
         if album_is_in_title:
-            print("id3_album is in title")
+            if not quiet:
+                print_debug("id3_album is in title")
             book.title = book.id3_album
             id3_album_is_title = True
         elif sortalbum_is_in_title:
-            print("id3_sortalbum is in title")
+            if not quiet:
+                print_debug("id3_sortalbum is in title")
             book.title = book.id3_sortalbum
             id3_sortalbum_is_title = True
         # If id3_title is in _folder_name, prefer id3_title
         elif title_is_in_folder_name:
-            print("id3_title is in folder name")
+            if not quiet:
+                print_debug("id3_title is in folder name")
             book.title = book.id3_title
             id3_title_is_title = True
         # If both sample files' album name matches, prefer album
         elif album_matches_album2:
-            print("Album matches album2")
+            if not quiet:
+                print_debug("Album matches album2")
             book.title = book.id3_album
             id3_album_is_title = True
         # If both sample files' title name matches, prefer title
         elif title_matches_title2:
-            print("id3_title matches sample2 id3_title")
+            if not quiet:
+                print_debug("id3_title matches sample2 id3_title")
             book.title = book.id3_title
             id3_title_is_title = True
         # If title is a part no., we should use album or sortalbum
         elif book.title_is_partno:
-            print("Title is partno, so we should use album")
+            if not quiet:
+                print_debug("Title is partno, so we should use album")
             # If album is in _folder_name or if sortalbum doesn't exist, prefer album
             if album_is_in_folder_name or not book.id3_sortalbum:
                 book.title = book.id3_album
@@ -251,18 +257,21 @@ def extract_metadata(
                 book.title = book.id3_sortalbum
                 id3_sortalbum_is_title = True
         if not book.title:
-            print("Can't figure out what title is, so just use it")
+            if not quiet:
+                print_debug("Can't figure out what title is, so just use it")
             book.title = book.id3_title
             id3_title_is_title = True
 
     book.title = strip_part_number(book.title)
     book.title = fix_smart_quotes(book.title)
 
-    print_list(f"Title: {book.title}")
+    if not quiet:
+        print_list(f"Title: {book.title}")
 
     # Album:
     book.album = book.title
-    print_list(f"Album: {book.album}")
+    if not quiet:
+        print_list(f"Album: {book.album}")
 
     if book.id3_sortalbum:
         book.sortalbum = book.id3_sortalbum
@@ -272,9 +281,9 @@ def extract_metadata(
         book.sortalbum = book.album
     # print "  Sort album: $sortalbum"
 
-    artist_is_in_folder_name = book.id3_artist.lower() in book.dir_name.lower()
+    artist_is_in_folder_name = book.id3_artist.lower() in book.basename.lower()
     albumartist_is_in_folder_name = (
-        book.id3_albumartist.lower() in book.dir_name.lower()
+        book.id3_albumartist.lower() in book.basename.lower()
     )
 
     id3_artist_is_author = False
@@ -390,8 +399,10 @@ def extract_metadata(
         elif not id3_comment_has_narrator:
             book.id3_comment = f"Read by {book.narrator} // {book.id3_comment}"
 
-    print_list(f"Author: {book.artist}")
-    print_list(f"Narrator: {book.narrator}")
+    if not quiet:
+        print_list(f"Author: {book.artist}")
+    if book.narrator and not quiet:
+        print_list(f"Narrator: {book.narrator}")
 
     # Date:
     if book.id3_date and not book.fs_year:
@@ -404,12 +415,15 @@ def extract_metadata(
         else:
             book.date = book.fs_year
 
-    print_list(f"Date: {book.date}")
+    if book.date and not quiet:
+        print_list(f"Date: {book.date}")
     # extract 4 digits from date
     book.year = re_group(re.search(r"\d{4}", book.date)) if book.date else None
 
     # convert bitrate and sample rate to friendly to kbit/s, rounding to nearest tenths, e.g. 44.1 kHz
-    print_list(f"Quality: {book.bitrate_friendly} @ {book.samplerate_friendly}")
+    if not quiet:
+        print_list(f"Quality: {book.bitrate_friendly} @ {book.samplerate_friendly}")
+        print_list(f"Duration: {book.duration("inbox", "human")}")
 
     return book
 

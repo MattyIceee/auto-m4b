@@ -7,8 +7,12 @@ import inflect
 import numpy as np
 
 
+def log_date() -> str:
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
 def friendly_date() -> str:
-    return datetime.now().strftime("%I:%M:%S %p – %a, %d %b %Y")
+    return datetime.now().strftime("%I:%M:%S %p, %a, %d %b %Y")
 
 
 def round_bit_rate(bitrate: int) -> int:

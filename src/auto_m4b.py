@@ -1,4 +1,3 @@
-import sys
 import traceback
 
 import import_debug
@@ -18,10 +17,10 @@ LOOP_COUNT = 0
 
 def handle_err(e: Exception):
     if cfg.DEBUG:
-        Tinta().red(traceback.format_exc()).print()
+        Tinta("\n").red(traceback.format_exc()).print()
         exit(1)
-    elif cfg.TEST or "pytest" in sys.modules:
-        raise e
+    # elif cfg.TEST or "pytest" in sys.modules:
+    #     raise e
     else:
         print_error(f"Error: {e}")
 

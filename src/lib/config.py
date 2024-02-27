@@ -18,7 +18,7 @@ from multiprocessing import cpu_count
 from pathlib import Path
 from typing import Any, cast, Literal, overload, TYPE_CHECKING, TypeVar
 
-from src.lib.typing import OverwriteMode
+from src.lib.typing import ExifWriter, OverwriteMode
 
 DEFAULT_SLEEPTIME = 10  # Set this to your default sleep time
 AUDIO_EXTS = [".mp3", ".m4a", ".m4b", ".wma"]
@@ -61,7 +61,7 @@ WORKING_DIRS = [
 if TYPE_CHECKING:
     pass
 
-OnComplete = Literal["move", "delete"]
+OnComplete = Literal["move", "delete", "test_do_nothing"]
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--env", help="Path to .env file", type=Path)
@@ -166,7 +166,7 @@ class Config:
 
     _ENV: dict[str, str | None] = {}
     _ENV_SRC: Any = None
-    use_docker = False
+    _USE_DOCKER = False
 
     def startup(self, args: AutoM4bArgs | None = None):
         from src.lib.term import print_aqua, print_dark_grey, print_grey
@@ -204,19 +204,25 @@ class Config:
 
     @cached_property
     def on_complete(self):
+        if self.ARGS.test:
+            return "test_do_nothing"
         return cast(OnComplete, os.getenv("ON_COMPLETE", "move"))
 
     @cached_property
-    def OVERWRITE_EXISTING(self):
-        return parse_bool(os.getenv("OVERWRITE_EXISTING", False))
+    def OVERWRITE_MODE(self) -> OverwriteMode:
+        return (
+            "overwrite"
+            if parse_bool(os.getenv("OVERWRITE_EXISTING", False))
+            else "skip"
+        )
 
     # @cached_property
     # def overwrite_arg(self):
     #     return "--overwrite" if self.OVERWRITE_EXISTING else "--no-overwrite"
 
-    @cached_property
-    def default_overwrite_mode(self) -> OverwriteMode:
-        return "overwrite" if self.OVERWRITE_EXISTING else "skip"
+    # @cached_property
+    # def default_overwrite_mode(self) -> OverwriteMode:
+    #     return "overwrite" if self.OVERWRITE_EXISTING else "skip"
 
     @cached_property
     def NO_FIX(self) -> bool:
@@ -279,6 +285,9 @@ class Config:
 
     @cached_property
     def _m4b_tool(self):
+        """Note: if you are using the Dockerized version of m4b-tool, this will always be `m4b-tool`, because the pre-release version is baked into the image."""
+        if self._USE_DOCKER:
+            return ["m4b-tool"]
         return ["m4b-tool-pre"] if self.VERSION == "latest" else ["m4b-tool"]
 
     @property
@@ -359,8 +368,10 @@ class Config:
         info += f"{self.sleeptime_friendly} sleep / "
         info += f"Max chapter length: {self.max_chapter_length_friendly} / "
         info += f"Cover images: {'off' if self.SKIP_COVERS else 'on'} / "
-        if self.VERSION == "latest":
-            info += "m4b-tool: latest (preview)"
+        if self.USE_DOCKER:
+            info += "m4b-tool: latest (Docker)"
+        elif self.VERSION == "latest":
+            info += "m4b-tool: latest"
         else:
             info += "m4b-tool: stable"
 
@@ -384,16 +395,21 @@ class Config:
         return IGNORE_FILES
 
     @cached_property
-    def TMP_DIR(self):
-        return Path(tempfile.gettempdir()) / "auto-m4b"
-
-    @cached_property
     def MAKE_BACKUP(self):
         return parse_bool(os.getenv("MAKE_BACKUP", False))
 
+    # @cached_property
+    # def backup_arg(self):
+    #     return "--backup" if self.MAKE_BACKUP == "Y" else ""
+
     @cached_property
-    def backup_arg(self):
-        return "--backup" if self.MAKE_BACKUP == "Y" else ""
+    def EXIF_WRITER(self) -> ExifWriter:
+        return cast(ExifWriter, os.getenv("EXIF_WRITER", "eyed3"))
+
+    @cached_property
+    def USE_DOCKER(self):
+        self.check_m4b_tool()
+        return self._USE_DOCKER
 
     @cached_property
     def inbox_dir(self):
@@ -416,16 +432,22 @@ class Config:
         return self._load_env("BACKUP_FOLDER", allow_empty=False)
 
     @cached_property
+    def working_dir(self):
+        """The working directory for auto-m4b, defaults to /<tmpdir>/auto-m4b."""
+        from_env = self._load_env("WORKING_FOLDER", None, allow_empty=True)
+        return from_env or Path(tempfile.gettempdir()).resolve() / "auto-m4b"
+
+    @cached_property
     def build_dir(self):
-        return self._load_env("BUILD_FOLDER", self.TMP_DIR / "build")
+        return self.working_dir / "build"
 
     @cached_property
     def merge_dir(self):
-        return self._load_env("MERGE_FOLDER", self.TMP_DIR / "merge")
+        return self.working_dir / "merge"
 
     @cached_property
     def trash_dir(self):
-        return self._load_env("TRASH_FOLDER", self.TMP_DIR / "delete")
+        return self.working_dir / "trash"
 
     @cached_property
     def GLOBAL_LOG_FILE(self):
@@ -436,7 +458,7 @@ class Config:
 
     @cached_property
     def PID_FILE(self):
-        pid_file = self.TMP_DIR / "running"
+        pid_file = self.working_dir / "running"
         pid_file.parent.mkdir(parents=True, exist_ok=True)
         return pid_file
 
@@ -456,6 +478,7 @@ class Config:
             self.archive_dir,
             self.fix_dir,
             self.backup_dir,
+            self.working_dir,
             self.build_dir,
             self.merge_dir,
             self.trash_dir,
@@ -500,13 +523,13 @@ class Config:
                     "-u",
                     f"{uid}:{gid}",
                     "-v",
-                    f"{self.merge_dir}:/mnt:rw",
+                    f"{self.working_dir}:/mnt:rw",
                     "sandreas/m4b-tool:latest",
                 ]
                 if c
             ]
 
-            self.use_docker = True
+            self._USE_DOCKER = True
             return True
 
         raise RuntimeError(
