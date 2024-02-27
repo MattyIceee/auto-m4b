@@ -295,10 +295,12 @@ class Config:
         return " ".join(self._m4b_tool)
 
     @overload
-    def _load_env(self, key: str, default: Path, allow_empty: bool = ...) -> Path: ...
+    def _load_path_env(
+        self, key: str, default: Path, allow_empty: bool = ...
+    ) -> Path: ...
 
     @overload
-    def _load_env(
+    def _load_path_env(
         self,
         key: str,
         default: Path | None = None,
@@ -306,14 +308,14 @@ class Config:
     ) -> Path | None: ...
 
     @overload
-    def _load_env(
+    def _load_path_env(
         self,
         key: str,
         default: Path | None = None,
         allow_empty: Literal[False] = False,
     ) -> Path: ...
 
-    def _load_env(
+    def _load_path_env(
         self, key: str, default: Path | None = None, allow_empty: bool = True
     ) -> Path | None:
         env = os.getenv(key, self.ENV.get(key, None))
@@ -322,7 +324,7 @@ class Config:
             raise EnvironmentError(
                 f"{key} is not set, please make sure to set it in a .env file or as an ENV var"
             )
-        return path
+        return path.resolve() if path else None
 
     # def parse_args(self):
     #     args = parser.parse_known_args()[0]
@@ -413,28 +415,28 @@ class Config:
 
     @cached_property
     def inbox_dir(self):
-        return self._load_env("INBOX_FOLDER", allow_empty=False)
+        return self._load_path_env("INBOX_FOLDER", allow_empty=False)
 
     @cached_property
     def converted_dir(self):
-        return self._load_env("CONVERTED_FOLDER", allow_empty=False)
+        return self._load_path_env("CONVERTED_FOLDER", allow_empty=False)
 
     @cached_property
     def archive_dir(self):
-        return self._load_env("ARCHIVE_FOLDER", allow_empty=False)
+        return self._load_path_env("ARCHIVE_FOLDER", allow_empty=False)
 
     @cached_property
     def fix_dir(self):
-        return self._load_env("FIX_FOLDER", allow_empty=False)
+        return self._load_path_env("FIX_FOLDER", allow_empty=False)
 
     @cached_property
     def backup_dir(self):
-        return self._load_env("BACKUP_FOLDER", allow_empty=False)
+        return self._load_path_env("BACKUP_FOLDER", allow_empty=False)
 
     @cached_property
     def working_dir(self):
         """The working directory for auto-m4b, defaults to /<tmpdir>/auto-m4b."""
-        from_env = self._load_env("WORKING_FOLDER", None, allow_empty=True)
+        from_env = self._load_path_env("WORKING_FOLDER", None, allow_empty=True)
         return from_env or Path(tempfile.gettempdir()).resolve() / "auto-m4b"
 
     @cached_property

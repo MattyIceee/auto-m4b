@@ -27,5 +27,6 @@ python_version = "3.12"
 allow_prereleases = true
 
 [scripts]
-app = "python src"
+app = "python src -l 1"
+forever = "python src -l -1"
 tests = "python -m pytest -c pyproject.toml"

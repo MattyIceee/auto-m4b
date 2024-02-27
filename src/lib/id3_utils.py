@@ -1,6 +1,8 @@
 import import_debug
 from tinta import Tinta
 
+from src.lib.parsers import get_year_from_date
+
 import_debug.bug.push("src/lib/id3_utils.py")
 import shutil
 import subprocess
@@ -92,7 +94,7 @@ def verify_and_update_id3_tags(
     date_needs_updating = False
     comment_needs_updating = False
 
-    smart_print("\nVerifying id3 tags...", end="")
+    smart_print("\nVerifying id3 tags...")
 
     def _print_needs_updating(
         what: str, left_value: str | None, right_value: str
@@ -129,7 +131,9 @@ def verify_and_update_id3_tags(
             "Album artist (author)", book_to_check.id3_albumartist, book.author
         )
 
-    if book.date and book_to_check.id3_date != book.date:
+    if book.date and get_year_from_date(book_to_check.id3_date) != get_year_from_date(
+        book.date
+    ):
         date_needs_updating = True
         _print_needs_updating("Date", book_to_check.id3_date, book.date)
 
@@ -191,7 +195,7 @@ def verify_and_update_id3_tags(
         ]
     ):
         Tinta.up()
-        smart_print(Tinta("\nVerifying id3 tags...").aqua("✓").to_str())
+        smart_print(Tinta("Verifying id3 tags...").aqua("✓").to_str())
 
 
 import_debug.bug.pop("src/lib/id3_utils.py")

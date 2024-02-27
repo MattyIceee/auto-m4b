@@ -1,7 +1,6 @@
 import traceback
 
 import import_debug
-from tinta import Tinta
 
 from src.lib.typing import copy_kwargs_classless
 
@@ -10,14 +9,14 @@ import time
 
 from src.lib import run
 from src.lib.config import AutoM4bArgs, cfg
-from src.lib.term import print_error
+from src.lib.term import print_error, print_red
 
 LOOP_COUNT = 0
 
 
 def handle_err(e: Exception):
     if cfg.DEBUG:
-        Tinta("\n").red(traceback.format_exc()).print()
+        print_red(f"\n{traceback.format_exc()}")
         exit(1)
     # elif cfg.TEST or "pytest" in sys.modules:
     #     raise e

@@ -8,7 +8,8 @@ R = TypeVar("R")
 
 AudiobookFmt = Literal["m4b", "mp3", "m4a", "wma"]
 Operation = Literal["move", "copy"]
-OverwriteMode = Literal["skip", "overwrite", "overwrite-silent"]
+OverwriteMode = Literal["skip", "skip-silent", "overwrite", "overwrite-silent"]
+OVERWRITE_MODES = ["skip", "skip-silent", "overwrite", "overwrite-silent"]
 PathType = Literal["dir", "file"]
 SizeFmt = Literal["bytes", "human"]
 DirName = Literal[

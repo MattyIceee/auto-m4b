@@ -212,9 +212,9 @@ def process_inbox():
 
     current_local_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    dash = "─" * 19
+    dash = "─" * 24
 
-    print_aqua(f"{dash}  ⌐◒-◒  auto-m4b • {current_local_time}  -{dash}")
+    print_aqua(f"{dash}  ⌐◒-◒  auto-m4b • {current_local_time}  ─{dash}")
 
     print_grey(f"Checking for new books in {{{{{cfg.inbox_dir}}}}} ꨄ︎")
 
@@ -242,7 +242,7 @@ def process_inbox():
 
     smart_print(f"Found {books_count} {pluralize(books_count, 'book')} to convert\n")
 
-    for book_full_path in audio_dirs:
+    for b, book_full_path in enumerate(audio_dirs):
 
         book = Audiobook(book_full_path)
 
@@ -360,7 +360,7 @@ def process_inbox():
             smart_print("Skipping making a backup (folder is empty)")
         else:
             smart_print(f"Making a backup copy → {tint_path(book.backup_dir)}")
-            cp_dir(book.inbox_dir, cfg.backup_dir, "overwrite-silent")
+            cp_dir(book.inbox_dir, cfg.backup_dir, "skip-silent")
 
             # Check that files count and folder size match
             orig_files_count = book.num_files("inbox")
@@ -374,14 +374,14 @@ def process_inbox():
             backup_plural = pluralize(backup_files_count, "file")
 
             if orig_files_count == backup_files_count and orig_size_b == backup_size_b:
-                smart_print(
+                print_grey(
                     f"Backup successful - {backup_files_count} {orig_plural} ({backup_size_human})"
                 )
             elif orig_files_count < backup_files_count or orig_size_b < backup_size_b:
-                print_light_grey(
+                print_grey(
                     f"Backup successful - but expected {orig_plural} ({orig_size_human}), found {backup_files_count} {backup_plural} ({backup_size_human})"
                 )
-                print_light_grey("Assuming this is a previous backup and continuing")
+                print_grey("Assuming this is a previous backup and continuing")
             else:
                 print_error(
                     f"Backup failed - expected {orig_files_count} {orig_plural} ({orig_size_human}), found {backup_files_count} {backup_plural} ({backup_size_human})"
@@ -560,7 +560,12 @@ def process_inbox():
                 f"Removed old description {pluralize(len(desc_files), 'file')}"
             )
 
-        book.merge_desc_file.rename(book.final_desc_file)
+        mv_file_to_dir(
+            book.merge_desc_file,
+            book.final_desc_file.parent,
+            new_filename=book.final_desc_file.name,
+            overwrite_mode="overwrite-silent",
+        )
         print_light_grey(f"Finished in {elapsedtime_friendly}")
 
         log_results(book, "SUCCESS", elapsedtime)
@@ -633,8 +638,11 @@ def process_inbox():
 
         smart_print("\nDone processing 🐾✨🥞\n")
 
+        divider("\n")
+        if b < books_count - 1:
+            nl()
+
     # clear the folders
-    divider("\n")
     clean_dir(cfg.merge_dir)
     clean_dir(cfg.build_dir)
     clean_dir(cfg.trash_dir)
@@ -649,7 +657,7 @@ def process_inbox():
 
     if books_count >= 1:
         smart_print(
-            f"✨ Finished converting all available books, next check in {cfg.sleeptime_friendly}"
+            f"📘 Finished converting all available books, next check in {cfg.sleeptime_friendly}"
         )
     else:
         print_dark_grey(f"Next check in {cfg.sleeptime_friendly}")

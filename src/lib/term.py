@@ -403,7 +403,7 @@ def tinted_file(*args):
     return s
 
 
-def divider(lead: str = "", color: int = DARK_GREY_COLOR, width: int = 80):
+def divider(lead: str = "", color: int = DARK_GREY_COLOR, width: int = 90):
     smart_print(lead + ("-" * width), color=color)
 
 

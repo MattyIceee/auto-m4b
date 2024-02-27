@@ -11,12 +11,13 @@ import humanize
 
 from src.lib.config import AUDIO_EXTS
 from src.lib.term import (
+    print_debug,
     print_error,
     print_grey,
     print_notice,
     print_warning,
 )
-from src.lib.typing import Operation, OverwriteMode, PathType, SizeFmt
+from src.lib.typing import Operation, OVERWRITE_MODES, OverwriteMode, PathType, SizeFmt
 
 
 def count_audio_files_in_dir(
@@ -126,7 +127,7 @@ def check_src_dst(
     overwrite_mode: OverwriteMode = "skip",
 ):
     # valid overwrite modes are "skip" (default), "overwrite", and "overwrite-silent"
-    if overwrite_mode not in ["skip", "overwrite", "overwrite-silent"]:
+    if overwrite_mode not in OVERWRITE_MODES:
         raise ValueError("Invalid overwrite mode")
 
     # if dst should be dir but does not exist, try to create it
@@ -214,15 +215,16 @@ def _mv_or_cp_dir_contents(
 
     overwrite_mode = overwrite_mode or cfg.OVERWRITE_MODE
 
-    if overwrite_mode not in ["skip", "overwrite", "overwrite-silent"]:
+    if overwrite_mode not in OVERWRITE_MODES:
         raise ValueError("Invalid overwrite mode")
 
     dst_dir.mkdir(parents=True, exist_ok=True)
 
     if operation == "move" and not src_and_dst_are_on_same_partition(src_dir, dst_dir):
-        print_notice(
-            f"Notice: Source and destination are not on the same partition, using copy instead of move"
-        )
+        if cfg.DEBUG:
+            print_debug(
+                f"Source and destination are not on the same partition, using copy instead of move\nsrc: {src_dir}\ndst: {dst_dir}"
+            )
         operation = "copy"
 
     # ignore if src ends in .bak
@@ -242,7 +244,7 @@ def _mv_or_cp_dir_contents(
         find_files(dst_dir, ignore_files)
     )
 
-    if files_common_to_both and overwrite_mode != "overwrite-silent":
+    if files_common_to_both and not overwrite_mode.endswith("silent"):
         if overwrite_mode == "overwrite":
             print_warning(f"Warning: Some files in {dst_dir} will be overwritten:")
         else:
@@ -258,13 +260,18 @@ def _mv_or_cp_dir_contents(
         return
 
     def ok_to_mv_or_cp(src_file: Path, dst_file: Path) -> bool:
-        file_ok = (
-            src_file.is_file()
-            and src_file.name not in ignore_files
-            and (not only_file_exts or src_file.suffix in only_file_exts)
-        )
-        will_overwrite = dst_file.is_file()
-        return file_ok and (overwrite_mode != "skip" or not will_overwrite)
+
+        if any(
+            [
+                (not src_file.is_file()),
+                (src_file.name in ignore_files),
+                (only_file_exts and src_file.suffix not in only_file_exts),
+                (dst_file.is_file() and not overwrite_mode.startswith("overwrite")),
+            ]
+        ):
+            return False
+
+        return True
 
     files_not_verbed = []
 
@@ -284,19 +291,21 @@ def _mv_or_cp_dir_contents(
                 shutil.copy2(src_file, dst_file)
             elif operation == "move":
                 shutil.move(src_file, dst_file)
-        elif not only_file_exts or src_file.suffix in only_file_exts:
-            files_not_verbed.append(src_file)
+            if not dst_file.is_file():
+                files_not_verbed.append(src_file)
 
     # files_not_in_right = set(find_files(src_dir, ignore_files)) - set(
     #     find_files(dst_dir, ignore_files)
     # )
 
     if files_not_verbed:
-        print_error(f"Error: Some files in {src_dir} could not be {verbed}:")
-        for file in files_not_verbed:
-            print_grey(f"     - {file}")
-        err = f"Some files in {src_dir} could not be {verbed}"
-        raise FileNotFoundError(err)
+        if not overwrite_mode.endswith("silent"):
+            print_error(f"Error: Some files in {src_dir} could not be {verbed}:")
+            for file in files_not_verbed:
+                print_grey(f"     - {file}")
+        if overwrite_mode == "overwrite":
+            err = f"Some files in {src_dir} could not be {verbed}"
+            raise FileNotFoundError(err)
 
     # Remove the source directory if empty and conditions permit, if moving
     if (
