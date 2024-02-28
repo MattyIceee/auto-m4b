@@ -180,6 +180,9 @@ class m4btool:
                 out.append(str(arg))
         return out
 
+    def esc_cmd(self) -> str:
+        return " ".join([f'"{arg}"' if " " in arg else arg for arg in self.cmd()])
+
     @property
     def should_copy(self):
         return self.book.orig_file_type in ["m4a", "m4b"]
@@ -438,7 +441,7 @@ def process_inbox():
         m4b_tool.msg()
 
         if cfg.DEBUG:
-            print_dark_grey(" ".join(cmd))
+            print_dark_grey(m4b_tool.esc_cmd())
 
         proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         if proc.stderr:
@@ -538,9 +541,7 @@ def process_inbox():
             continue
         else:
             with open(book.log_file, "a") as f:
-                f.write(
-                    f"{endtime_log} :: {book} :: Converted in {elapsedtime_friendly}\n"
-                )
+                f.write(f"{endtime_log}  {book}  Converted in {elapsedtime_friendly}\n")
 
         # create converted dir
         book.converted_dir.mkdir(parents=True, exist_ok=True)
@@ -568,15 +569,7 @@ def process_inbox():
         )
         print_light_grey(f"Finished in {elapsedtime_friendly}")
 
-        log_results(book, "SUCCESS", elapsedtime)
-
-        # Copy log file to output folder as $buildfolder$book/m4b-tool.$book.log
-        mv_file_to_dir(
-            book.log_file,
-            book.converted_dir,
-            new_filename=f"m4b-tool.{book}.log",
-            overwrite_mode="overwrite-silent",
-        )
+        log_results(book, "SUCCESS", elapsedtime_friendly)
 
         # TODO: Only handles single m4b output file, not multiple files.
         verify_and_update_id3_tags(book, "build")
@@ -587,11 +580,6 @@ def process_inbox():
             f"Moving to converted books folder → {tint_path(fmt_linebreak_path(book.converted_file, 120, 35))}"
         )
 
-        rm_all_empty_dirs(book.build_dir)
-
-        # Move all built audio files to output folder
-        mv_dir_contents(book.build_dir, book.converted_dir, only_file_exts=AUDIO_EXTS)
-
         # Copy other jpg, png, and txt files from mergefolder to output folder
         mv_dir_contents(
             book.merge_dir,
@@ -599,6 +587,26 @@ def process_inbox():
             only_file_exts=cfg.OTHER_EXTS,
             overwrite_mode="overwrite-silent",
         )
+
+        # Copy log file to output folder as $buildfolder$book/m4b-tool.$book.log
+        mv_file_to_dir(
+            book.log_file,
+            book.converted_dir,
+            new_filename=f"m4b-tool.{book}.log",
+            overwrite_mode="overwrite-silent",
+        )
+
+        rm_all_empty_dirs(book.build_dir)
+
+        # Move all built audio files to output folder
+        mv_dir_contents(book.build_dir, book.converted_dir, only_file_exts=AUDIO_EXTS)
+
+        if not book.converted_file.is_file():
+            print_error(
+                f"Error: The output file does not exist, something went wrong during the conversion\n     Expected it to be at {book.converted_file}"
+            )
+            mv_to_fix_dir()
+            continue
 
         # Remove description.txt from output folder if "$book [$desc_quality].txt" exists
         if book.final_desc_file.is_file():

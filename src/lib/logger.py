@@ -1,17 +1,42 @@
+import re
+
 import import_debug
 
+from src.lib.formatters import log_date
+from src.lib.misc import re_group
+from src.lib.term import multiline_is_empty
+
 import_debug.bug.push("src/lib/logger.py")
-from datetime import datetime
 from pathlib import Path
+
+from columnar import columnar
 
 from src.lib.audiobook import Audiobook
 from src.lib.config import cfg
+
+LOG_HEADERS = [
+    "Date",
+    "Result",
+    "Original Folder",
+    "Bitrate",
+    "Sample Rate",
+    "Type",
+    "Files",
+    "Size",
+    "Duration",
+    "Time",
+]
+LOG_JUSTIFY = ["l", "l", "l", "r", "r", "r", "r", "r", "r", "r"]
+log_pattern = r"(?P<date>^\d.*?)\s*(?P<result>SUCCESS|FAILED|UNKNOWN)\s*(?P<book_name>.+?(?=\d{2,3} kb/s|\d{2}\.\d kHz))\s*(?P<bitrate>\d+ kb/s)?\s*(?P<samplerate>[\d.]+ kHz)?\s*(?P<file_type>\.\w+)?\s*(?P<num_files>\d+ files)?\s*(?P<size>\d+\s*[BKMG]+)?\s*(?P<duration>[\dhms:-]*)?\s*(?P<elapsed>\S+)?"
+# TEST:
+# 2023-10-22 18:37:58-0700   FAILED    The Law of Attraction by Esther and Jerry Hicks    129 kb/s      44.1 kHz   .wma    85 files   336M         -
 
 
 def log_results(
     book: Audiobook,
     result: str,
-    elapsed: str | int | float = "",
+    elapsed: str,
+    log_file: Path | None = None,
 ) -> None:
     # note: requires `column` version 2.39 or higher, available in util-linux 2.39 or higher
 
@@ -19,40 +44,117 @@ def log_results(
     # format: [date] [time] [original book relative path] [info] ["result"=success|failed] [failure-message]
     # pad the relative path with spaces to 70 characters and truncate to 70 characters
     # sanitize book_src to remove multiple spaces and replace | with _
-    book_name = f"{book.basename[:70]:<70}".replace("  ", " ").replace("|", "_")
+
+    # get current log data and load it into columns - split by tabs or spaces >= 2
+
+    if not log_file:
+        log_file = cfg.GLOBAL_LOG_FILE
+
+    log_data: list[list[str]] = []
+    with open(log_file, "r") as f:
+        for line in f:
+            if line.startswith("Date ") or multiline_is_empty(line):
+                continue
+            cells = re.sub(r"\s{2,}", "\t", line).strip().split("\t")
+
+            if len(cells) == 10:
+                if not cells[1].lower() in ["success", "failed"]:
+                    cells[1] = "UNKNOWN"
+                log_data.append(cells)
+            else:
+                # book name probably got goofed, we need to regex it out
+                parsed = re.search(log_pattern, line.strip())
+                if parsed:
+                    log_data.append(
+                        [
+                            re_group(parsed, "date", default=""),
+                            re_group(parsed, "result", default=""),
+                            re_group(parsed, "book_name", default="").strip(),
+                            re_group(parsed, "bitrate", default=""),
+                            re_group(parsed, "samplerate", default=""),
+                            re_group(parsed, "file_type", default=""),
+                            re_group(parsed, "num_files", default=""),
+                            re_group(parsed, "size", default=""),
+                            re_group(parsed, "duration", default="-"),
+                            re_group(parsed, "elapsed", default="-"),
+                        ]
+                    )
+                else:
+                    raise ValueError(f"Couldn't parse log row: {line}")
+
+    num_cols = len(LOG_HEADERS)
+
+    # ensure all rows in log_data have 10 columns
+    for row in log_data:
+        if len(row) < num_cols:
+            row.extend([""] * (num_cols - len(row)))
+        elif len(row) > num_cols:
+            raise ValueError(f"Row has too many columns for log: {row}")
+
+    # remove 2+ spaces from book_name
+    book_name = " ".join(book.basename.split())
 
     # pad result with spaces to 9 characters
-    result = f"{result:<10}"
+    # result = f"{result:<10}"
 
     # strip all chars from elapsed that are not number or :
     elapsed = "".join(c for c in str(elapsed) if c.isdigit() or c == ":")
 
-    # get current date and time
-    datetime_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S%z")
-
     # Read the current auto-m4b.log file and replace all double spaces with |
-    with open(cfg.GLOBAL_LOG_FILE, "r") as f:
-        log = f.read().replace("  ", "\t")
+    # with open(log_file, "r") as f:
+    #     log = f.read().replace("  ", "\t")
 
     # Remove each line from log if it starts with ^Date\s+
-    log = "\n".join(line for line in log.split("\n") if not line.startswith("Date "))
+    # log = "\n".join(line for line in log.split("\n") if not line.startswith("Date "))
 
     # Remove blank lines from end of log file
-    log = log.rstrip("\n")
+    # log = log.rstrip("\n")
 
-    # append the new log entry to the log var if book_src is not empty or whitespace
-    if book_name.strip():
-        log += f"\n{datetime_str}\t{result}\t{book_name}\t{book.bitrate_friendly}\t{book.samplerate_friendly}\t.{book.orig_file_type}\t{book.num_files("inbox")} files\t{book.size("inbox", "human")}\t{book.duration("inbox", "human")}\t{elapsed}"
+    log_data.append(
+        [
+            log_date(),
+            result.upper(),
+            book_name,
+            book.bitrate_friendly,
+            book.samplerate_friendly,
+            f".{book.orig_file_type.replace('.', '')}",
+            f"{book.num_files('inbox')} files",
+            book.size("inbox", "human"),
+            book.duration("inbox", "human") or "-",
+            elapsed or "",
+        ]
+    )
 
-    # write the log file
-    with open(cfg.GLOBAL_LOG_FILE, "w") as f:
-        f.write(log)
+    table = columnar(
+        log_data,
+        headers=LOG_HEADERS,
+        terminal_width=1000,
+        preformatted_headers=True,
+        no_borders=True,
+        max_column_width=70,
+        justify=LOG_JUSTIFY,
+    )
+
+    table_cleaned = []
+
+    for line in table.splitlines()[1:]:
+        table_cleaned.append(line.strip())
+
+    # remove empty first line of table, and edge whitespace
+    table = "\n".join(table_cleaned)
+
+    # replace the log file
+    with open(log_file, "w") as f:
+        # ensure newline at end of file
+        f.write(table)
 
 
-def get_log_entry(book_src: Path) -> str:
+def get_log_entry(book_src: Path, log_file: Path | None = None) -> str:
     # looks in the log file to see if this book has been converted before and returns the log entry or ""
+    if not log_file:
+        log_file = cfg.GLOBAL_LOG_FILE
     book_name = book_src.name
-    with open(cfg.GLOBAL_LOG_FILE, "r") as f:
+    with open(log_file, "r") as f:
         log_entry = next((line for line in f if book_name in line), "")
     return log_entry
 

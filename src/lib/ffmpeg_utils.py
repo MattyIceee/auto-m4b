@@ -8,7 +8,7 @@ from typing import Any, Literal, overload
 import ffmpeg
 
 from src.lib.config import AUDIO_EXTS
-from src.lib.formatters import round_bit_rate
+from src.lib.formatters import round_bitrate
 
 DurationFmt = Literal["seconds", "human"]
 
@@ -76,13 +76,13 @@ def extract_id3_tag_py(file: Path | None, tag: str) -> str:
 def get_bitrate(file: Path, round: bool = True) -> int:
     command = f"ffprobe -hide_banner -loglevel 0 -select_streams a:0 -show_entries stream=bit_rate -of default=noprint_wrappers=1:nokey=1 {file}"
     bitrate = subprocess.check_output(command, shell=True).decode().strip()
-    return round_bit_rate(int(bitrate)) if round else int(bitrate)
+    return round_bitrate(int(bitrate)) if round else int(bitrate)
 
 
 def get_bitrate_py(file: Path, round: bool = True) -> int:
     probe_result = ffmpeg.probe(str(file))
     bitrate = probe_result["streams"][0]["bit_rate"]
-    return round_bit_rate(int(bitrate)) if round else int(bitrate)
+    return round_bitrate(int(bitrate)) if round else int(bitrate)
 
 
 def get_samplerate(file: Path) -> int:

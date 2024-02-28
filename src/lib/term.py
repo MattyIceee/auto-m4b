@@ -316,15 +316,9 @@ def print_list(*args: Any, highlight_color: int | None = None):
 
 
 def _print_alert(color: int, highlight_color: int, line: str):
-    global LAST_LINE_WAS_ALERT, THIS_LINE_IS_ALERT
-    THIS_LINE_IS_ALERT = True
     line = trim_newlines(line)
-
     line = " *** " + line
-
     smart_print(line, color=color, highlight_color=highlight_color)
-    LAST_LINE_WAS_ALERT = True
-    THIS_LINE_IS_ALERT = False
 
 
 def print_error(*args: Any):

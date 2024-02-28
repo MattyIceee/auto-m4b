@@ -13,6 +13,7 @@ pydantic = "*"
 eyed3 = "*"
 tinta = {file = "../tinta", editable = true}
 python-dotenv = "*"
+columnar = "*"
 
 [dev-packages]
 ruff = "*"

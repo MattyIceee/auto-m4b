@@ -85,6 +85,8 @@ def verify_and_update_id3_tags(
             f"Cannot verify id3 tags, {m4b_to_check} does not exist"
         )
 
+    smart_print("\nVerifying id3 tags...")
+
     book_to_check = Audiobook(m4b_to_check).extract_metadata(quiet=True)
 
     exiftool_args = []
@@ -93,8 +95,6 @@ def verify_and_update_id3_tags(
     author_needs_updating = False
     date_needs_updating = False
     comment_needs_updating = False
-
-    smart_print("\nVerifying id3 tags...")
 
     def _print_needs_updating(
         what: str, left_value: str | None, right_value: str

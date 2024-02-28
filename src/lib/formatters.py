@@ -1,3 +1,4 @@
+import humanize
 import import_debug
 
 import_debug.bug.push("src/lib/formatters.py")
@@ -8,14 +9,15 @@ import numpy as np
 
 
 def log_date() -> str:
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    current_tz = datetime.now().astimezone().tzinfo
+    return datetime.now(tz=current_tz).strftime("%Y-%m-%d %H:%M:%S%z")
 
 
 def friendly_date() -> str:
     return datetime.now().strftime("%I:%M:%S %p, %a, %d %b %Y")
 
 
-def round_bit_rate(bitrate: int) -> int:
+def round_bitrate(bitrate: int) -> int:
     standard_bitrates = np.array(
         [32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320]
     )  # see https://superuser.com/a/465660/254022
@@ -49,6 +51,11 @@ def round_bit_rate(bitrate: int) -> int:
         closest_bitrate = min_bitrate
 
     return closest_bitrate * 1000
+
+
+def human_size(size: int) -> str:
+    f = "%.2f" if size >= 1024**3 else "%d"
+    return humanize.naturalsize(size, format=f)
 
 
 def pluralize(count: int, singular: str, plural: str | None = None) -> str:

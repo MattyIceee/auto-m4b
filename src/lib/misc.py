@@ -80,7 +80,8 @@ def re_group(
     default: str = "",
 ) -> str:
     # returns the first match of pattern in string or default if no match
-    return match.group(group) if match else default
+    found = match.group(group) if match else None
+    return found if found is not None else default
 
 
 def compare_trim(a: str, b: str) -> bool:

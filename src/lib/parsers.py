@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from src.lib.config import cfg
-from src.lib.ffmpeg_utils import extract_id3_tag_py, get_bitrate_py, get_samplerate_py
+from src.lib.ffmpeg_utils import extract_id3_tag_py
 from src.lib.misc import count_numbers_in_string, fix_smart_quotes, re_group
 from src.lib.term import PATH_COLOR, print_debug, print_list, smart_print
 
@@ -152,9 +152,6 @@ def extract_metadata(
             f"Sampling {{{{{book.sample_audio1.name}}}}} for book metadata and quality info:",
             highlight_color=PATH_COLOR,
         )
-
-    book.bitrate = get_bitrate_py(book.sample_audio1)
-    book.samplerate = get_samplerate_py(book.sample_audio1)
 
     # read id3 tags of audio file
     book.id3_title = extract_id3_tag_py(book.sample_audio1, "title")

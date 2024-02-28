@@ -8,7 +8,12 @@ from typing import cast, Literal, overload
 from pydantic import BaseModel
 
 from src.lib.config import cfg
-from src.lib.ffmpeg_utils import DurationFmt, get_duration
+from src.lib.ffmpeg_utils import (
+    DurationFmt,
+    get_bitrate_py,
+    get_duration,
+    get_samplerate_py,
+)
 from src.lib.fs_utils import (
     count_audio_files_in_dir,
     find_first_audio_file,
@@ -21,8 +26,8 @@ from src.lib.typing import AudiobookFmt, DirName, SizeFmt
 
 class Audiobook(BaseModel):
     path: Path
-    bitrate: int = 0
-    samplerate: int = 0
+    # bitrate: int = 0
+    # samplerate: int = 0
     id3_title: str = ""
     id3_artist: str = ""
     id3_albumartist: str = ""
@@ -116,6 +121,14 @@ class Audiobook(BaseModel):
         return self.converted_dir / f"{self.basename}.m4b"
 
     @cached_property
+    def sample_audio1(self):
+        return find_first_audio_file(self.path)
+
+    @cached_property
+    def sample_audio2(self):
+        return find_next_audio_file(self.sample_audio1)
+
+    @cached_property
     def orig_file_type(self):
         return cast(AudiobookFmt, self.sample_audio1.suffix.replace(".", ""))
 
@@ -141,12 +154,12 @@ class Audiobook(BaseModel):
         return get_duration(getattr(self, for_dir + "_dir"), fmt=fmt)
 
     @cached_property
-    def sample_audio1(self):
-        return find_first_audio_file(self.path)
+    def bitrate(self):
+        return get_bitrate_py(self.sample_audio1)
 
     @cached_property
-    def sample_audio2(self):
-        return find_next_audio_file(self.sample_audio1)
+    def samplerate(self):
+        return get_samplerate_py(self.sample_audio1)
 
     @property
     def log_file(self) -> Path:
@@ -163,8 +176,8 @@ class Audiobook(BaseModel):
         return f"{round(self.bitrate / 1000)} kb/s"
 
     @property
-    def samplerate_friendly(self):
-        return f"{round(self.samplerate / 1000)} kHz"
+    def samplerate_friendly(self):  # round to nearest .1 kHz
+        return f"{round(self.samplerate / 1000, 1)} kHz"
 
     @property
     def basename(self):

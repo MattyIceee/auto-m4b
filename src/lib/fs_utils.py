@@ -1,13 +1,13 @@
 import import_debug
 
+from src.lib.formatters import human_size
+
 import_debug.bug.push("src/lib/fs_utils.py")
 import os
 import shutil
 import time
 from pathlib import Path
 from typing import Literal, NamedTuple, overload
-
-import humanize
 
 from src.lib.config import AUDIO_EXTS
 from src.lib.term import (
@@ -78,22 +78,20 @@ def get_size(
     def file_ext_ok(f: Path) -> bool:
         return f.suffix in only_file_exts if only_file_exts else True
 
-    size_int: int
+    size: int
 
     # if path is a file, return its size
     if path.is_file():
         if not file_ext_ok(path):
             raise ValueError(f"File {path} is not an audio file")
-        size_int = path.stat().st_size
+        size = path.stat().st_size
     elif path.is_dir():
-        size_int = sum(
+        size = sum(
             f.stat().st_size
             for f in path.glob("**/*")
             if f.is_file() and file_ext_ok(f)
         )
-    if fmt == "human":
-        size_str = humanize.naturalsize(size_int, format="%.2f")
-    return size_str if fmt == "human" else size_int
+    return human_size(size) if fmt == "human" else size
 
 
 def is_ok_to_delete(
@@ -223,7 +221,7 @@ def _mv_or_cp_dir_contents(
     if operation == "move" and not src_and_dst_are_on_same_partition(src_dir, dst_dir):
         if cfg.DEBUG:
             print_debug(
-                f"Source and destination are not on the same partition, using copy instead of move\nsrc: {src_dir}\ndst: {dst_dir}"
+                f"Source and destination are not on the same partition, using copy instead of move\n src: {src_dir}\n dst: {dst_dir}"
             )
         operation = "copy"
 
