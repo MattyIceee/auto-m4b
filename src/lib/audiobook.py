@@ -16,18 +16,18 @@ from src.lib.ffmpeg_utils import (
 )
 from src.lib.fs_utils import (
     count_audio_files_in_dir,
+    find_cover_art_file,
     find_first_audio_file,
     find_next_audio_file,
     get_size,
 )
-from src.lib.parsers import extract_metadata, extract_path_info
+from src.lib.id3_utils import extract_metadata
+from src.lib.parsers import extract_path_info
 from src.lib.typing import AudiobookFmt, DirName, SizeFmt
 
 
 class Audiobook(BaseModel):
     path: Path
-    # bitrate: int = 0
-    # samplerate: int = 0
     id3_title: str = ""
     id3_artist: str = ""
     id3_albumartist: str = ""
@@ -37,6 +37,7 @@ class Audiobook(BaseModel):
     id3_year: str = ""
     id3_comment: str = ""
     id3_composer: str = ""
+    has_id3_cover: bool = False
     fs_author: str = ""
     fs_title: str = ""
     fs_year: str = ""
@@ -178,6 +179,10 @@ class Audiobook(BaseModel):
     @property
     def samplerate_friendly(self):  # round to nearest .1 kHz
         return f"{round(self.samplerate / 1000, 1)} kHz"
+
+    @cached_property
+    def cover_art(self):
+        return find_cover_art_file(self.path)
 
     @property
     def basename(self):

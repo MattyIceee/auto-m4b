@@ -2,7 +2,7 @@ import traceback
 
 import import_debug
 
-from src.lib.typing import copy_kwargs_classless
+from src.lib.typing import copy_kwargs_omit_first_arg
 
 import_debug.bug.push("src/auto_m4b.py")
 import time
@@ -24,7 +24,7 @@ def handle_err(e: Exception):
         print_error(f"Error: {e}")
 
 
-@copy_kwargs_classless(AutoM4bArgs.__init__)
+@copy_kwargs_omit_first_arg(AutoM4bArgs.__init__)
 def app(**kwargs):
 
     args = AutoM4bArgs(**kwargs)

@@ -1,6 +1,7 @@
 from typing import Any
 
 import import_debug
+from tinta import Tinta
 
 import_debug.bug.push("src/lib/run.py")
 import re
@@ -20,30 +21,30 @@ from src.lib.fs_utils import (
     cp_dir,
     cp_file_to_dir,
     dir_is_empty,
-    find_root_dirs_with_audio_files,
+    find_base_dirs_with_audio_files,
     flatten_files_in_dir,
     is_ok_to_delete,
     mv_dir,
     mv_dir_contents,
     mv_file_to_dir,
+    name_matches,
     rm_all_empty_dirs,
     was_recently_modified,
 )
 from src.lib.id3_utils import verify_and_update_id3_tags
 from src.lib.logger import log_results
-from src.lib.misc import dockerize_volume, human_elapsed_time, re_group
+from src.lib.misc import BOOK_ASCII, dockerize_volume, human_elapsed_time, re_group
 from src.lib.parsers import count_roman_numerals
 from src.lib.term import (
-    BLUE_COLOR,
+    AMBER_COLOR,
+    DARK_GREY_COLOR,
     divider,
     fmt_linebreak_path,
     nl,
     print_aqua,
-    print_blue,
     print_dark_grey,
     print_error,
     print_grey,
-    print_light_grey,
     print_list,
     print_notice,
     print_orange,
@@ -155,6 +156,8 @@ class m4btool:
 
         if cfg.SKIP_COVERS:
             _("--no-cover-image")
+        elif not book.has_id3_cover and book.cover_art:
+            _(("--cover", dockerize_volume(book.cover_art)))
 
         if cfg.USE_FILENAMES_AS_CHAPTERS:
             _("--use-filenames-as-chapters")
@@ -170,18 +173,20 @@ class m4btool:
 
         _(*build_id3_tags_args(book.title, book.author, book.year, book.comment))
 
-    def cmd(self) -> list[str]:
+    def cmd(self, quotify: bool = False) -> list[str]:
         out = []
         for arg in self._cmd:
             if isinstance(arg, tuple):
                 k, v = arg
+                if quotify and " " in str(v):
+                    v = f'"{v}"'
                 out.append(f"{k}={v}")
             else:
                 out.append(str(arg))
         return out
 
     def esc_cmd(self) -> str:
-        return " ".join([f'"{arg}"' if " " in arg else arg for arg in self.cmd()])
+        return " ".join(self.cmd(quotify=True))
 
     @property
     def should_copy(self):
@@ -229,21 +234,39 @@ def process_inbox():
         )
         return
 
-    standalone_count = count_audio_files_in_dir(
-        cfg.inbox_dir, only_file_exts=AUDIO_EXTS, maxdepth=0
-    )
+    standalone_count = count_audio_files_in_dir(cfg.inbox_dir, maxdepth=0)
     if standalone_count:
         process_standalone_files()
 
     # Find directories containing audio files, handling single quote if present
-    audio_dirs = find_root_dirs_with_audio_files(cfg.inbox_dir, mindepth=1)
-    books_count = len(audio_dirs)
+    audio_dirs = find_base_dirs_with_audio_files(cfg.inbox_dir, mindepth=1)
+    real_books_count = len(audio_dirs)
+    books_count = real_books_count
+
+    if cfg.MATCH_NAME:
+        audio_dirs = [d for d in audio_dirs if name_matches(d, cfg.MATCH_NAME)]
+        books_count = len(audio_dirs)
+
     # If no books to convert, print, sleep, and exit
-    if books_count == 0:  # replace 'books_count' with your variable
+    if real_books_count == 0:  # replace 'books_count' with your variable
         smart_print(f"No books to convert, next check in {cfg.sleeptime_friendly}\n")
         return
+    elif books_count == 0:
+        filtered_count = real_books_count - books_count
+        print_notice(
+            f"Found {filtered_count} {pluralize(filtered_count, 'book')}, but none match '{cfg.MATCH_NAME}' – next check in {cfg.sleeptime_friendly}"
+        )
+        return
 
-    smart_print(f"Found {books_count} {pluralize(books_count, 'book')} to convert\n")
+    elif books_count != real_books_count:
+        smart_print(
+            f"Found {books_count} of {real_books_count} {pluralize(real_books_count, 'book')} in inbox matching [[{cfg.MATCH_NAME}]]\n",
+            highlight_color=AMBER_COLOR,
+        )
+    else:
+        smart_print(
+            f"Found {books_count} {pluralize(books_count, 'book')} to convert\n"
+        )
 
     for b, book_full_path in enumerate(audio_dirs):
 
@@ -261,15 +284,17 @@ def process_inbox():
         bl = "┗"
         br = "┛"
 
-        blueline = lambda l, r: smart_print(
-            l + hline * (len(book.basename) + 2) + r, color=BLUE_COLOR
+        border = lambda l, r: smart_print(
+            l + hline * (len(book.basename) + 2) + r, color=DARK_GREY_COLOR
         )
 
-        blueline(tl, tr)
-        print_blue(f"{vline} {book.basename} {vline}")
-        blueline(bl, br)
+        border(tl, tr)
+        smart_print(
+            Tinta().dark_grey(vline).aqua(book.basename).dark_grey(vline).to_str()
+        )
+        border(bl, br)
 
-        nested_audio_dirs = find_root_dirs_with_audio_files(book.inbox_dir, mindepth=2)
+        nested_audio_dirs = find_base_dirs_with_audio_files(book.inbox_dir, mindepth=2)
         nested_audio_dirs_count = len(nested_audio_dirs)
         roman_numerals_count = count_roman_numerals(book.inbox_dir)
 
@@ -353,6 +378,8 @@ def process_inbox():
         print_list(f"File type: {book.orig_file_type}")
         print_list(f"Audio files: {book.num_files('inbox')}")
         print_list(f"Total size: {book.size('inbox', 'human')}")
+        if book.cover_art:
+            print_list(f"Cover art: {book.cover_art.name}")
 
         nl()
 
@@ -363,7 +390,7 @@ def process_inbox():
             smart_print("Skipping making a backup (folder is empty)")
         else:
             smart_print(f"Making a backup copy → {tint_path(book.backup_dir)}")
-            cp_dir(book.inbox_dir, cfg.backup_dir, "skip-silent")
+            cp_dir(book.inbox_dir, cfg.backup_dir, overwrite_mode="skip-silent")
 
             # Check that files count and folder size match
             orig_files_count = book.num_files("inbox")
@@ -413,8 +440,8 @@ def process_inbox():
                 )
 
         # Move from inbox to merge folder
-        smart_print("\nCopying files to build folder...", end="")
-        cp_dir(book.inbox_dir, cfg.merge_dir, "overwrite-silent")
+        smart_print("\nCopying files to working folder...", end="")
+        cp_dir(book.inbox_dir, cfg.merge_dir, overwrite_mode="overwrite-silent")
         print_aqua(f" ✓\n")
 
         book.extract_path_info()
@@ -567,7 +594,6 @@ def process_inbox():
             new_filename=book.final_desc_file.name,
             overwrite_mode="overwrite-silent",
         )
-        print_light_grey(f"Finished in {elapsedtime_friendly}")
 
         log_results(book, "SUCCESS", elapsedtime_friendly)
 
@@ -599,7 +625,12 @@ def process_inbox():
         rm_all_empty_dirs(book.build_dir)
 
         # Move all built audio files to output folder
-        mv_dir_contents(book.build_dir, book.converted_dir, only_file_exts=AUDIO_EXTS)
+        mv_dir_contents(
+            book.build_dir,
+            book.converted_dir,
+            only_file_exts=AUDIO_EXTS,
+            silent_files=[book.build_file.name],
+        )
 
         if not book.converted_file.is_file():
             print_error(
@@ -623,7 +654,9 @@ def process_inbox():
 
         if cfg.on_complete == "move":
             smart_print("Archiving original from inbox...")
-            mv_dir_contents(book.inbox_dir, book.archive_dir, "overwrite-silent")
+            mv_dir_contents(
+                book.inbox_dir, book.archive_dir, overwrite_mode="overwrite-silent"
+            )
 
             if book.inbox_dir.exists():
                 print_warning(
@@ -644,7 +677,12 @@ def process_inbox():
         elif cfg.on_complete == "test_do_nothing":
             print_notice("Test mode: The original folder will not be moved or deleted")
 
-        smart_print("\nDone processing 🐾✨🥞\n")
+        smart_print(
+            Tinta("\nConverted")
+            .aqua(book.basename)
+            .clear(f"in {elapsedtime_friendly} 🐾✨🥞")
+            .to_str()
+        )
 
         divider("\n")
         if b < books_count - 1:
@@ -664,9 +702,11 @@ def process_inbox():
     #         shutil.rmtree(d, ignore_errors=True)
 
     if books_count >= 1:
-        smart_print(
-            f"📘 Finished converting all available books, next check in {cfg.sleeptime_friendly}"
+        print_grey(
+            f"Finished converting all available books, next check in {cfg.sleeptime_friendly}"
         )
+        if not cfg.NO_ASCII:
+            print_dark_grey(BOOK_ASCII)
     else:
         print_dark_grey(f"Next check in {cfg.sleeptime_friendly}")
 

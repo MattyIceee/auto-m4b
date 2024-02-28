@@ -2,6 +2,8 @@ from pathlib import Path
 
 import pytest
 
+from src.lib.audiobook import Audiobook
+from src.lib.fs_utils import find_first_audio_file, find_next_audio_file
 from src.tests.conftest import TESTS_TMP_ROOT
 
 INBOX = TESTS_TMP_ROOT / "inbox"
@@ -45,6 +47,21 @@ expect_all = expect_all_dirs + expect_only_standalone_files
 def test_find_root_dirs_with_audio_files(
     path: Path, mindepth: int, maxdepth: int, expected: list[Path]
 ):
-    from src.lib.fs_utils import find_root_dirs_with_audio_files
+    from src.lib.fs_utils import find_base_dirs_with_audio_files
 
-    assert find_root_dirs_with_audio_files(path, mindepth, maxdepth) == expected
+    assert find_base_dirs_with_audio_files(path, mindepth, maxdepth) == expected
+
+
+def test_find_first_audio_file(tower_treasure__flat_mp3: Audiobook):
+    assert (
+        find_first_audio_file(tower_treasure__flat_mp3.path)
+        == tower_treasure__flat_mp3.path / "towertreasure4_01_dixon_64kb.mp3"
+    )
+
+
+def test_find_next_audio_file(tower_treasure__flat_mp3: Audiobook):
+    first_audio_file = find_first_audio_file(tower_treasure__flat_mp3.path)
+    assert (
+        find_next_audio_file(first_audio_file)
+        == tower_treasure__flat_mp3.path / "towertreasure4_02_dixon_64kb.mp3"
+    )

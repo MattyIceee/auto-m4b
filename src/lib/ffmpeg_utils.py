@@ -60,23 +60,16 @@ def get_duration(path: Path, fmt: DurationFmt = "human") -> str | float:
     return format_duration(duration, fmt)
 
 
-def extract_id3_tag(file: Path, tag: str) -> str:
-    command = f"ffprobe -hide_banner -loglevel 0 -of flat -i {file} -select_streams a -show_entries format_tags={tag} -of default=noprint_wrappers=1:nokey=1"
-    result = subprocess.check_output(command, shell=True).decode().strip()
-    return result
+# def extract_id3_tag(file: Path, tag: str) -> str:
+#     command = f"ffprobe -hide_banner -loglevel 0 -of flat -i {file} -select_streams a -show_entries format_tags={tag} -of default=noprint_wrappers=1:nokey=1"
+#     result = subprocess.check_output(command, shell=True).decode().strip()
+#     return result
 
 
-def extract_id3_tag_py(file: Path | None, tag: str) -> str:
-    if file is None:
-        return ""
-    probe_result = ffmpeg.probe(str(file))
-    return probe_result["format"]["tags"].get(tag, "")
-
-
-def get_bitrate(file: Path, round: bool = True) -> int:
-    command = f"ffprobe -hide_banner -loglevel 0 -select_streams a:0 -show_entries stream=bit_rate -of default=noprint_wrappers=1:nokey=1 {file}"
-    bitrate = subprocess.check_output(command, shell=True).decode().strip()
-    return round_bitrate(int(bitrate)) if round else int(bitrate)
+# def get_bitrate(file: Path, round: bool = True) -> int:
+#     command = f"ffprobe -hide_banner -loglevel 0 -select_streams a:0 -show_entries stream=bit_rate -of default=noprint_wrappers=1:nokey=1 {file}"
+#     bitrate = subprocess.check_output(command, shell=True).decode().strip()
+#     return round_bitrate(int(bitrate)) if round else int(bitrate)
 
 
 def get_bitrate_py(file: Path, round: bool = True) -> int:
@@ -85,10 +78,10 @@ def get_bitrate_py(file: Path, round: bool = True) -> int:
     return round_bitrate(int(bitrate)) if round else int(bitrate)
 
 
-def get_samplerate(file: Path) -> int:
-    command = f"ffprobe -hide_banner -loglevel 0 -of flat -i {file} -select_streams a -show_entries stream=sample_rate -of default=noprint_wrappers=1:nokey=1"
-    sample_rate = subprocess.check_output(command, shell=True).decode().strip()
-    return int(sample_rate)
+# def get_samplerate(file: Path) -> int:
+#     command = f"ffprobe -hide_banner -loglevel 0 -of flat -i {file} -select_streams a -show_entries stream=sample_rate -of default=noprint_wrappers=1:nokey=1"
+#     sample_rate = subprocess.check_output(command, shell=True).decode().strip()
+#     return int(sample_rate)
 
 
 def get_samplerate_py(file: Path) -> int:

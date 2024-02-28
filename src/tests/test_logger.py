@@ -19,7 +19,7 @@ def test_load_existing_log(tower_treasure__flat_mp3: Audiobook):
         assert re.match(full_line, last_line)
 
     try:
-        orig_log = FIXTURES_ROOT / "auto-m4b.log"
+        orig_log = FIXTURES_ROOT / "sample-auto-m4b.log"
         test_log = TESTS_TMP_ROOT / "auto-m4b.log"
         test_log.unlink(missing_ok=True)
         shutil.copy2(orig_log, test_log)

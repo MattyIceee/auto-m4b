@@ -158,6 +158,10 @@ def trim_trailing_newlines(s: str) -> str:
     return re.sub(r"\n*$", "", s)
 
 
+highlight_exp = r" ?(?:{{.*?}}|\[\[.*?\]\]) ?"
+strip_highlight_exp = r"^ ?(?:{{|\[\[) ?| ?(?:}}|\]\]) ?$"
+
+
 def smart_print(
     text: Any = "",
     color: int = DEFAULT_COLOR,
@@ -204,12 +208,12 @@ def smart_print(
 
     t = Tinta()
 
-    if highlight_color != color:
-        parts = [p for p in re.split(r"(\s?{{.*?}}\s?)", text) if p]
+    if highlight_color != color and re.search(highlight_exp, text):
+        parts = [p for p in re.split(rf"({highlight_exp})", text) if p]
         for part in parts:
-            if re.search(r"\s?{{.*}}\s?", part):
+            if re.search(highlight_exp, part):
                 # remove the leading and trailing braces from the part, including any leading or trailing spaces
-                part = re.sub(r"^\s?{{\s?|\s?}}\s?$", "", part)
+                part = re.sub(strip_highlight_exp, "", part)
                 t.tint(highlight_color, part)
             else:
                 t.tint(color, part)
@@ -398,7 +402,7 @@ def tinted_file(*args):
 
 
 def divider(lead: str = "", color: int = DARK_GREY_COLOR, width: int = 90):
-    smart_print(lead + ("-" * width), color=color)
+    smart_print(lead + ("─" * width), color=color)
 
 
 def fmt_linebreak_path(path: Path, limit: int = 120, indent: int = 0) -> str:

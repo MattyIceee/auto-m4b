@@ -16,7 +16,7 @@ import tempfile
 from functools import cached_property
 from multiprocessing import cpu_count
 from pathlib import Path
-from typing import Any, cast, Literal, overload, TYPE_CHECKING, TypeVar
+from typing import Any, cast, Literal, overload, TypeVar
 
 from src.lib.typing import ExifWriter, OverwriteMode
 
@@ -29,6 +29,8 @@ OTHER_EXTS = [
     ".gif",
     ".bmp",
     ".tiff",
+    ".webp",
+    ".heic",
     ".svg",
     ".epub",
     ".mobi",
@@ -58,9 +60,6 @@ WORKING_DIRS = [
     "TRASH_FOLDER",
 ]
 
-if TYPE_CHECKING:
-    pass
-
 OnComplete = Literal["move", "delete", "test_do_nothing"]
 
 parser = argparse.ArgumentParser()
@@ -79,6 +78,35 @@ parser.add_argument(
     help="Disables moving problematic books to the fix folder. Default is False, or True if DEBUG mode is on.",
     action="store_true",
 )
+parser.add_argument(
+    "--match-name",
+    help="Only process books that contain this string in their filename. May be a regex pattern, but \\ must be escaped → '\\\\'. Default is None.",
+    type=str,
+    default=None,
+)
+
+T = TypeVar("T", bound=object)
+D = TypeVar("D")
+
+
+@overload
+def pick(a: T, b) -> T: ...
+
+
+@overload
+def pick(a: T, b, default: None = None) -> T: ...
+
+
+@overload
+def pick(a, b, default: T) -> T: ...
+
+
+def pick(a: T, b, default: D = None) -> T | D:
+    if a is not None:
+        return cast(T | D, a)
+    if b is not None:
+        return b
+    return default
 
 
 class AutoM4bArgs:
@@ -87,6 +115,7 @@ class AutoM4bArgs:
     test: bool
     max_loops: int
     no_fix: bool
+    match_name: str | None
 
     def __init__(
         self,
@@ -95,18 +124,17 @@ class AutoM4bArgs:
         test: bool | None = None,
         max_loops: int | None = None,
         no_fix: bool | None = None,
+        match_name: str | None = None,
     ):
 
         args = parser.parse_known_args()[0]
-
-        def pick(a, b, default=None):
-            return a if a is not None else (b if b is not None else default)
 
         self.env = pick(env, args.env)
         self.debug = pick(debug, args.debug, False)
         self.test = pick(test, args.test, False)
         self.max_loops = pick(max_loops, args.max_loops, -1)
         self.no_fix = pick(no_fix, args.no_fix, False)
+        self.match_name = pick(match_name, args.match_name)
 
     def __str__(self) -> str:
         return to_json(self.__dict__)
@@ -229,6 +257,19 @@ class Config:
         if self.ARGS.no_fix or self.ARGS.debug:
             return True
         return parse_bool(os.getenv("NO_FIX", False))
+
+    @cached_property
+    def NO_ASCII(self) -> bool:
+        return parse_bool(os.getenv("NO_ASCII", False))
+
+    @cached_property
+    def MATCH_NAME(self) -> str | None:
+        """Only process books that contain this string in their filename. May be a regex pattern,
+        but \\ must be escaped → '\\\\'. Default is None. This is primarily for testing, but can
+        be used to filter books or directories."""
+        if self.ARGS.match_name:
+            return self.ARGS.match_name
+        return os.getenv("MATCH_NAME", None)
 
     @cached_property
     def CPU_CORES(self) -> int:

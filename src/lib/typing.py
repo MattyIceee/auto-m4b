@@ -35,7 +35,7 @@ def copy_kwargs(func: Callable[P, R]) -> Callable[..., Callable[P, R]]:
 F = TypeVar("F")
 
 
-def copy_kwargs_classless(
+def copy_kwargs_omit_first_arg(
     func: Callable[Concatenate[F, P], R],
 ) -> Callable[..., Callable[P, R]]:
     """Decorator does nothing but casts the original function to match the given function signature, but omits the first parameter"""

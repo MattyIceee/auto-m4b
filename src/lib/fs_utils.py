@@ -1,3 +1,5 @@
+import re
+
 import import_debug
 
 from src.lib.formatters import human_size
@@ -7,7 +9,7 @@ import os
 import shutil
 import time
 from pathlib import Path
-from typing import Literal, NamedTuple, overload
+from typing import Any, Literal, NamedTuple, overload
 
 from src.lib.config import AUDIO_EXTS
 from src.lib.term import (
@@ -17,12 +19,90 @@ from src.lib.term import (
     print_notice,
     print_warning,
 )
-from src.lib.typing import Operation, OVERWRITE_MODES, OverwriteMode, PathType, SizeFmt
+from src.lib.typing import (
+    copy_kwargs_omit_first_arg,
+    Operation,
+    OVERWRITE_MODES,
+    OverwriteMode,
+    PathType,
+    SizeFmt,
+)
+
+
+@overload
+def find_files_in_dir(
+    d: Path,
+    *,
+    absolute: Literal[False] = False,
+    ignore_files: list[str] = [],
+    only_file_exts: list[str] = [],
+    mindepth: int | None = None,
+    maxdepth: int | None = None,
+) -> list[str]: ...
+
+
+@overload
+def find_files_in_dir(
+    d: Path,
+    *,
+    absolute: Literal[True] = True,
+    ignore_files: list[str] = [],
+    only_file_exts: list[str] = [],
+    mindepth: int | None = None,
+    maxdepth: int | None = None,
+) -> list[Path]: ...
+
+
+def find_files_in_dir(  # type: ignore
+    d: Path,
+    *,
+    absolute: bool | None = None,
+    ignore_files: list = [],
+    only_file_exts: list[str] = [],
+    mindepth: int | None = None,
+    maxdepth: int | None = None,
+) -> list[str | Path]:
+    """
+    Finds all files in a directory and its subdirectories.
+
+    Parameters:
+    d (Path): The base directory to start the search from.
+    absolute (bool, optional): Whether to return absolute paths. Defaults to False (only returns files relative to the base directory).
+    ignore_files (list[str], optional): A list of file names to ignore. Defaults to [].
+    only_file_exts (list[str], optional): A list of file extensions to include in the count. Defaults to AUDIO_EXTS.
+    mindepth (int | None, optional): The minimum depth of directories to search. This is 0-based, so a mindepth of 0 includes files directly in the base directory. Defaults to None, which includes all depths.
+    maxdepth (int | None, optional): The maximum depth of directories to search. This is 0-based, so a maxdepth of 0 includes only files directly in the base directory. Defaults to None, which includes all depths.
+
+    Returns:
+    list[str | Path]: A list of file names (str) or Path objects (if absolute=True)
+    """
+
+    if d.is_file():
+        raise NotADirectoryError(f"Error: {d} is not a directory")
+
+    def depth(p: Path) -> int:
+        return len(p.parts) - len(d.parts)
+
+    return [
+        f if absolute else str(f.relative_to(d))
+        for f in d.rglob("*")
+        if all(
+            [
+                f.is_file(),
+                not f.name.startswith("."),
+                f.name not in ignore_files,
+                not only_file_exts or f.suffix in only_file_exts,
+                mindepth is None or depth(f) >= mindepth,
+                maxdepth is None or depth(f) <= maxdepth,
+            ]
+        )
+    ]
 
 
 def count_audio_files_in_dir(
-    path: Path,
-    only_file_exts: list[str] = AUDIO_EXTS,
+    d: Path,
+    *,
+    only_file_exts: list[str] = [],
     mindepth: int | None = None,
     maxdepth: int | None = None,
 ) -> int:
@@ -30,7 +110,7 @@ def count_audio_files_in_dir(
     Count the number of audio files in a directory and its subdirectories.
 
     Parameters:
-    path (Path): The base directory to start the search from.
+    d (Path): The base directory to start the search from.
     only_file_exts (list[str], optional): A list of file extensions to include in the count. Defaults to AUDIO_EXTS.
     mindepth (int | None, optional): The minimum depth of directories to search. This is 0-based, so a mindepth of 0 includes files directly in the base directory. Defaults to None, which includes all depths.
     maxdepth (int | None, optional): The maximum depth of directories to search. This is 0-based, so a maxdepth of 0 includes only files directly in the base directory. Defaults to None, which includes all depths.
@@ -39,19 +119,15 @@ def count_audio_files_in_dir(
     int: The number of audio files found.
     """
 
-    def depth(p: Path) -> int:
-        return len(p.parts) - len(path.parts)
-
-    return len(
-        [
-            f
-            for f in path.rglob("*")
-            if f.is_file()
-            and f.suffix in only_file_exts
-            and (mindepth is None or depth(f) >= mindepth)
-            and (maxdepth is None or depth(f) <= maxdepth)
-        ]
+    audio_files = find_files_in_dir(
+        d,
+        absolute=True,
+        only_file_exts=only_file_exts or AUDIO_EXTS,
+        mindepth=mindepth,
+        maxdepth=maxdepth,
     )
+
+    return len(audio_files)
 
 
 @overload
@@ -159,14 +235,6 @@ def check_src_dst(
     return True
 
 
-def find_files(d: Path, ignore_files: list):
-    return [
-        str(f.relative_to(d))
-        for f in d.rglob("*")
-        if f.is_file() and not f.name.startswith(".") and f.name not in ignore_files
-    ]
-
-
 def src_and_dst_are_on_same_partition(src: Path, dst: Path) -> bool:
     return src.stat().st_dev == dst.stat().st_dev
 
@@ -198,9 +266,10 @@ def _mv_or_cp_dir_contents(
     operation: Operation,
     src_dir: Path,
     dst_dir: Path,
-    /,
+    *,
     overwrite_mode: OverwriteMode | None = None,
     ignore_files: list[str] = [],
+    silent_files: list[str] = [],
     only_file_exts: list[str] = [],
 ):
 
@@ -238,9 +307,12 @@ def _mv_or_cp_dir_contents(
         raise FileNotFoundError("Source or destination directory does not exist")
 
     # Check for files that may require overwriting
-    files_common_to_both = set(find_files(src_dir, ignore_files)) & set(
-        find_files(dst_dir, ignore_files)
-    )
+    files_common_to_both = set(
+        find_files_in_dir(src_dir, ignore_files=ignore_files)
+    ) & set(find_files_in_dir(dst_dir, ignore_files=ignore_files))
+
+    # remove files that are in silent_files from files_common_to_both
+    files_common_to_both = [f for f in files_common_to_both if f not in silent_files]
 
     if files_common_to_both and not overwrite_mode.endswith("silent"):
         if overwrite_mode == "overwrite":
@@ -279,9 +351,9 @@ def _mv_or_cp_dir_contents(
                 operation,
                 src_file,
                 dst_dir / src_file.name,
-                overwrite_mode,
-                ignore_files,
-                only_file_exts,
+                overwrite_mode=overwrite_mode,
+                ignore_files=ignore_files,
+                only_file_exts=only_file_exts,
             )
         dst_file = dst_dir / src_file.name
         if ok_to_mv_or_cp(src_file, dst_file):
@@ -319,40 +391,35 @@ def _mv_or_cp_dir_contents(
             )
 
 
-def mv_dir_contents(
-    src_dir: Path,
-    dst_dir: Path,
-    /,
-    overwrite_mode: OverwriteMode | None = None,
-    only_file_exts: list[str] = [],
-    ignore_files: list[str] = [],
-):
-    _mv_or_cp_dir_contents(
-        "move", src_dir, dst_dir, overwrite_mode, ignore_files, only_file_exts
-    )
+@copy_kwargs_omit_first_arg(_mv_or_cp_dir_contents)
+def mv_dir_contents(*args, **kwargs):
+    _mv_or_cp_dir_contents("move", *args, **kwargs)
 
 
-def cp_dir_contents(
-    src_dir: Path,
-    dst_dir: Path,
-    /,
-    overwrite_mode: OverwriteMode | None = None,
-    only_file_exts: list[str] = [],
-    ignore_files: list[str] = [],
-):
-
-    _mv_or_cp_dir_contents(
-        "copy", src_dir, dst_dir, overwrite_mode, ignore_files, only_file_exts
-    )
+@copy_kwargs_omit_first_arg(_mv_or_cp_dir_contents)
+def cp_dir_contents(*args, **kwargs):
+    _mv_or_cp_dir_contents("copy", *args, **kwargs)
 
 
 def _mv_or_copy_dir(
     operation: Operation,
     src_dir: Path,
     dst_dir: Path,
-    /,
-    overwrite_mode: OverwriteMode | None = None,
+    *,
+    overwrite_mode: OverwriteMode = "skip",
+    silent_files: list[str] = [],
 ):
+    """Moves or copies the source directory *into* the destination directory. For example:
+
+    `cp_dir('/path/to/src', '/path/to_other/dst')`
+
+    ...will result in:
+
+    `/path/to_other/dst/src`
+
+    Default overwrite mode is 'skip', which will raise an error if the destination directory already exists, because we shouldn't ever be automatically overwriting an entire directory.
+    """
+
     # check that both are dirs:
     if not src_dir.is_dir():
         raise NotADirectoryError(f"Source {src_dir} is not a directory")
@@ -366,46 +433,29 @@ def _mv_or_copy_dir(
         )
 
     dst_dir = dst_dir / src_dir.name
-    _mv_or_cp_dir_contents(operation, src_dir, dst_dir, overwrite_mode)
+    _mv_or_cp_dir_contents(
+        operation,
+        src_dir,
+        dst_dir,
+        overwrite_mode=overwrite_mode,
+        silent_files=silent_files,
+    )
 
 
-def mv_dir(
-    src_dir: Path,
-    dst_dir: Path,
-    /,
-    overwrite_mode: OverwriteMode | None = None,
-):
-    """Moves the source directory *into* the destination directory. For example:
-
-    `mv_dir('/path/to/src', '/path/to_other/dst')`
-
-    ...will result in:
-
-    `/path/to_other/dst/src`
-    """
-    _mv_or_copy_dir("move", src_dir, dst_dir, overwrite_mode)
+@copy_kwargs_omit_first_arg(_mv_or_copy_dir)
+def mv_dir(*args, **kwargs):
+    _mv_or_copy_dir("move", *args, **kwargs)
 
 
-def cp_dir(
-    src_dir: Path,
-    dst_dir: Path,
-    /,
-    overwrite_mode: OverwriteMode | None = None,
-):
-    """Copies the source directory *into* the destination directory. For example:
-
-    `cp_dir('/path/to/src', '/path/to_other/dst')`
-
-    ...will result in:
-
-    `/path/to_other/dst/src`
-    """
-    _mv_or_copy_dir("copy", src_dir, dst_dir, overwrite_mode)
+@copy_kwargs_omit_first_arg(_mv_or_copy_dir)
+def cp_dir(*args, **kwargs):
+    _mv_or_copy_dir("copy", *args, **kwargs)
 
 
 def mv_file_to_dir(
     source_file: Path,
     dst_dir: Path,
+    *,
     new_filename: str | None = None,
     overwrite_mode: OverwriteMode | None = None,
 ) -> None:
@@ -476,10 +526,24 @@ def flatten_files_in_dir(
             shutil.rmtree(d, ignore_errors=True)
 
 
-def find_root_dirs_with_audio_files(
-    root: Path, mindepth: int | None = None, maxdepth: int | None = None
+def name_matches(name: Any, match_name: str | None = None) -> bool:
+    from src.lib.config import cfg
+
+    if cfg.MATCH_NAME:
+        match_name = cfg.MATCH_NAME
+
+    if not match_name:
+        return True
+
+    return re.search(match_name, str(name), re.I) is not None
+
+
+def find_base_dirs_with_audio_files(
+    root: Path,
+    mindepth: int | None = None,
+    maxdepth: int | None = None,
 ) -> list[Path]:
-    """Given a root directory, returns a list of all root directories that contain audio files. E.g.,
+    """Given a root directory, returns a list of all base directories that contain audio files. E.g.,
     if the root directory is '/path/to' and contains:
     - /path/to/folder1/file1
     - /path/to/folder1/folder2/file2
@@ -500,17 +564,26 @@ def find_root_dirs_with_audio_files(
     def depth(p: Path) -> int:
         return len(p.parts) - len(root.parts)
 
-    all_roots_with_audio_files = [
-        d.relative_to(root)
-        for d in root.rglob("*")
-        if d.is_dir()
-        and count_audio_files_in_dir(d, mindepth=0, maxdepth=1) > 0
-        and (mindepth is None or depth(d) >= mindepth)
-        and (maxdepth is None or depth(d) <= maxdepth)
-    ]
+    def is_valid_dir(_d: Path) -> bool:
+        return _d.is_dir() and all(
+            [
+                count_audio_files_in_dir(_d, mindepth=0, maxdepth=1) > 0,
+                mindepth is None or depth(_d) >= mindepth,
+                maxdepth is None or depth(_d) <= maxdepth,
+            ]
+        )
 
-    # get the root dirs and remove duplicates
-    return list(sorted(set([root / d.parts[0] for d in all_roots_with_audio_files])))
+    all_roots_with_audio_files = list(
+        set(
+            [
+                root / d.relative_to(root).parts[0]
+                for d in root.rglob("*")
+                if is_valid_dir(d)
+            ]
+        )
+    )
+
+    return list(sorted(all_roots_with_audio_files))
 
 
 def clean_dir(dir_path: Path) -> None:
@@ -547,10 +620,10 @@ def find_first_audio_file(path: Path, throw: bool = True) -> Path | None:
     if path.is_file() and path.suffix in AUDIO_EXTS:
         return path
 
-    for ext in AUDIO_EXTS:
-        audio_file = next(iter(sorted(path.rglob(f"*{ext}"))), None)
-        if audio_file:
-            return audio_file
+    audio_files = find_files_in_dir(path, absolute=True, only_file_exts=AUDIO_EXTS)
+
+    if audio_file := next(iter(sorted(audio_files)), None):
+        return audio_file
     if throw:
         raise FileNotFoundError(f"No audio files found in {path}")
     return None
@@ -561,19 +634,31 @@ def find_next_audio_file(current_file: Path) -> Path | None:
     # if path is a file, get its parent dir or use the parent dir of the current file
     parent = current_file.parent if current_file.is_file() else current_file
 
-    # if only one audio file, return None
-    if count_audio_files_in_dir(parent) == 1:
+    audio_files = find_files_in_dir(
+        parent,
+        absolute=True,
+        ignore_files=[current_file.name],
+        only_file_exts=AUDIO_EXTS,
+    )
+
+    if not audio_files:
         return None
 
-    for ext in AUDIO_EXTS:
-        audio_files = list(parent.rglob(ext))
-        if audio_files:
-            current_index = (
-                audio_files.index(current_file) if current_file in audio_files else 0
-            )
-            if current_index < len(audio_files) - 1:
-                return audio_files[current_index + 1]
-    return None
+    return find_first_audio_file(audio_files[0])
+
+
+def find_cover_art_file(path: Path) -> Path | None:
+    supported_image_exts = [".jpg", ".jpeg", ".png"]
+    all_images_in_dir = [f for f in path.rglob("*") if f.suffix in supported_image_exts]
+
+    # if any of the images match *cover* or *folder*, return it
+    for img in all_images_in_dir:
+        if img.name.lower() in ["cover", "folder"]:
+            return img
+
+    # otherwise, find the biggest image
+    if all_images_in_dir:
+        return max(all_images_in_dir, key=lambda f: f.stat().st_size)
 
 
 def find_recently_modified_files_and_dirs(

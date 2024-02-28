@@ -11,6 +11,18 @@ import re
 from pathlib import Path
 from typing import Any, cast, TypeVar
 
+BOOK_ASCII = """
+        .--.                    .---.
+ ___.---|__|            .-.     |~~~|
+|   |===|--|_           |_|   __|~~~|--.
+| A |===|  |'\\     .----!~|  |__|   |--|
+| U |   |PY|.'\\    |====| |--|--| M |  |
+| D |   |  |\\.'\\   |CATS| |__|  | 4 |  |
+| I |   |  | \\  \\  |====| |==|  | B |  |
+| O |   |__|  \\.'\\ |    |_|__|--|   |__|
+|   |===|--|   \\.'\\|====|~|--|  |~~~|--|
+^---^---'--^    `-'`----^-^--^--^---'--'"""
+
 
 def get_git_root():
     return Path(
@@ -69,14 +81,15 @@ def human_elapsed_time(elapsedtime: int) -> str:
         return f"{minutes:02}m:{seconds:02}s"
 
 
-def count_numbers_in_string(s: str) -> int:
-    return len(re.findall(r"\d", s))
+def get_numbers_in_string(s: str) -> str:
+    """Returns a list of numbers found in a string, in order they are found."""
+    return "".join(re.findall(r"\d", s))
 
 
 def re_group(
     match: re.Match[str] | None,
     group: int | str = 0,
-    /,
+    *,
     default: str = "",
 ) -> str:
     # returns the first match of pattern in string or default if no match

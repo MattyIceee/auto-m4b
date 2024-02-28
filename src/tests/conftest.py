@@ -44,7 +44,13 @@ def setup():
     load_env(TESTS_ROOT / ".env.test", clean_working_dirs=True)
 
 
-def load_test_fixture(name: str):
+@pytest.fixture(scope="function", autouse=True)
+def clear_match_name():
+    yield
+    os.environ.pop("MATCH_NAME", None)
+
+
+def load_test_fixture(name: str, exclusive: bool = False):
     src = FIXTURES_ROOT / name
     if not src.exists():
         raise FileNotFoundError(
@@ -58,30 +64,47 @@ def load_test_fixture(name: str):
         if f.is_file() and not dst_f.exists():
             shutil.copy(f, dst_f)
 
+    if exclusive:
+        os.environ["MATCH_NAME"] = name
+
+    return Audiobook(dst)
+
 
 @pytest.fixture(scope="function")
 def tower_treasure__flat_mp3():
-    load_test_fixture("tower_treasure__flat_mp3")
-    return Audiobook(TEST_INBOX / "tower_treasure__flat_mp3")
+    return load_test_fixture("tower_treasure__flat_mp3", exclusive=True)
+
+
+@pytest.fixture(scope="function")
+def house_on_the_cliff__flat_mp3():
+    return load_test_fixture("house_on_the_cliff__flat_mp3", exclusive=True)
 
 
 @pytest.fixture(scope="function")
 def tower_treasure__multidisc_mp3():
-    load_test_fixture("tower_treasure__multidisc_mp3")
-    return Audiobook(TEST_INBOX / "tower_treasure__multidisc_mp3")
+    return load_test_fixture("tower_treasure__multidisc_mp3", exclusive=True)
 
 
 @pytest.fixture(scope="function")
 def tower_treasure__nested_mp3():
-    load_test_fixture("tower_treasure__nested_mp3")
-    return Audiobook(TEST_INBOX / "tower_treasure__nested_mp3")
+    return load_test_fixture("tower_treasure__nested_mp3", exclusive=True)
 
 
 @pytest.fixture(scope="function")
 def tower_treasure__all():
-    load_test_fixture("tower_treasure__flat_mp3")
-    load_test_fixture("tower_treasure__multidisc_mp3")
-    load_test_fixture("tower_treasure__nested_mp3")
+    return [
+        load_test_fixture("tower_treasure__flat_mp3"),
+        load_test_fixture("tower_treasure__multidisc_mp3"),
+        load_test_fixture("tower_treasure__nested_mp3"),
+    ]
+
+
+@pytest.fixture(scope="function")
+def hard_boys__flat_mp3():
+    return [
+        load_test_fixture("tower_treasure__flat_mp3"),
+        load_test_fixture("house_on_the_cliff__flat_mp3"),
+    ]
 
 
 def purge_all():
