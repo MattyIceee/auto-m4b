@@ -186,7 +186,11 @@ class m4btool:
         return out
 
     def esc_cmd(self) -> str:
-        return " ".join(self.cmd(quotify=True))
+        cmd = self.cmd(quotify=True)
+        if cfg.USE_DOCKER:
+            cmd.insert(2, "-it")
+        cmd = [c for c in cmd if c != "-q"]
+        return " ".join(cmd)
 
     @property
     def should_copy(self):
