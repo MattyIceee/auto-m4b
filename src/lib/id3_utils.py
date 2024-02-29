@@ -4,7 +4,13 @@ import ffmpeg
 import import_debug
 from tinta import Tinta
 
-from src.lib.parsers import get_year_from_date, strip_part_number, swap_firstname_lastname
+from src.lib.parsers import (
+    find_greatest_common_string,
+    get_year_from_date,
+    strip_part_number,
+    swap_firstname_lastname,
+)
+from src.lib.typing import TagSource
 
 import_debug.bug.push("src/lib/id3_utils.py")
 import shutil
@@ -18,7 +24,6 @@ from eyed3.id3 import Tag
 from src.lib.misc import compare_trim, fix_smart_quotes, get_numbers_in_string, re_group
 from src.lib.term import (
     PATH_COLOR,
-    print_debug,
     print_list,
     smart_print,
 )
@@ -204,8 +209,6 @@ def verify_and_update_id3_tags(
         smart_print(Tinta("Verifying id3 tags...").aqua("✓").to_str())
 
 
-
-
 def extract_id3_tag_py(file: Path | None, tag: str) -> str:
     if file is None:
         return ""
@@ -213,8 +216,294 @@ def extract_id3_tag_py(file: Path | None, tag: str) -> str:
     return probe_result["format"]["tags"].get(tag, "")
 
 
-def extract_metadata(
-    book: "Audiobook", quiet: bool = False) -> "Audiobook":
+class ScoreCard:
+    title_is_title: int = 0
+    album_is_title: int = 0
+    sortalbum_is_title: int = 0
+    common_title_is_title: int = 0
+    common_album_is_title: int = 0
+    common_sortalbum_is_title: int = 0
+
+    def __str__(self):
+        return (
+            f"ScoreCard\n"
+            f" - title_is_title: {self.title_is_title}\n"
+            f" - album_is_title: {self.album_is_title}\n"
+            f" - sortalbum_is_title: {self.sortalbum_is_title}\n"
+            f" - common_title_is_title: {self.common_title_is_title}\n"
+            f" - common_album_is_title: {self.common_album_is_title}\n"
+            f" - common_sortalbum_is_title: {self.common_sortalbum_is_title}\n"
+        )
+
+    def __repr__(self):
+        return self.__str__()
+
+    def _is_likely(self, prop: str) -> tuple[TagSource, int]:
+        # put all the scores in a list and return the highest score and its var name
+        props: list[TagSource] = [
+            "title",
+            "album",
+            "sortalbum",
+            "common_title",
+            "common_album",
+            "common_sortalbum",
+        ]
+        scores = [getattr(self, f"{p}_is_{prop}") for p in props]
+        if not scores or all(score <= 0 for score in scores):
+            return "unknown", 0
+        best = max(scores)
+        # return the highest score and the name of its variable - use inflection or inspect
+        return props[scores.index(best)], best
+
+    @property
+    def title_is_likely(self):
+        return self._is_likely("title")
+
+
+class MetadataScore:
+    def __init__(
+        self,
+        book: "Audiobook",
+        title_1: str,
+        title_2: str,
+        album_1: str,
+        album_2: str,
+        sortalbum_1: str,
+        sortalbum_2: str,
+    ):
+
+        self.score = ScoreCard()
+
+        common_filename = (
+            find_greatest_common_string(
+                [book.sample_audio1.name, book.sample_audio2.name]
+            )
+            if book.sample_audio2
+            else book.sample_audio1.name
+        )
+        self._basename = book.basename
+        self._filename = common_filename
+        self._folder_and_filename = str(Path(book.basename) / common_filename)
+        self._title_1 = title_1
+        self._title_2 = title_2
+        self._album_1 = album_1
+        self._album_2 = album_2
+        self._sortalbum_1 = sortalbum_1
+        self._sortalbum_2 = sortalbum_2
+
+        self._common_title = find_greatest_common_string([self._title_1, self._title_2])
+        self._common_album = find_greatest_common_string([self._album_1, self._album_2])
+        self._common_sortalbum = find_greatest_common_string(
+            [self._sortalbum_1, self._sortalbum_2]
+        )
+
+        self._numbers_in_title_1 = get_numbers_in_string(title_1)
+        self._numbers_in_title_2 = get_numbers_in_string(title_2)
+        self._numbers_in_album_1 = get_numbers_in_string(album_1)
+        self._numbers_in_album_2 = get_numbers_in_string(album_2)
+        self._numbers_in_sortalbum_1 = get_numbers_in_string(sortalbum_1)
+        self._numbers_in_sortalbum_2 = get_numbers_in_string(sortalbum_2)
+
+        self._title_1_starts_with_number = re.match(r"^\d+", title_1)
+        self._title_2_starts_with_number = re.match(r"^\d+", title_2)
+        self._album_1_starts_with_number = re.match(r"^\d+", album_1)
+        self._album_2_starts_with_number = re.match(r"^\d+", album_2)
+        self._sortalbum_1_starts_with_number = re.match(r"^\d+", sortalbum_1)
+        self._sortalbum_2_starts_with_number = re.match(r"^\d+", sortalbum_2)
+
+    def __str__(self):
+
+        return (
+            f"MetadataScore\n"
+            f" - title 1:           {self._title_1}\n"
+            f" - title 2:           {self._title_2}\n"
+            f" - title c:           {self._common_title}\n"
+            f" - album 1:           {self._album_1}\n"
+            f" - album 2:           {self._album_2}\n"
+            f" - album c:           {self._common_album}\n"
+            f" - sortalbum 1:       {self._sortalbum_1}\n"
+            f" - sortalbum 2:       {self._sortalbum_2}\n"
+            f" - sortalbum c:       {self._common_sortalbum}\n"
+            f" - #s in title 1:     {self._numbers_in_title_1}\n"
+            f" - #s in title 2:     {self._numbers_in_title_2}\n"
+            f" - #s in album 1:     {self._numbers_in_album_1}\n"
+            f" - #s in album 2:     {self._numbers_in_album_2}\n"
+            f" - #s in sortalbum 1: {self._numbers_in_sortalbum_1}\n"
+            f" - #s in sortalbum 2: {self._numbers_in_sortalbum_2}\n"
+            f"\n"
+            f" - title is likely:   {self.get_score('title')}\n"
+        )
+
+    def __repr__(self):
+        return self.__str__()
+
+    def get_score(
+        self,
+        tag: TagSource,
+    ) -> tuple[TagSource, int]:
+
+        self.score = ScoreCard()
+        # get all attributes in this class that start with "{tag}_" and add them up
+        [
+            getattr(self, attr)
+            for attr in dir(self)
+            if ("title" in attr or "album" in attr) and not attr.startswith("_")
+        ]
+
+        return getattr(self.score, f"{tag}_is_likely")
+
+    @property
+    def album_is_in_title(self):
+        # If (sort)album is in title, it's likely that title is something like {book name}, ch. 6
+        # So if album is in title, prefer album
+
+        score = 0
+
+        if self._album_1.lower() in self._title_1.lower():
+            score += 1
+
+        if self._album_2.lower() in self._title_2.lower():
+            score += 1
+
+        self.score.album_is_title += score
+        return score > 0
+
+    @property
+    def album_is_in_fs_name(self):
+        # If album is in folder_name/filename or if sortalbum doesn't exist, prefer album
+        score = 0
+        if self._album_1.lower() in self._folder_and_filename.lower():
+            score += 1
+
+        if self._album_2.lower() in self._folder_and_filename.lower():
+            score += 1
+
+        self.score.album_is_title += score
+        return score > 0
+
+    @property
+    def sortalbum_is_missing(self):
+        check = not self._sortalbum_1 and not self._sortalbum_2
+        if check:
+            self.score.sortalbum_is_title -= 100
+        return check
+
+    @property
+    def album_1_matches_album_2(self):
+        """If all things are equal, album is still the better choice"""
+        check = self._album_1 == self._album_2
+        if check:
+            self.score.album_is_title += 9
+        return check
+
+    @property
+    def common_title_is_in_fs_name(self):
+        # If common_title is in fs name, prefer common_title
+        # Weighted at double the regular title, because
+        check = self._common_title.lower() in self._folder_and_filename.lower()
+        if check:
+            self.score.common_title_is_title += 2
+        return check
+
+    @property
+    def common_title_is_empty(self):
+        if not self._common_title:
+            self.score.common_title_is_title -= 100
+        return not self._common_title
+
+    @property
+    def sortalbum_1_matches_sortalbum_2(self):
+        """If all equal but album is missing, sortalbum is still the better choice"""
+        check = self._sortalbum_1 == self._sortalbum_2
+        if check:
+            self.score.sortalbum_is_title += 6
+        return check
+
+    @property
+    def sortalbum_is_in_title(self):
+        score = 0
+        if self._sortalbum_1.lower() in self._title_1.lower():
+            score += 1
+
+        if self._sortalbum_2.lower() in self._title_2.lower():
+            score += 1
+
+        self.score.sortalbum_is_title += score
+        return score
+
+    @property
+    def sortalbum_is_in_fs_name(self):
+        # If sortalbum is in folder_name/filename or if album doesn't exist, prefer sortalbum
+        score = 0
+        if self._sortalbum_1.lower() in self._folder_and_filename.lower():
+            score += 1
+
+        if self._sortalbum_2.lower() in self._folder_and_filename.lower():
+            score += 1
+
+        self.score.sortalbum_is_title += score
+        return score
+
+    @property
+    def album_is_missing(self):
+        check = not self._album_1 and not self._album_2
+        if check:
+            self.score.album_is_title -= 100
+        return check
+
+    @property
+    def title_is_in_fs_name(self):
+        # If id3_title is in fs name, prefer id3_title
+        score = 0
+        if self._title_1.lower() in self._folder_and_filename.lower():
+            score += 1
+
+        if self._title_2.lower() in self._folder_and_filename.lower():
+            score += 1
+
+        self.score.title_is_title += score
+        return score > 0
+
+    @property
+    def title_is_missing(self):
+        check = not self._title_1 and not self._title_2
+        if check:
+            self.score.title_is_title -= 100
+        return check
+
+    @property
+    def title_is_partno(self):
+        score = 0
+        t1 = get_numbers_in_string(self._title_1)
+        t2 = get_numbers_in_string(self._title_2)
+        a1 = get_numbers_in_string(self._album_1)
+        sa1 = get_numbers_in_string(self._sortalbum_1)
+
+        if len(t1) > len(a1):
+            score -= 1
+
+        if len(t1) > len(sa1):
+            score -= 1
+
+        if t1 != t2:
+            score -= 1
+        else:
+            # if the numbers in both titles match, it's likely that the number is part of the book's name
+            score += 1
+
+        self.score.title_is_title -= score
+        return score > 0
+
+    @property
+    def title_1_matches_title_2(self):
+        """If all things are equal, but no (sort)album, title is still the better choice"""
+        check = self._title_1 == self._title_2
+        if check:
+            self.score.title_is_title += 9
+        return check
+
+
+def extract_metadata(book: "Audiobook", quiet: bool = False) -> "Audiobook":
 
     if not quiet:
         smart_print(
@@ -237,102 +526,133 @@ def extract_metadata(
     # second file
     id3_title_2 = extract_id3_tag_py(book.sample_audio2, "title")
     id3_album_2 = extract_id3_tag_py(book.sample_audio2, "album")
+    id3_sortalbum_2 = extract_id3_tag_py(book.sample_audio2, "sort_album")
 
-    id3_numbers_in_title = get_numbers_in_string(book.id3_title)
-    id3_numbers_in_title_2 = get_numbers_in_string(id3_title_2)
-    id3_numbers_in_album = get_numbers_in_string(book.id3_album)
-    id3_numbers_in_sortalbum = get_numbers_in_string(book.id3_sortalbum)
+    # # get greatest common strings between both files
+    # id3_common_title = find_greatest_common_string([book.id3_title, id3_title_2])
+    # id3_common_album = find_greatest_common_string([book.id3_album, id3_album_2])
+    # id3_common_sortalbum = find_greatest_common_string(
+    #     [book.id3_sortalbum, id3_album_2]
+    # )
 
-    # If title has more numbers in it than the album, it's probably a part number like Part 01 or 01 of 42
-    book.title_is_partno = (
-        len(id3_numbers_in_title) > len(id3_numbers_in_album)
-        and len(id3_numbers_in_title) > len(id3_numbers_in_sortalbum)
-        and id3_numbers_in_title != id3_numbers_in_title_2
-    )
-    album_matches_album_2 = book.id3_album == id3_album_2
-    title_matches_title_2 = book.id3_title == id3_title_2
+    # info about numbers
 
-    album_is_in_title = (
-        book.id3_album
-        and book.id3_title
-        and book.id3_album.lower() in book.id3_title.lower()
-    )
-    sortalbum_is_in_title = (
-        book.id3_sortalbum
-        and book.id3_title
-        and book.id3_sortalbum.lower() in book.id3_title.lower()
+    id3_score = MetadataScore(
+        book,
+        book.id3_title,
+        id3_title_2,
+        book.id3_album,
+        id3_album_2,
+        book.id3_sortalbum,
+        id3_sortalbum_2,
     )
 
-    title_is_in_folder_name = (
-        book.id3_title and book.id3_title.lower() in book.basename.lower()
-    )
-    album_is_in_folder_name = (
-        book.id3_album and book.id3_album.lower() in book.basename.lower()
-    )
-    sortalbum_is_in_folder_name = (
-        book.id3_sortalbum and book.id3_sortalbum.lower() in book.basename.lower()
-    )
+    book.title_is_partno = id3_score.title_is_partno
 
-    id3_title_is_title = False
-    id3_album_is_title = False
-    id3_sortalbum_is_title = False
+    title_source = id3_score.get_score("title")[0]
+    book.title = getattr(book, f"id3_{title_source}")
 
-    # Title:
-    if not book.id3_title and not book.id3_album and not book.id3_sortalbum:
-        # If no id3_title, id3_album, or id3_sortalbum, use the extracted title
-        if not quiet:
-            print_debug("No id3_title, id3_album, or id3_sortalbum, so use extracted title")
-        book.title = book.fs_title
-    else:
-        # If (sort)album is in title, it's likely that title is something like {book name}, ch. 6
-        # So if album is in title, prefer album
-        if album_is_in_title:
-            if not quiet:
-                print_debug("id3_album is in title")
-            book.title = book.id3_album
-            id3_album_is_title = True
-        elif sortalbum_is_in_title:
-            if not quiet:
-                print_debug("id3_sortalbum is in title")
-            book.title = book.id3_sortalbum
-            id3_sortalbum_is_title = True
-        # If id3_title is in _folder_name, prefer id3_title
-        elif title_is_in_folder_name:
-            if not quiet:
-                print_debug("id3_title is in folder name")
-            book.title = book.id3_title
-            id3_title_is_title = True
-        # If both sample files' album name matches, prefer album
-        elif album_matches_album_2:
-            if not quiet:
-                print_debug("Album matches album2")
-            book.title = book.id3_album
-            id3_album_is_title = True
-        # If both sample files' title name matches, prefer title
-        elif title_matches_title_2:
-            if not quiet:
-                print_debug("id3_title matches sample2 id3_title")
-            book.title = book.id3_title
-            id3_title_is_title = True
-        # If title is a part no., we should use album or sortalbum
-        elif book.title_is_partno:
-            if not quiet:
-                print_debug("Title is partno, so we should use album")
-            # If album is in _folder_name or if sortalbum doesn't exist, prefer album
-            if album_is_in_folder_name or not book.id3_sortalbum:
-                book.title = book.id3_album
-                id3_album_is_title = True
-            elif sortalbum_is_in_folder_name or not book.id3_album:
-                book.title = book.id3_sortalbum
-                id3_sortalbum_is_title = True
-        if not book.title:
-            if not quiet:
-                print_debug("Can't figure out what title is, so just use it")
-            book.title = book.id3_title
-            id3_title_is_title = True
+    # title_matches_title_2 = book.id3_title == id3_title_2
+    # album_matches_album_2 = book.id3_album == id3_album_2
+    # sortalbum_matches_sortalbum_2 = book.id3_sortalbum == book.id3_sortalbum_2
 
-    book.title = strip_part_number(book.title)
+    # album_is_in_title = (
+    #     book.id3_album
+    #     and book.id3_title
+    #     and book.id3_album.lower() in book.id3_title.lower()
+    # )
+    # sortalbum_is_in_title = (
+    #     book.id3_sortalbum
+    #     and book.id3_title
+    #     and book.id3_sortalbum.lower() in book.id3_title.lower()
+    # )
+
+    # title_is_in_album = (
+    #     book.id3_title
+    #     and book.id3_album
+    #     and book.id3_title.lower() in book.id3_album.lower()
+    # )
+
+    # title_is_in_sortalbum = (
+    #     book.id3_title
+    #     and book.id3_sortalbum
+    #     and book.id3_title.lower() in book.id3_sortalbum.lower()
+    # )
+
+    # title_is_in_folder_name = (
+    #     book.id3_title and book.id3_title.lower() in book.basename.lower()
+    # )
+    # album_is_in_folder_name = (
+    #     book.id3_album and book.id3_album.lower() in book.basename.lower()
+    # )
+    # sortalbum_is_in_folder_name = (
+    #     book.id3_sortalbum and book.id3_sortalbum.lower() in book.basename.lower()
+    # )
+
+    # id3_title_is_title = False
+    # id3_album_is_title = False
+    # id3_sortalbum_is_title = False
+
+    # # Title:
+    # if not book.id3_title and not book.id3_album and not book.id3_sortalbum:
+    #     # If no id3_title, id3_album, or id3_sortalbum, use the extracted title
+    #     if not quiet:
+    #         print_debug("No id3_title, id3_album, or id3_sortalbum, so use extracted title")
+    #     book.title = book.fs_title
+    # else:
+    #     # # If (sort)album is in title, it's likely that title is something like {book name}, ch. 6
+    #     # # So if album is in title, prefer album
+    #     # if album_is_in_title:
+    #     #     if not quiet:
+    #     #         print_debug("id3_album is in title")
+    #     #     book.title = book.id3_album
+    #     #     id3_album_is_title = True
+    #     elif sortalbum_is_in_title:
+    #         if not quiet:
+    #             print_debug("id3_sortalbum is in title")
+    #         book.title = book.id3_sortalbum
+    #         id3_sortalbum_is_title = True
+    #     # If id3_title is in _folder_name, prefer id3_title
+    #     elif title_is_in_folder_name:
+    #         if not quiet:
+    #             print_debug("id3_title is in folder name")
+    #         book.title = book.id3_title
+    #         id3_title_is_title = True
+    #     # If both sample files' album name matches, prefer album
+    #     elif album_matches_album_2:
+    #         if not quiet:
+    #             print_debug("Album matches album2")
+    #         book.title = book.id3_album
+    #         id3_album_is_title = True
+    #     # If both sample files' title name matches, prefer title
+    #     elif title_matches_title_2:
+    #         if not quiet:
+    #             print_debug("id3_title matches sample2 id3_title")
+    #         book.title = book.id3_title
+    #         id3_title_is_title = True
+    #     # If title is a part no., we should use album or sortalbum
+    #     elif book.title_is_partno:
+    #         if not quiet:
+    #             print_debug("Title is partno, so we should use album")
+    #         # If album is in _folder_name or if sortalbum doesn't exist, prefer album
+    #         if album_is_in_folder_name or not book.id3_sortalbum:
+    #             book.title = book.id3_album
+    #             id3_album_is_title = True
+    #         elif sortalbum_is_in_folder_name or not book.id3_album:
+    #             book.title = book.id3_sortalbum
+    #             id3_sortalbum_is_title = True
+    #     if not book.title:
+    #         if not quiet:
+    #             print_debug("Can't figure out what title is, so just use it")
+    #         book.title = book.id3_title
+    #         id3_title_is_title = True
+
+    if title_source == "title" and book.title_is_partno:
+        book.title = strip_part_number(book.title)
     book.title = fix_smart_quotes(book.title)
+    book.album = fix_smart_quotes(book.album)
+    book.albumartist = fix_smart_quotes(book.albumartist)
+    book.artist = fix_smart_quotes(book.artist)
 
     if not quiet:
         print_list(f"Title: {book.title}")
@@ -492,7 +812,7 @@ def extract_metadata(
     # convert bitrate and sample rate to friendly to kbit/s, rounding to nearest tenths, e.g. 44.1 kHz
     if not quiet:
         print_list(f"Quality: {book.bitrate_friendly} @ {book.samplerate_friendly}")
-        print_list(f"Duration: {book.duration("inbox", "human")}")
+        print_list(f"Duration: {book.duration('inbox', 'human')}")
         if not book.has_id3_cover:
             print_list(f"No cover art")
 

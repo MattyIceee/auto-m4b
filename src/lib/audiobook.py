@@ -186,6 +186,7 @@ class Audiobook(BaseModel):
 
     @property
     def basename(self):
+        """The name of the book, including file extension if it is a single file"""
         return self.path.name
 
     @property

@@ -603,7 +603,7 @@ def process_inbox():
         nl()
 
         smart_print(
-            f"Moving to converted books folder → {tint_path(fmt_linebreak_path(book.converted_file, 120, 35))}"
+            f"Moving to converted books folder → {tint_path(fmt_linebreak_path(book.converted_file, 80, 35))}"
         )
 
         # Copy other jpg, png, and txt files from mergefolder to output folder
