@@ -2,15 +2,22 @@ FROM phusion/baseimage:jammy-1.0.1
 #FROM phusion/baseimage:master
 
 #Basic Container
-RUN echo "---- INSTALL RUNTIME PACKAGES ----" && \
-    apt-get update && apt-get install -y --no-install-recommends \
-    python3-pip \
-    git \
-    #ffmpeg \
-    dnsutils \
-    iputils-ping \
-    wget \
-    crudini && rm -rf /var/lib/apt/lists/*
+RUN echo "---- INSTALL RUNTIME PACKAGES ----"
+RUN add-apt-repository ppa:deadsnakes/ppa
+RUN apt-get update && apt-get install -y --no-install-recommends
+RUN apt-get install -y python3.12
+RUN apt-get install -y python3-pip
+RUN apt-get install -y git
+# RUN apt-get install -y ffmpeg
+RUN apt-get install -y dnsutils
+RUN apt-get install -y iputils-ping
+RUN apt-get install -y wget
+RUN apt-get install -y crudini && rm -rf /var/lib/apt/lists/*
+
+#Python deps
+RUN echo "---- INSTALL PYTHON PACKAGES ----" && \
+    pip install --no-cache-dir --upgrade pip && \
+    pip install pipenv
 
 #Build layer
 RUN echo "---- INSTALL ALL BUILD-DEPENDENCIES ----" && \
@@ -115,9 +122,22 @@ ENV PGID=""
 ENV CPU_CORES=""
 ENV SLEEPTIME=""
 
-#Merge-Script importieren
 ADD runscript.sh /etc/service/bot/run
-ADD auto-m4b-tool.sh /
+# ADD auto-m4b-tool.sh /
+
+# copy Pipfile and Pipfile.lock to /auto-m4b
+ADD Pipfile /auto-m4b/
+ADD Pipfile.lock /auto-m4b/
+ADD pyproject.toml /auto-m4b/
+ADD src /auto-m4b/src
+
+RUN echo "---- INSTALL AUTO-M4B PY DEPENDENCIES ----" && \
+    cd /auto-m4b && \
+    pipenv update && \
+    pipenv install --system --deploy
+
+# check we are running python3.12, and fail if not
+RUN python -c "import sys; assert sys.version_info.major == 3 and sys.version_info.minor == 12, raise Exception('Python version is not 3.12')"
 
 #install actual m4b-tool
 #RUN echo "---- INSTALL M4B-TOOL ----" && \

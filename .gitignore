@@ -5,3 +5,5 @@ docker-compose.yml
 **/__pycache__
 .env.local*
 **/tests/tmp/**/*
+._.*
+._*
