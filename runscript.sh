@@ -41,4 +41,6 @@ if [[ -n "${PUID:-}" ]]; then
     cmd_prefix="/sbin/setuser ${user_name}"
 fi
 
+cd /auto-m4b
+
 ${cmd_prefix} pipenv run forever 2>/config/auto-m4b-tool.log
