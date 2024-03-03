@@ -11,7 +11,8 @@ ffmpeg-python = "*"
 numpy = "*"
 pydantic = "*"
 eyed3 = "*"
-tinta = {file = "../tinta", editable = true}
+# tinta = {file = "../tinta", editable = true}
+tinta = {git = "https://github.com/brandonscript/tinta.git", branch = "main"}
 python-dotenv = "*"
 columnar = "*"
 
