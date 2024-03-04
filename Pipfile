@@ -31,4 +31,5 @@ allow_prereleases = true
 [scripts]
 app = "python src -l 1"
 forever = "python src -l -1"
+docker = "python -u src -l -1"
 tests = "python -m pytest -c pyproject.toml"

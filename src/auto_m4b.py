@@ -17,7 +17,7 @@ LOOP_COUNT = 0
 def handle_err(e: Exception):
     if cfg.DEBUG:
         print_red(f"\n{traceback.format_exc()}")
-        exit(1)
+        raise e
     # elif cfg.TEST or "pytest" in sys.modules:
     #     raise e
     else:
@@ -26,9 +26,8 @@ def handle_err(e: Exception):
 
 @copy_kwargs_omit_first_arg(AutoM4bArgs.__init__)
 def app(**kwargs):
-
     args = AutoM4bArgs(**kwargs)
-    global LOOP_COUNT, EXIT_CODE
+    global LOOP_COUNT
     try:
         cfg.startup(args)
         while args.max_loops == -1 or LOOP_COUNT < args.max_loops:

@@ -5,9 +5,15 @@ include:
 
 services:
   auto-m4b:
-    image: seanap/auto-m4b
+    # image: seanap/auto-m4b
     # build: https://github.com/brandonscript/auto-m4b.git
-    build: .
+    # stdin_open: true # docker run -i
+    # tty: true # docker run -t
+    build:
+      context: .
+      args:
+        PUID: 1000
+        GUID: 1000
     container_name: auto-m4b
     restart: unless-stopped
     volumes:
@@ -16,12 +22,21 @@ services:
       - ragnarok-media:/media:rw
       # - downloads:/path/to/mount/downloads:rw
     environment:
+      - LANG=en_US.UTF-8
       - PUID=1000
       - PGID=1000
-      - MAKE_BACKUP=Y
       - MAX_CHAPTER_LENGTH=15,30
-      - SKIP_COVERS=N
+      - INBOX_FOLDER=/media/Downloads/#done/#books/#convert/inbox
+      - CONVERTED_FOLDER=/media/Books/Audiobooks/_Updated plex copies
+      - ARCHIVE_FOLDER=/media/Downloads/#done/#books/#convert/processed
+      - FIX_FOLDER=/media/Downloads/#done/#books/#convert/fix
+      - BACKUP_FOLDER=/media/Downloads/#done/#books/#convert/backup
+      - WORKING_FOLDER=/tmp/auto-m4b
       - OVERWRITE_EXISTING=Y
+      - MAKE_BACKUP=Y
+      - SKIP_COVERS=N
+      - NO_FIX=Y
+      - DEBUG=Y
       - TZ=America/Vancouver
 # volumes:
 #   downloads:

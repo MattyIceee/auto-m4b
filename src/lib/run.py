@@ -59,16 +59,13 @@ from src.lib.term import (
 
 
 def print_launch_and_set_running():
-
     if cfg.SLEEPTIME and not cfg.TEST:
         time.sleep(min(2, cfg.SLEEPTIME / 2))
     if not cfg.PID_FILE.is_file():
         cfg.PID_FILE.touch()
         current_local_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         with cfg.PID_FILE.open("a") as f:
-            f.write(
-                f"auto-m4b started at {current_local_time}, watching {cfg.inbox_dir}\n"
-            )
+            f.write(f"auto-m4b started at {current_local_time}, watching {cfg.inbox_dir}\n")
         print_aqua("\nStarting auto-m4b...")
         print_grey(f"{cfg.info_str}\n")
 
@@ -78,10 +75,7 @@ def process_standalone_files():
 
     # get all standalone audio files in inbox - i.e., audio files that are directl in the inbox not a subfolder
     standalone_audio_files = [
-        file
-        for ext in AUDIO_EXTS
-        for file in cfg.inbox_dir.glob(f"*{ext}")
-        if len(file.parts) == 1
+        file for ext in AUDIO_EXTS for file in cfg.inbox_dir.glob(f"*{ext}") if len(file.parts) == 1
     ]
     for audio_file in standalone_audio_files:
         # Extract base name without extension
@@ -122,11 +116,9 @@ def process_standalone_files():
 
 
 class m4btool:
-
     _cmd: list[Any]
 
     def __init__(self, book: Audiobook):
-
         def _(*new_arg: str | tuple[str, Any]):
             if isinstance(new_arg, tuple):
                 self._cmd.extend(new_arg)
@@ -162,13 +154,11 @@ class m4btool:
         if cfg.USE_FILENAMES_AS_CHAPTERS:
             _("--use-filenames-as-chapters")
 
-        if chapters_files := list(
-            dockerize_volume(self.book.merge_dir).glob("*chapters.txt")
-        ):
+        if chapters_files := list(dockerize_volume(self.book.merge_dir).glob("*chapters.txt")):
             chapters_file = chapters_files[0]
             _(f'--chapters-file="{chapters_file}"')
             smart_print(
-                f"Found {len(chapters_files)} chapters {pluralize(len(chapters_files), 'file')}, setting chapters from {tinted_file(chapters_file.name)}"
+                f"Found {len(chapters_files)} chapters {pluralize(len(chapters_files), "file")}, setting chapters from {tinted_file(chapters_file.name)}"
             )
 
         _(*build_id3_tags_args(book.title, book.author, book.year, book.comment))
@@ -197,7 +187,6 @@ class m4btool:
         return self.book.orig_file_type in ["m4a", "m4b"]
 
     def msg(self):
-
         starttime_friendly = friendly_date()
         if self.should_copy:
             smart_print(
@@ -214,25 +203,20 @@ class m4btool:
 
 
 def process_inbox():
-
-    audiobooks_count = count_audio_files_in_dir(
-        cfg.inbox_dir, only_file_exts=AUDIO_EXTS
-    )
+    audiobooks_count = count_audio_files_in_dir(cfg.inbox_dir, only_file_exts=AUDIO_EXTS)
 
     if audiobooks_count == 0:
         return
 
     current_local_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    dash = "─" * 24
+    dash = "-" * 24
 
-    print_aqua(f"{dash}  ⌐◒-◒  auto-m4b • {current_local_time}  ─{dash}")
+    print_aqua(f"{dash}  ⌐◒-◒  auto-m4b • {current_local_time}  -{dash}")
 
     print_grey(f"Checking for new books in {{{{{cfg.inbox_dir}}}}} ꨄ︎")
 
-    if was_recently_modified(
-        cfg.inbox_dir
-    ):  # replace 'unfinished_dirs' with your variable
+    if was_recently_modified(cfg.inbox_dir):  # replace 'unfinished_dirs' with your variable
         smart_print(
             "The inbox folder was recently modified, waiting in case files are being copied...\n"
         )
@@ -258,22 +242,19 @@ def process_inbox():
     elif books_count == 0:
         filtered_count = real_books_count - books_count
         print_notice(
-            f"Found {filtered_count} {pluralize(filtered_count, 'book')}, but none match '{cfg.MATCH_NAME}' – next check in {cfg.sleeptime_friendly}"
+            f"Found {filtered_count} {pluralize(filtered_count, "book")}, but none match '{cfg.MATCH_NAME}' – next check in {cfg.sleeptime_friendly}"
         )
         return
 
     elif books_count != real_books_count:
         smart_print(
-            f"Found {books_count} of {real_books_count} {pluralize(real_books_count, 'book')} in inbox matching [[{cfg.MATCH_NAME}]]\n",
+            f"Found {books_count} of {real_books_count} {pluralize(real_books_count, "book")} in inbox matching [[{cfg.MATCH_NAME}]]\n",
             highlight_color=AMBER_COLOR,
         )
     else:
-        smart_print(
-            f"Found {books_count} {pluralize(books_count, 'book')} to convert\n"
-        )
+        smart_print(f"Found {books_count} {pluralize(books_count, "book")} to convert\n")
 
     for b, book_full_path in enumerate(audio_dirs):
-
         book = Audiobook(book_full_path)
 
         m4b_count = count_audio_files_in_dir(book.inbox_dir, only_file_exts=["m4b"])
@@ -281,21 +262,19 @@ def process_inbox():
             book.inbox_dir, only_file_exts=AUDIO_EXTS, maxdepth=1
         )
 
-        vline = "┃"
-        hline = "━"
-        tl = "┏"
-        tr = "┓"
-        bl = "┗"
-        br = "┛"
+        vline = "|"
+        hline = "-"
+        tl = "•"
+        tr = "•"
+        bl = "•"
+        br = "•"
 
         border = lambda l, r: smart_print(
             l + hline * (len(book.basename) + 2) + r, color=DARK_GREY_COLOR
         )
 
         border(tl, tr)
-        smart_print(
-            Tinta().dark_grey(vline).aqua(book.basename).dark_grey(vline).to_str()
-        )
+        smart_print(Tinta().dark_grey(vline).aqua(book.basename).dark_grey(vline).to_str())
         border(bl, br)
 
         nested_audio_dirs = find_base_dirs_with_audio_files(book.inbox_dir, mindepth=2)
@@ -304,22 +283,16 @@ def process_inbox():
 
         # check if the current dir was modified in the last 1m and skip if so
         if was_recently_modified(book.inbox_dir):
-            print_notice(
-                "Skipping this book, it was recently updated and may still be copying"
-            )
+            print_notice("Skipping this book, it was recently updated and may still be copying")
             continue
 
         if not book.num_files("inbox"):
-            print_error(
-                f"Error: {book.inbox_dir} does not contain any known audio files, skipping"
-            )
+            print_error(f"Error: {book.inbox_dir} does not contain any known audio files, skipping")
             continue
 
         if m4b_count == 1:
             smart_print("This book is already an m4b")
-            smart_print(
-                f"Moving directly to converted books folder → {book.converted_dir}"
-            )
+            smart_print(f"Moving directly to converted books folder → {book.converted_dir}")
             mv_dir_contents(book.inbox_dir, book.converted_dir)
             continue
 
@@ -339,9 +312,7 @@ def process_inbox():
                 return
             smart_print(f"Moving to fix folder → {tint_path(book.fix_dir)}")
             mv_dir(book.inbox_dir, cfg.fix_dir)
-            cp_file_to_dir(
-                book.log_file, book.fix_dir, new_filename=f"m4b-tool.{book}.log"
-            )
+            cp_file_to_dir(book.log_file, book.fix_dir, new_filename=f"m4b-tool.{book}.log")
 
         needs_fixing = False
         if nested_audio_dirs_count > 1 or (
@@ -349,18 +320,14 @@ def process_inbox():
         ):
             needs_fixing = True
             print_error("Error: This book contains multiple folders with audio files")
-            smart_print(
-                "Maybe this is a multi-disc book, or maybe it is multiple books?"
-            )
+            smart_print("Maybe this is a multi-disc book, or maybe it is multiple books?")
             smart_print(
                 "All files must be in a single folder, named alphabetically in the correct order\n"
             )
 
         if roman_numerals_count > 1:
             needs_fixing = True
-            print_error(
-                "Error: Some of this book's files appear to be named with roman numerals"
-            )
+            print_error("Error: Some of this book's files appear to be named with roman numerals")
             smart_print(
                 "Roman numerals do not sort in alphabetical order; please make sure files are named alphabetically in the correct order, then remove roman numerals from filenames\n"
             )
@@ -371,7 +338,7 @@ def process_inbox():
 
         if nested_audio_dirs_count == 1:
             smart_print(
-                f"Audio files for this book are a subfolder: {tint_path(f'./{nested_audio_dirs[0]}')}"
+                f"Audio files for this book are a subfolder: {tint_path(f"./{nested_audio_dirs[0]}")}"
             )
             smart_print(f"Moving them to book's root → {tint_path(book.inbox_dir)}")
             flatten_files_in_dir(book.inbox_dir)
@@ -380,18 +347,18 @@ def process_inbox():
 
         print_list(f"Output folder: {book.converted_dir}")
         print_list(f"File type: {book.orig_file_type}")
-        print_list(f"Audio files: {book.num_files('inbox')}")
-        print_list(f"Total size: {book.size('inbox', 'human')}")
+        print_list(f"Audio files: {book.num_files("inbox")}")
+        print_list(f"Total size: {book.size("inbox", "human")}")
         if book.cover_art:
             print_list(f"Cover art: {book.cover_art.name}")
 
         nl()
 
         # Copy files to backup destination
-        if cfg.MAKE_BACKUP:
-            smart_print("Skipping making a backup (MAKE_BACKUP is set to N)")
+        if not cfg.MAKE_BACKUP:
+            print_dark_grey("Not backing up (backups are disabled)")
         elif dir_is_empty(book.inbox_dir):
-            smart_print("Skipping making a backup (folder is empty)")
+            print_dark_grey("Skipping backup (folder is empty)")
         else:
             smart_print(f"Making a backup copy → {tint_path(book.backup_dir)}")
             cp_dir(book.inbox_dir, cfg.backup_dir, overwrite_mode="skip-silent")
@@ -429,9 +396,7 @@ def process_inbox():
                     print_notice(
                         f"Found a copy of this book in {tint_path(cfg.archive_dir)}, it has probably already been converted"
                     )
-                    print_notice(
-                        "Skipping this book because OVERWRITE_EXISTING is not enabled"
-                    )
+                    print_notice("Skipping this book because OVERWRITE_EXISTING is not enabled")
                     continue
                 elif book.size("converted", "bytes") > 0:
                     print_notice(
@@ -507,7 +472,6 @@ def process_inbox():
         #     logfile = f.read()
 
         if re.search(r"error", stdout, re.I):
-
             # ignorable errors:
             ###################
             # an error occured, that has not been caught:
@@ -545,19 +509,11 @@ def process_inbox():
                 .strip()
             )
             if not msg:
-                for block in [
-                    re_group(re.search(err, stdout, re.I)) for err in err_blocks
-                ]:
-                    if block and not any(
-                        re.search(err, block) for err in ignorable_errors
-                    ):
-                        msg = re_group(
-                            re.search(rf"\[message\] => (.*$)", block, re.I | re.M), 1
-                        )
+                for block in [re_group(re.search(err, stdout, re.I)) for err in err_blocks]:
+                    if block and not any(re.search(err, block) for err in ignorable_errors):
+                        msg = re_group(re.search(rf"\[message\] => (.*$)", block, re.I | re.M), 1)
             print_error(f"m4b-tool Error: {msg}")
-            smart_print(
-                f"See log file in {tint_light_grey(book.fix_dir)} for details\n"
-            )
+            smart_print(f"See log file in {tint_light_grey(book.fix_dir)} for details\n")
             err = True
         elif not book.build_file.exists():
             print_error(
@@ -588,9 +544,7 @@ def process_inbox():
                 did_remove_old_desc = True
 
         if did_remove_old_desc:
-            print_notice(
-                f"Removed old description {pluralize(len(desc_files), 'file')}"
-            )
+            print_notice(f"Removed old description {pluralize(len(desc_files), "file")}")
 
         mv_file_to_dir(
             book.merge_desc_file,
@@ -658,9 +612,7 @@ def process_inbox():
 
         if cfg.on_complete == "move":
             smart_print("Archiving original from inbox...")
-            mv_dir_contents(
-                book.inbox_dir, book.archive_dir, overwrite_mode="overwrite-silent"
-            )
+            mv_dir_contents(book.inbox_dir, book.archive_dir, overwrite_mode="overwrite-silent")
 
             if book.inbox_dir.exists():
                 print_warning(
@@ -675,9 +627,7 @@ def process_inbox():
             if is_ok_to_delete(book.inbox_dir):
                 shutil.rmtree(book.inbox_dir, ignore_errors=True)
             else:
-                print_notice(
-                    "Notice: The original folder is not empty, it will not be deleted"
-                )
+                print_notice("Notice: The original folder is not empty, it will not be deleted")
         elif cfg.on_complete == "test_do_nothing":
             print_notice("Test mode: The original folder will not be moved or deleted")
 

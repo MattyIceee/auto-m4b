@@ -126,7 +126,6 @@ class AutoM4bArgs:
         no_fix: bool | None = None,
         match_name: str | None = None,
     ):
-
         args = parser.parse_known_args()[0]
 
         self.env = pick(env, args.env)
@@ -191,7 +190,6 @@ def singleton(class_: type[C]) -> type[C]:
 
 @singleton
 class Config:
-
     _ENV: dict[str, str | None] = {}
     _ENV_SRC: Any = None
     _USE_DOCKER = False
@@ -238,11 +236,7 @@ class Config:
 
     @cached_property
     def OVERWRITE_MODE(self) -> OverwriteMode:
-        return (
-            "overwrite"
-            if parse_bool(os.getenv("OVERWRITE_EXISTING", False))
-            else "skip"
-        )
+        return "overwrite" if parse_bool(os.getenv("OVERWRITE_EXISTING", False)) else "skip"
 
     # @cached_property
     # def overwrite_arg(self):
@@ -284,9 +278,7 @@ class Config:
         """If it can be represented as a whole number, do so as {number}s
         otherwise, show as a float rounded to 1 decimal place, e.g. 0.1s"""
         return (
-            f"{int(self.SLEEPTIME)}s"
-            if self.SLEEPTIME.is_integer()
-            else f"{self.SLEEPTIME:.1f}s"
+            f"{int(self.SLEEPTIME)}s" if self.SLEEPTIME.is_integer() else f"{self.SLEEPTIME:.1f}s"
         )
 
     @cached_property
@@ -297,12 +289,7 @@ class Config:
 
     @cached_property
     def max_chapter_length_friendly(self):
-        return (
-            "-".join(
-                [str(int(int(t) / 60)) for t in self.MAX_CHAPTER_LENGTH.split(",")]
-            )
-            + "m"
-        )
+        return "-".join([str(int(int(t) / 60)) for t in self.MAX_CHAPTER_LENGTH.split(",")]) + "m"
 
     @cached_property
     def SKIP_COVERS(self):
@@ -336,9 +323,7 @@ class Config:
         return " ".join(self._m4b_tool)
 
     @overload
-    def _load_path_env(
-        self, key: str, default: Path, allow_empty: bool = ...
-    ) -> Path: ...
+    def _load_path_env(self, key: str, default: Path, allow_empty: bool = ...) -> Path: ...
 
     @overload
     def _load_path_env(
@@ -410,7 +395,7 @@ class Config:
         info = f"{self.CPU_CORES} CPU cores / "
         info += f"{self.sleeptime_friendly} sleep / "
         info += f"Max chapter length: {self.max_chapter_length_friendly} / "
-        info += f"Cover images: {'off' if self.SKIP_COVERS else 'on'} / "
+        info += f"Cover images: {"off" if self.SKIP_COVERS else "on"} / "
         if self.USE_DOCKER:
             info += "m4b-tool: latest (Docker)"
         elif self.VERSION == "latest":
@@ -501,7 +486,7 @@ class Config:
 
     @cached_property
     def PID_FILE(self):
-        pid_file = self.working_dir / "running"
+        pid_file = self.working_dir / "running.pid"
         pid_file.parent.mkdir(parents=True, exist_ok=True)
         return pid_file
 
@@ -514,7 +499,6 @@ class Config:
         clean_dir(self.trash_dir)
 
     def check_dirs(self):
-
         dirs = [
             self.inbox_dir,
             self.converted_dir,
@@ -538,7 +522,6 @@ class Config:
                 pass
 
     def check_m4b_tool(self):
-
         has_native_m4b_tool = bool(shutil.which(self.m4b_tool))
         if has_native_m4b_tool:
             return True
@@ -546,12 +529,9 @@ class Config:
         # docker images -q sandreas/m4b-tool:latest
         has_docker = bool(shutil.which("docker"))
         docker_image_exists = has_docker and bool(
-            subprocess.check_output(
-                ["docker", "images", "-q", "sandreas/m4b-tool:latest"]
-            ).strip()
+            subprocess.check_output(["docker", "images", "-q", "sandreas/m4b-tool:latest"]).strip()
         )
         if has_docker and docker_image_exists:
-
             uid = os.getuid()
             gid = os.getgid()
             is_tty = os.isatty(0)

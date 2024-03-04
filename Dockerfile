@@ -1,21 +1,32 @@
-FROM phusion/baseimage:jammy-1.0.1 AS ffmpeg
+# FROM phusion/baseimage:jammy-1.0.1 AS ffmpeg
 #FROM phusion/baseimage:master
+FROM ubuntu:22.04 AS ffmpeg
 
 RUN apt-config dump | grep -we Recommends -e Suggests | sed s/1/0/ | tee /etc/apt/apt.conf.d/999norecommend
 
-RUN apt-get update && apt-get install -y
-RUN apt-get install -y build-essential
-RUN apt-get install -y crudini
-RUN apt-get install -y dnsutils
-RUN apt-get install -y fdkaac
-RUN apt-get install -y gcc
-RUN apt-get install -y git
-RUN apt-get install -y git-core
-RUN apt-get install -y iputils-ping
-RUN apt-get install -y libfdk-aac-dev
-RUN apt-get install -y libmp3lame-dev
-RUN apt-get install -y texinfo
-RUN apt-get install -y wget
+ENV TZ=America/Vancouver
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    crudini \
+    dnsutils \
+    fdkaac \
+    gcc \
+    git \
+    git-core \
+    iputils-ping \
+    libfdk-aac-dev \
+    libmp3lame-dev \
+    runit-systemd \
+    texinfo \
+    wget \
+    zsh
+
+RUN sh -c "$(wget -O- https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" --unattended
+
+# Fix SSL CAcert issue with git
+RUN apt-get install -y --reinstall ca-certificates && update-ca-certificates
 
 #Build layer
 RUN echo "---- INSTALL BUILD-DEPENDENCIES ----" && \
@@ -138,21 +149,50 @@ RUN echo "---- INSTALL M4B-TOOL ----" \
 
 FROM m4b-tool as python
 
-ENV PUID=""
-ENV PGID=""
-ENV CPU_CORES=""
-ENV SLEEPTIME=""
+# ENV PUID=""
+# ENV PGID=""
+# ENV CPU_CORES=""
+# ENV SLEEPTIME=""
+
+
+# swtich to $PUID and $PGID user
+USER $PUID:$PGID
 
 #Python deps
-RUN echo "---- INSTALL PYTHON & DEPENDENCIES ----"
-RUN add-apt-repository ppa:deadsnakes/ppa
-RUN apt-get install -y python3.12
-RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1
-RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.12 1
-# add python dir to path
-ENV PATH="/usr/bin/python3.12/bin:${PATH}"
-# check we are running python3.12, and fail if not (use bash)
+RUN echo "---- INSTALL PYTHON PREREQS----"
+# RUN apt-get install -y --reinstall ca-certificates
+# RUN add-apt-repository -y 'ppa:deadsnakes/ppa'
+RUN apt-get install -y libssl-dev openssl build-essential
+# RUN apt-get install -y ffmpeg
+
+RUN echo "---- ADD AUTOM4B USER/GROUP ----"
+# set up user account
+ARG USERNAME=autom4b
+ARG PUID=
+ARG GUID=
+
+RUN addgroup --gid ${GUID} ${USERNAME}
+RUN adduser -u ${PUID} --gid ${GUID} --disabled-password --gecos "" ${USERNAME} 
+
+USER ${USERNAME}
+RUN sh -c "$(wget -O- https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" --unattended
+USER root
+
+RUN echo "---- INSTALL PYTHON & PIP ----"
+
+# verify openssl version
+RUN openssl version && cd /tmp && wget https://www.python.org/ftp/python/3.12.2/Python-3.12.2.tgz && \
+    tar -xvf Python-3.12.2.tgz && \
+    cd Python-3.12.2 && \
+    ./configure --enable-optimizations && make && make install
+
+# add python dir to path and set as default python
+ENV PATH="/usr/local/bin:$PATH"
+RUN update-alternatives --install /usr/bin/python python /usr/local/bin/python3.12 1
+
+# check we are running python3.12, and fail if not
 RUN echo "---- CHECK PYTHON VERSION ----" && \
+    which python || exit 1 && \
     if [ "$(python --version | cut -d ' ' -f 2 | cut -d '.' -f 1-2)" != "3.12" ]; then \
     echo "Python 3.12 is required, but you are running $(python --version | cut -d ' ' -f 2)" && \
     exit 1; \
@@ -160,18 +200,25 @@ RUN echo "---- CHECK PYTHON VERSION ----" && \
 
 # install pip from get-pip.py
 RUN echo "---- INSTALL PIP ----" && \
+    cd /tmp && \
     wget https://bootstrap.pypa.io/get-pip.py && \
     python get-pip.py && \
     rm get-pip.py
-# RUN apt-get install -y ffmpeg
-RUN pip install setuptools wheel
+
+# Switch to our non-root user
+# USER ${USERNAME}
+# add the default pip bin install location to the PATH
+ENV PATH="$PATH:/home/${USERNAME}/.local/bin"
+
+# install deps
+RUN echo "---- INSTALL PYTHON DEPENDENCIES ----"
 RUN pip install --no-cache-dir --upgrade pip
-RUN pip install pipenv
+RUN pip install setuptools wheel pipenv
 
-RUN echo "---- INSTALL AUTO-M4B & DEPENDENCIES ----"
+RUN echo "---- INSTALL AUTO-M4B SVC & DEPENDENCIES ----"
 
-RUN mkdir -p /etc/service/bot
-ADD runscript.sh /etc/service/bot/run
+# RUN mkdir -p /etc/service/bot
+# ADD runscript.sh /etc/service/bot/run
 # ADD auto-m4b-tool.sh /
 
 # copy Pipfile and Pipfile.lock to /auto-m4b
@@ -180,28 +227,61 @@ ADD Pipfile /auto-m4b/
 ADD Pipfile.lock /auto-m4b/
 ADD pyproject.toml /auto-m4b/
 ADD src /auto-m4b/src
+# ADD run.sh /auto-m4b/run.sh
 
-# Copy my_init because built-in one is broken in later python versions
-ADD my_init_py312.py /usr/sbin/my_init
+# RUN chmod +x /auto-m4b/run.sh
+RUN chmod -R 766 /auto-m4b
+RUN chown -R ${USERNAME}:${USERNAME} /auto-m4b
+USER ${USERNAME}
+
+WORKDIR /auto-m4b
+
+RUN PIPENV_VENV_IN_PROJECT=1 pipenv install
+# ffmpeg.probe is bonkers and needs reinstalling here, so, we do it anyway
+RUN pipenv run pip install ffmpeg-python --force-reinstall
+RUN pipenv run python -c 'import ffmpeg; ffmpeg.probe'
+
+USER root
+
+
+# RUN pipenv run pip install ffmpeg-python --force-reinstall
+
+# RUN mkdir -p /etc/init
+# RUN echo "start on startup\ntask\nexec /auto-m4b/run.sh" > /etc/init/auto-m4b.conf
 
 #use the remommended clean command
 RUN apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 # Remove obnoxious cron php session cleaning
-RUN rm -f /etc/cron.d/php
-RUN systemctl stop phpsessionclean.service &> /dev/null
-RUN systemctl disable phpsessionclean.service &> /dev/null
-RUN systemctl stop phpsessionclean.timer &> /dev/null
-RUN systemctl disable phpsessionclean.timer &> /dev/null
+# RUN rm -f /etc/cron.d/php
+# RUN systemctl stop phpsessionclean.service &> /dev/null
+# RUN systemctl disable phpsessionclean.service &> /dev/null
+# RUN systemctl stop phpsessionclean.timer &> /dev/null
+# RUN systemctl disable phpsessionclean.timer &> /dev/null
 
 # append `EXTRA_OPTS="-L 0"` to /etc/default/cron
-RUN echo 'EXTRA_OPTS="-L 0"' >> /etc/default/cron
+# RUN echo 'EXTRA_OPTS="-L 0"' >> /etc/default/cron
 
 # replace the line that starts with `filter f_syslog3` in /etc/syslog-ng/syslog-ng.conf with `filter f_syslog3 { not facility(cron, auth, authpriv, mail) and not filter(f_debug); };`
-RUN sed -i 's/^filter f_syslog3.*/filter f_syslog3 { not facility(cron, auth, authpriv, mail) and not filter(f_debug); };/' /etc/syslog-ng/syslog-ng.conf
+# RUN sed -i 's/^filter f_syslog3.*/filter f_syslog3 { not facility(cron, auth, authpriv, mail) and not filter(f_debug); };/' /etc/syslog-ng/syslog-ng.conf
 
 # install zsh and omz and set it as default shell
-RUN apt-get update && apt-get install -y zsh
-RUN sh -c "$(wget -O- https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" --unattended
 RUN sed -i 's/\/bin\/bash/\/usr\/bin\/zsh/g' /etc/passwd
 RUN chsh -s /usr/bin/zsh
+# echo 'export PYENV_ROOT="$HOME/.pyenv"' >> ~/.profile && \
+# echo 'command -v pyenv >/dev/null || export PATH="$PYENV_ROOT/bin:$PATH"' >> ~/.profile && \
+# echo 'eval "$(pyenv init -)"' >> ~/.profile
+
+# Copy my_init because built-in one is broken in later python versions
+
+# ADD my_init_py312.py /usr/sbin/my_init
+
+# keep our container running so we can exec into it
+# ENTRYPOINT ["tail", "-f", "/dev/null"]
+# add pipenv to path
+# ENV PATH="/auto-m4b/.venv/bin:$PATH"
+
+# USER ${USERNAME}
+# CMD [ "PYTHONPATH=.:src", "python", "-m", "src", "-l", "-1" ]
+USER ${USERNAME}
+CMD [ "pipenv", "run", "docker" ]
