@@ -87,7 +87,8 @@ class Audiobook(BaseModel):
 
     @property
     def fix_dir(self) -> Path:
-        return cfg.fix_dir.resolve() / self.basename
+        d = cfg.inbox_dir.resolve() if cfg.NO_FIX else cfg.fix_dir.resolve()
+        return d / self.basename
 
     @property
     def backup_dir(self) -> Path:

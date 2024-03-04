@@ -514,6 +514,14 @@ def process_inbox():
                         msg = re_group(re.search(rf"\[message\] => (.*$)", block, re.I | re.M), 1)
             print_error(f"m4b-tool Error: {msg}")
             smart_print(f"See log file in {tint_light_grey(book.fix_dir)} for details\n")
+
+            mv_file_to_dir(
+                book.log_file,
+                book.fix_dir,
+                new_filename=f"m4b-tool.{book}.log",
+                overwrite_mode="overwrite-silent",
+            )
+
             err = True
         elif not book.build_file.exists():
             print_error(
