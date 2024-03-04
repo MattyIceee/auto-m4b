@@ -25,8 +25,12 @@ def get_file_duration_py(file_path: Path) -> float:
 def format_duration(duration: float, fmt: DurationFmt) -> str | float:
     if fmt == "human":
         duration_int = round(duration)
-        return f"{duration_int // 3600}h:{(duration_int % 3600) // 60}m:{duration_int % 60}s"
-    return duration
+        if duration_int > 0:
+            return f"{duration_int // 3600}h:{(duration_int % 3600) // 60}m:{duration_int % 60}s"
+        else:
+            return "-"
+
+    return round(duration)
 
 
 @overload

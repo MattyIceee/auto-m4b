@@ -179,3 +179,13 @@ def mock_inbox(setup):
     # remove everything in the inbox that starts with `mock_book_`
     for f in TEST_INBOX.glob("mock_book_*"):
         shutil.rmtree(f, ignore_errors=True)
+
+
+@pytest.fixture(scope="function", autouse=False)
+def global_test_log():
+    orig_log = FIXTURES_ROOT / "sample-auto-m4b.log"
+    test_log = TESTS_TMP_ROOT / "auto-m4b.log"
+    test_log.unlink(missing_ok=True)
+    shutil.copy2(orig_log, test_log)
+    yield test_log
+    test_log.unlink(missing_ok=True)
