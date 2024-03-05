@@ -24,6 +24,10 @@ TEST_BACKUP = TESTS_TMP_ROOT / "backup"
 TEST_WORKING = TESTS_TMP_ROOT / "working"
 
 
+def rm(p: Path):
+    shutil.rmtree(p, ignore_errors=True) if p.is_dir() else p.unlink(missing_ok=True)
+
+
 @pytest.fixture(autouse=True, scope="session")
 def setup():
     # self.inbox_dir = Path(os.getenv("INBOX_FOLDER", "/media/Downloads/#done/#books/#convert/inbox/"))
@@ -150,6 +154,12 @@ def cleanup():
 def mock_inbox(setup):
     """Populate INBOX_FOLDER with mocked sample audiobooks."""
 
+    backup_inbox = Path(f"{TEST_INBOX}_backup")
+    # if inbox exists, move it to a backup folder
+    if TEST_INBOX.exists():
+        shutil.rmtree(backup_inbox, ignore_errors=True)
+        shutil.move(TEST_INBOX, backup_inbox)
+
     TEST_INBOX.mkdir(parents=True, exist_ok=True)
 
     # make 4 sample audiobooks using nealy empty txt files (~5kb) as pretend mp3 files.
@@ -193,9 +203,20 @@ def mock_inbox(setup):
             f.write("a" * 1024 * 5)
 
     yield TEST_INBOX
+
+    # restore contents of inbox if it was moved to a backup folder
+    if backup_inbox.exists():
+        for f in backup_inbox.glob("*"):
+            # if dst exists, remove src instead
+            if (TEST_INBOX / f.name).exists():
+                rm(f)
+            else:
+                shutil.move(f, TEST_INBOX)
+        shutil.rmtree(backup_inbox, ignore_errors=True)
+
     # remove everything in the inbox that starts with `mock_book_`
     for f in TEST_INBOX.glob("mock_book_*"):
-        shutil.rmtree(f, ignore_errors=True)
+        rm(f)
 
 
 @pytest.fixture(scope="function", autouse=False)

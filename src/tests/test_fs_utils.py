@@ -9,23 +9,23 @@ from src.tests.conftest import TESTS_TMP_ROOT
 INBOX = TESTS_TMP_ROOT / "inbox"
 
 expect_flat_dirs = [
-    INBOX / "test_book_1",
-    INBOX / "test_book_2",
-    INBOX / "test_book_3",
-    INBOX / "test_book_4",
+    INBOX / "mock_book_1",
+    INBOX / "mock_book_2",
+    INBOX / "mock_book_3",
+    INBOX / "mock_book_4",
 ]
 
 expect_deep_dirs = [
-    INBOX / "test_book_multi_disc",
-    INBOX / "test_book_multi_series",
-    INBOX / "test_book_nested",
+    INBOX / "mock_book_multi_disc",
+    INBOX / "mock_book_multi_series",
+    INBOX / "mock_book_nested",
 ]
 
 expect_all_dirs = expect_flat_dirs + expect_deep_dirs
 
 expect_only_standalone_files = [
-    INBOX / "test_book_standalone_file_a.mp3",
-    INBOX / "test_book_standalone_file_b.mp3",
+    INBOX / "mock_book_standalone_file_a.mp3",
+    INBOX / "mock_book_standalone_file_b.mp3",
 ]
 
 expect_all = expect_all_dirs + expect_only_standalone_files
