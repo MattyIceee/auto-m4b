@@ -107,6 +107,23 @@ def hard_boys__flat_mp3():
     ]
 
 
+@pytest.fixture(scope="function", autouse=False)
+def corrupt_audio_book():
+    """Create a fake mp3 audiobook with a corrupt file."""
+    book = TEST_INBOX / "corrupt_audio_book"
+    book.mkdir(parents=True, exist_ok=True)
+    byte_header = b"\xff\xfb\xd6\x04"
+    with open(book / f"corrupt_audio_book.mp3", "wb") as f:
+        f.write(byte_header)
+        # write 20kb of random data, but the first 4 bytes are corrupt
+        f.write(os.urandom(1024 * 20))
+    yield Audiobook(book)
+    shutil.rmtree(book, ignore_errors=True)
+    shutil.rmtree(TEST_WORKING / "build" / "corrupt_audio_book", ignore_errors=True)
+    shutil.rmtree(TEST_WORKING / "fix" / "corrupt_audio_book", ignore_errors=True)
+    shutil.rmtree(TEST_WORKING / "merge" / "corrupt_audio_book", ignore_errors=True)
+
+
 def purge_all():
     for folder in [
         "INBOX_FOLDER",
@@ -184,7 +201,7 @@ def mock_inbox(setup):
 @pytest.fixture(scope="function", autouse=False)
 def global_test_log():
     orig_log = FIXTURES_ROOT / "sample-auto-m4b.log"
-    test_log = TESTS_TMP_ROOT / "auto-m4b.log"
+    test_log = TEST_CONVERTED / "auto-m4b.log"
     test_log.unlink(missing_ok=True)
     shutil.copy2(orig_log, test_log)
     yield test_log

@@ -1,4 +1,5 @@
 import re
+import sys
 
 import ffmpeg
 import import_debug
@@ -24,6 +25,7 @@ from eyed3.id3 import Tag
 from src.lib.misc import compare_trim, fix_smart_quotes, get_numbers_in_string, re_group
 from src.lib.term import (
     PATH_COLOR,
+    print_error,
     print_list,
     smart_print,
 )
@@ -96,7 +98,7 @@ def verify_and_update_id3_tags(
             f"Cannot verify id3 tags, {m4b_to_check} does not exist"
         )
 
-    smart_print("\nVerifying id3 tags...")
+    smart_print("\nVerifying id3 tags...", end="")
 
     book_to_check = Audiobook(m4b_to_check).extract_metadata(quiet=True)
 
@@ -106,6 +108,8 @@ def verify_and_update_id3_tags(
     author_needs_updating = False
     date_needs_updating = False
     comment_needs_updating = False
+
+    updates = []
 
     def _print_needs_updating(
         what: str, left_value: str | None, right_value: str
@@ -120,37 +124,57 @@ def verify_and_update_id3_tags(
 
     if book.title and book_to_check.id3_title != book.title:
         title_needs_updating = True
-        _print_needs_updating("Title", book_to_check.id3_title, book.title)
+        updates.append(
+            lambda: _print_needs_updating("Title", book_to_check.id3_title, book.title)
+        )
 
     if book.author and book_to_check.id3_artist != book.author:
         author_needs_updating = True
-        _print_needs_updating("Artist (author)", book_to_check.id3_artist, book.author)
+        updates.append(
+            lambda: _print_needs_updating(
+                "Artist (author)", book_to_check.id3_artist, book.author
+            )
+        )
 
     if book.title and book_to_check.id3_album != book.title:
         title_needs_updating = True
-        _print_needs_updating("Album (title)", book_to_check.id3_album, book.title)
+        updates.append(
+            lambda: _print_needs_updating(
+                "Album (title)", book_to_check.id3_album, book.title
+            )
+        )
 
     if book.title and book_to_check.id3_sortalbum != book.title:
         title_needs_updating = True
-        _print_needs_updating(
-            "Sort album (title)", book_to_check.id3_sortalbum, book.title
+        updates.append(
+            lambda: _print_needs_updating(
+                "Sort album (title)", book_to_check.id3_sortalbum, book.title
+            )
         )
 
     if book.author and book_to_check.id3_albumartist != book.author:
         author_needs_updating = True
-        _print_needs_updating(
-            "Album artist (author)", book_to_check.id3_albumartist, book.author
+        updates.append(
+            lambda: _print_needs_updating(
+                "Album artist (author)", book_to_check.id3_albumartist, book.author
+            )
         )
 
     if book.date and get_year_from_date(book_to_check.id3_date) != get_year_from_date(
         book.date
     ):
         date_needs_updating = True
-        _print_needs_updating("Date", book_to_check.id3_date, book.date)
+        updates.append(
+            lambda: _print_needs_updating("Date", book_to_check.id3_date, book.date)
+        )
 
     if book.comment and compare_trim(book_to_check.id3_comment, book.comment):
         comment_needs_updating = True
-        _print_needs_updating("Comment", book_to_check.id3_comment, book.comment)
+        updates.append(
+            lambda: _print_needs_updating(
+                "Comment", book_to_check.id3_comment, book.comment
+            )
+        )
 
     if cfg.EXIF_WRITER == "exiftool":
         # for each of the id3 tags that need updating, write the id3 tags
@@ -205,14 +229,25 @@ def verify_and_update_id3_tags(
             comment_needs_updating,
         ]
     ):
-        Tinta.up()
-        smart_print(Tinta("Verifying id3 tags...").aqua("✓").to_str())
+        sys.stdout.write(Tinta().aqua(" ✓\n").to_str())
+        smart_print()
+
+    else:
+        [update() for update in updates]
+        smart_print(Tinta("Done").aqua("✓").to_str())
 
 
 def extract_id3_tag_py(file: Path | None, tag: str) -> str:
     if file is None:
         return ""
-    probe_result = ffmpeg.probe(str(file))
+    try:
+        probe_result = ffmpeg.probe(str(file))
+    except ffmpeg.Error as e:
+        from src.lib.logger import write_err_file
+
+        write_err_file(file, e, "ffprobe")
+        print_error(f"Error: Could not extract id3 tag {tag} from {file}")
+        return ""
     return probe_result["format"]["tags"].get(tag, "")
 
 
@@ -550,7 +585,11 @@ def extract_metadata(book: "Audiobook", quiet: bool = False) -> "Audiobook":
     book.title_is_partno = id3_score.title_is_partno
 
     title_source = id3_score.get_score("title")[0]
-    book.title = getattr(book, f"id3_{title_source}")
+    title_attr = f"id3_{title_source}"
+    if hasattr(book, title_attr):
+        book.title = getattr(book, f"id3_{title_source}")
+    else:
+        book.title = book.fs_title
 
     # title_matches_title_2 = book.id3_title == id3_title_2
     # album_matches_album_2 = book.id3_album == id3_album_2

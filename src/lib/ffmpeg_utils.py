@@ -1,5 +1,7 @@
 import import_debug
 
+from src.lib.term import print_error
+
 import_debug.bug.push("src/lib/ffmpeg_utils.py")
 import subprocess
 from pathlib import Path
@@ -19,7 +21,14 @@ def get_file_duration(file_path: Path) -> float:
 
 
 def get_file_duration_py(file_path: Path) -> float:
-    return float(ffmpeg.probe(str(file_path))["format"]["duration"])
+    try:
+        return float(ffmpeg.probe(str(file_path))["format"]["duration"])
+    except ffmpeg.Error as e:
+        from src.lib.logger import write_err_file
+
+        write_err_file(file_path, e, "ffprobe", e.stderr.decode())
+        print_error(f"Error getting duration for {file_path}")
+        return 0
 
 
 def format_duration(duration: float, fmt: DurationFmt) -> str | float:
@@ -77,9 +86,16 @@ def get_duration(path: Path, fmt: DurationFmt = "human") -> str | float:
 
 
 def get_bitrate_py(file: Path, round: bool = True) -> int:
-    probe_result = ffmpeg.probe(str(file))
-    bitrate = probe_result["streams"][0]["bit_rate"]
-    return round_bitrate(int(bitrate)) if round else int(bitrate)
+    try:
+        probe_result = ffmpeg.probe(str(file))
+        bitrate = probe_result["streams"][0]["bit_rate"]
+        return round_bitrate(int(bitrate)) if round else int(bitrate)
+    except ffmpeg.Error as e:
+        from src.lib.logger import write_err_file
+
+        write_err_file(file, e, "ffprobe", e.stderr.decode())
+        print_error(f"Error getting bitrate for {file}")
+        return 0
 
 
 # def get_samplerate(file: Path) -> int:
@@ -89,9 +105,16 @@ def get_bitrate_py(file: Path, round: bool = True) -> int:
 
 
 def get_samplerate_py(file: Path) -> int:
-    probe_result = ffmpeg.probe(str(file))
-    sample_rate = probe_result["streams"][0]["sample_rate"]
-    return int(sample_rate)
+    try:
+        probe_result = ffmpeg.probe(str(file))
+        sample_rate = probe_result["streams"][0]["sample_rate"]
+        return int(sample_rate)
+    except ffmpeg.Error as e:
+        from src.lib.logger import write_err_file
+
+        write_err_file(file, e, "ffprobe", e.stderr.decode())
+        print_error(f"Error getting sample rate for {file}")
+        return 0
 
 
 def build_id3_tags_args(

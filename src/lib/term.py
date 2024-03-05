@@ -193,7 +193,7 @@ def smart_print(
         elif not prev_line_was_empty:
             text = ensure_leading_newline(text)
 
-        text = ensure_trailing_newline(text)
+        text = trim_trailing_newlines(text)
     elif prev_was_alert:
         if line_is_indented:
             if prev_line_was_empty:
@@ -232,11 +232,15 @@ def nl(num_newlines=1):
 
 
 def print_grey(*args: Any, highlight_color: int | None = LIGHT_GREY_COLOR):
-    smart_print(" ".join(map(str, args)), color=GREY_COLOR, highlight_color=highlight_color)
+    smart_print(
+        " ".join(map(str, args)), color=GREY_COLOR, highlight_color=highlight_color
+    )
 
 
 def print_dark_grey(*args: Any, highlight_color: int | None = GREY_COLOR):
-    smart_print(" ".join(map(str, args)), color=DARK_GREY_COLOR, highlight_color=highlight_color)
+    smart_print(
+        " ".join(map(str, args)), color=DARK_GREY_COLOR, highlight_color=highlight_color
+    )
 
 
 def print_light_grey(*args: Any, highlight_color: int | None = GREY_COLOR):
@@ -248,35 +252,51 @@ def print_light_grey(*args: Any, highlight_color: int | None = GREY_COLOR):
 
 
 def print_aqua(*args: Any, highlight_color: int | None = None):
-    smart_print(" ".join(map(str, args)), color=AQUA_COLOR, highlight_color=highlight_color)
+    smart_print(
+        " ".join(map(str, args)), color=AQUA_COLOR, highlight_color=highlight_color
+    )
 
 
 def print_green(*args: Any, highlight_color: int | None = None):
-    smart_print(" ".join(map(str, args)), color=GREEN_COLOR, highlight_color=highlight_color)
+    smart_print(
+        " ".join(map(str, args)), color=GREEN_COLOR, highlight_color=highlight_color
+    )
 
 
 def print_blue(*args: Any, highlight_color: int | None = None):
-    smart_print(" ".join(map(str, args)), color=BLUE_COLOR, highlight_color=highlight_color)
+    smart_print(
+        " ".join(map(str, args)), color=BLUE_COLOR, highlight_color=highlight_color
+    )
 
 
 def print_purple(*args: Any, highlight_color: int | None = None):
-    smart_print(" ".join(map(str, args)), color=PURPLE_COLOR, highlight_color=highlight_color)
+    smart_print(
+        " ".join(map(str, args)), color=PURPLE_COLOR, highlight_color=highlight_color
+    )
 
 
 def print_amber(*args: Any, highlight_color: int | None = None):
-    smart_print(" ".join(map(str, args)), color=AMBER_COLOR, highlight_color=highlight_color)
+    smart_print(
+        " ".join(map(str, args)), color=AMBER_COLOR, highlight_color=highlight_color
+    )
 
 
 def print_orange(*args: Any, highlight_color: int | None = ORANGE_HIGHLIGHT_COLOR):
-    smart_print(" ".join(map(str, args)), color=ORANGE_COLOR, highlight_color=highlight_color)
+    smart_print(
+        " ".join(map(str, args)), color=ORANGE_COLOR, highlight_color=highlight_color
+    )
 
 
 def print_red(*args: Any, highlight_color: int | None = RED_HIGHLIGHT_COLOR):
-    smart_print(" ".join(map(str, args)), color=RED_COLOR, highlight_color=highlight_color)
+    smart_print(
+        " ".join(map(str, args)), color=RED_COLOR, highlight_color=highlight_color
+    )
 
 
 def print_pink(*args: Any, highlight_color: int | None = None):
-    smart_print(" ".join(map(str, args)), color=PINK_COLOR, highlight_color=highlight_color)
+    smart_print(
+        " ".join(map(str, args)), color=PINK_COLOR, highlight_color=highlight_color
+    )
 
 
 def print_debug(*args: Any, highlight_color: int | None = AMBER_HIGHLIGHT_COLOR):

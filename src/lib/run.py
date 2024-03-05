@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Literal
 
 import import_debug
 from tinta import Tinta
@@ -32,7 +32,7 @@ from src.lib.fs_utils import (
     was_recently_modified,
 )
 from src.lib.id3_utils import verify_and_update_id3_tags
-from src.lib.logger import log_results
+from src.lib.logger import log_global_results
 from src.lib.misc import BOOK_ASCII, dockerize_volume, human_elapsed_time, re_group
 from src.lib.parsers import count_roman_numerals
 from src.lib.term import (
@@ -309,10 +309,13 @@ def process_inbox():
 
         def mv_to_fix_dir():
             if cfg.NO_FIX:
+                cp_file_to_dir(book.log_file, book.inbox_dir, new_filename=f"m4b-tool.{book}.log", overwrite_mode="overwrite-silent")
+                book.update_log_file_dir("inbox")
                 return
             smart_print(f"Moving to fix folder → {tint_path(book.fix_dir)}")
             mv_dir(book.inbox_dir, cfg.fix_dir)
             cp_file_to_dir(book.log_file, book.fix_dir, new_filename=f"m4b-tool.{book}.log")
+            book.update_log_file_dir("fix")
 
         needs_fixing = False
         if nested_audio_dirs_count > 1 or (
@@ -420,7 +423,6 @@ def process_inbox():
         clean_dir(book.build_dir)
         clean_dir(book.build_tmp_dir)
         rm_all_empty_dirs(cfg.merge_dir)
-        book.log_file.unlink(missing_ok=True)
 
         starttime = time.time()
 
@@ -430,7 +432,7 @@ def process_inbox():
 
         book.write_description_txt()
 
-        err = False
+        err: Literal[False] | str = False
 
         cmd = m4b_tool.cmd()
 
@@ -496,7 +498,7 @@ def process_inbox():
             ]
 
             # if any of the err_blocks do not match any of the ignorable errors, then it's a valid error
-            msg = (
+            err = (
                 re_group(
                     re.search(
                         rf"PHP (?:Warning|Fatal error):  ([\s\S]*?)Stack trace",
@@ -508,35 +510,26 @@ def process_inbox():
                 .replace("\n", "\n     ")
                 .strip()
             )
-            if not msg:
+            if not err:
                 for block in [re_group(re.search(err, stdout, re.I)) for err in err_blocks]:
                     if block and not any(re.search(err, block) for err in ignorable_errors):
-                        msg = re_group(re.search(rf"\[message\] => (.*$)", block, re.I | re.M), 1)
-            print_error(f"m4b-tool Error: {msg}")
+                        err = re_group(re.search(rf"\[message\] => (.*$)", block, re.I | re.M), 1)
+            print_error(f"m4b-tool Error: {err}")
             smart_print(f"See log file in {tint_light_grey(book.fix_dir)} for details\n")
-
-            mv_file_to_dir(
-                book.log_file,
-                book.fix_dir,
-                new_filename=f"m4b-tool.{book}.log",
-                overwrite_mode="overwrite-silent",
-            )
-
-            err = True
         elif not book.build_file.exists():
             print_error(
                 f"Error: m4b-tool failed to convert {{{{{book}}}}}, no output .m4b file was found"
             )
-            err = True
+            err = "No output file found, conversion or copying probably failed, but no error was reported"
 
         if err:
             mv_to_fix_dir()
-            reason = proc.stderr.decode() if proc.stderr else "Unknown error"
-            log_results(book, "FAILED", reason)
+            stderr = proc.stderr.decode() if proc.stderr else ""
+            book.write_log(f"{err}\n{stderr}")
+            log_global_results(book, "FAILED", "-")
             continue
         else:
-            with open(book.log_file, "a") as f:
-                f.write(f"{endtime_log}  {book}  Converted in {elapsedtime_friendly}\n")
+            book.write_log(f"{endtime_log}  {book}  Converted in {elapsedtime_friendly}\n")
 
         # create converted dir
         book.converted_dir.mkdir(parents=True, exist_ok=True)
@@ -561,7 +554,7 @@ def process_inbox():
             overwrite_mode="overwrite-silent",
         )
 
-        log_results(book, "SUCCESS", elapsedtime_friendly)
+        log_global_results(book, "SUCCESS", elapsedtime_friendly)
 
         # TODO: Only handles single m4b output file, not multiple files.
         verify_and_update_id3_tags(book, "build")
@@ -587,6 +580,7 @@ def process_inbox():
             new_filename=f"m4b-tool.{book}.log",
             overwrite_mode="overwrite-silent",
         )
+        book.update_log_file_dir("converted")
 
         rm_all_empty_dirs(book.build_dir)
 

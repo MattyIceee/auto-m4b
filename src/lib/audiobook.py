@@ -58,6 +58,7 @@ class Audiobook(BaseModel):
     title_is_partno: bool = False
     track_num: tuple[int, int] = (1, 1)
     m4b_num_parts: int = 1
+    _log_file_dir: Path | None = None
 
     def __init__(self, path: Path):
 
@@ -67,6 +68,7 @@ class Audiobook(BaseModel):
         super().__init__(path=path)
 
         self.path = path
+        self._log_file_dir = self.build_dir
 
     def __str__(self):
         return f"{self.basename}"
@@ -165,9 +167,18 @@ class Audiobook(BaseModel):
 
     @property
     def log_file(self) -> Path:
-        log_file = self.build_dir / f"{self.basename}.log"
+        if not self._log_file_dir:
+            self._log_file_dir = self.build_dir
+        log_file = self._log_file_dir / f"m4b-tool.{self}.log"
         log_file.touch(exist_ok=True)
         return log_file
+
+    def write_log(self, s: str):
+        with open(self.log_file, "a") as f:
+            f.write(s)
+
+    def update_log_file_dir(self, new_dir: DirName):
+        self._log_file_dir = getattr(self, new_dir + "_dir")
 
     @property
     def author(self):

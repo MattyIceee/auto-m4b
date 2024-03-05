@@ -1,8 +1,10 @@
 import re
+import traceback
+from typing import Any
 
 import import_debug
 
-from src.lib.formatters import log_date
+from src.lib.formatters import log_date, pluralize
 from src.lib.misc import re_group
 from src.lib.term import multiline_is_empty
 
@@ -27,12 +29,12 @@ LOG_HEADERS = [
     "Time",
 ]
 LOG_JUSTIFY = ["l", "l", "l", "r", "r", "r", "r", "r", "r", "r"]
-log_pattern = r"(?P<date>^\d.*?)\s*(?P<result>SUCCESS|FAILED|UNKNOWN)\s*(?P<book_name>.+?(?=\d{2,3} kb/s|\d{2}\.\d kHz))\s*(?P<bitrate>\d+ kb/s)?\s*(?P<samplerate>[\d.]+ kHz)?\s*(?P<file_type>\.\w+)?\s*(?P<num_files>\d+ files)?\s*(?P<size>[\d.]+\s*[BKMGi]+)?\s*(?P<duration>[\dhms:-]*)?\s*(?P<elapsed>\S+)?"
+log_pattern = r"(?P<date>^\d.*?)\s*(?P<result>SUCCESS|FAILED|UNKNOWN)\s*(?P<book_name>.+?(?=\d{1,3} kb/s|\d{2}\.\d kHz))\s*(?P<bitrate>\d+ kb/s)?\s*(?P<samplerate>[\d.]+ kHz)?\s*(?P<file_type>\.\w+)?\s*(?P<num_files>\d+ files?)?\s*(?P<size>[\d.]+\s*[bBkKMGi]+)?\s*(?P<duration>[\dhms:-]*)?\s*(?P<elapsed>\S+)?"
 # TEST:
 # 2023-10-22 18:37:58-0700   FAILED    The Law of Attraction by Esther and Jerry Hicks    129 kb/s      44.1 kHz   .wma    85 files   336M         -
 
 
-def log_results(
+def log_global_results(
     book: Audiobook,
     result: str,
     elapsed: str,
@@ -118,7 +120,7 @@ def log_results(
             book.bitrate_friendly,
             book.samplerate_friendly,
             f".{book.orig_file_type.replace('.', '')}",
-            f"{book.num_files('inbox')} files",
+            f"{book.num_files('inbox')} {pluralize(book.num_files('inbox'), "file")}",
             book.size("inbox", "human"),
             book.duration("inbox", "human") or "-",
             elapsed or "",
@@ -157,6 +159,15 @@ def get_log_entry(book_src: Path, log_file: Path | None = None) -> str:
     with open(log_file, "r") as f:
         log_entry = next((line for line in f if book_name in line), "")
     return log_entry
+
+
+def write_err_file(
+    file: Path, e: Any, component: str, stderr: str | None = None
+) -> None:
+    with open(file.with_suffix(f".{component}-error.txt"), "a") as f:
+        full_stack = traceback.format_exc()
+        stderr = f"\n\n{stderr}" if stderr else ""
+        f.write(f"{full_stack}\n{str(e)}{stderr}")
 
 
 import_debug.bug.pop("src/lib/logger.py")

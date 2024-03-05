@@ -3,8 +3,10 @@ from pathlib import Path
 
 import pytest
 
+from src.auto_m4b import app
 from src.lib.audiobook import Audiobook
-from src.lib.logger import log_results
+from src.lib.logger import log_global_results
+from src.tests.conftest import TEST_INBOX
 
 FIRST_LINE = r"2023-10-21 22:37:37-0700\s{2,}SUCCESS\s{2,}Stephen Hawking - A Brief History of Time\s{2,}67 kb/s\s{2,}44.1 kHz\s{2,}\.mp3\s{2,}4 files\s{2,}80M\s{2,}-\s{2,}0:35"
 
@@ -57,7 +59,7 @@ def check_ground_truth(test_log: Path):
 def test_load_existing_log(tower_treasure__flat_mp3: Audiobook, global_test_log: Path):
     check_ground_truth(global_test_log)
 
-    log_results(tower_treasure__flat_mp3, "success", "02m:43s", global_test_log)
+    log_global_results(tower_treasure__flat_mp3, "success", "02m:43s", global_test_log)
     assert global_test_log.exists()
     check(
         global_test_log,
@@ -72,7 +74,7 @@ def test_repeat_success_writes_to_log(
 ):
     check_ground_truth(global_test_log)
 
-    log_results(tower_treasure__flat_mp3, "success", "02m:43s", global_test_log)
+    log_global_results(tower_treasure__flat_mp3, "success", "02m:43s", global_test_log)
     assert global_test_log.exists()
     check(
         global_test_log,
@@ -81,7 +83,7 @@ def test_repeat_success_writes_to_log(
         ],
     )
 
-    log_results(tower_treasure__flat_mp3, "success", "02m:43s", global_test_log)
+    log_global_results(tower_treasure__flat_mp3, "success", "02m:43s", global_test_log)
     assert global_test_log.exists()
     check(
         global_test_log,
@@ -100,7 +102,7 @@ def test_repeat_failed_writes_to_log(
     orig_size = tower_treasure__flat_mp3.size
     tower_treasure__flat_mp3.__dict__["duration"] = lambda *args, **kwargs: ""
     tower_treasure__flat_mp3.__dict__["size"] = lambda *args, **kwargs: "1.25 GB"
-    log_results(tower_treasure__flat_mp3, "failed", "", global_test_log)
+    log_global_results(tower_treasure__flat_mp3, "failed", "", global_test_log)
     assert global_test_log.exists()
     check(
         global_test_log,
@@ -111,7 +113,7 @@ def test_repeat_failed_writes_to_log(
 
     tower_treasure__flat_mp3.__dict__["duration"] = orig_duration
     tower_treasure__flat_mp3.__dict__["size"] = orig_size
-    log_results(tower_treasure__flat_mp3, "success", "02m:43s", global_test_log)
+    log_global_results(tower_treasure__flat_mp3, "success", "02m:43s", global_test_log)
     assert global_test_log.exists()
     check(
         global_test_log,
@@ -120,3 +122,12 @@ def test_repeat_failed_writes_to_log(
             r"^.*?-0800  SUCCESS  tower_treasure__flat_mp3                                                  64 kb/s     22.1 kHz   .mp3    5 files    22 MB   0h:46m:54s  02:43",
         ],
     )
+
+
+def test_logs_m4b_tool_failures(corrupt_audio_book: Audiobook, global_test_log: Path):
+    app(max_loops=1, no_fix=True, test=True)
+    assert global_test_log.exists()
+    log_file = TEST_INBOX / "corrupt_audio_book" / "m4b-tool.corrupt_audio_book.log"
+    assert log_file.exists()
+    ffprobe_log = corrupt_audio_book.sample_audio1.with_suffix(".ffprobe-error.txt")
+    assert ffprobe_log.exists()
