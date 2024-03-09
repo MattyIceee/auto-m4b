@@ -1,6 +1,8 @@
 version: "3.7"
 name: phantom
+
 include:
+  - ../docker-compose.networks.yml
   - ../docker-compose.volumes.yml
 
 services:
@@ -21,6 +23,8 @@ services:
       # - /etc/docker/auto-m4b/auto-m4b-tool.sh:/auto-m4b-tool.sh:ro
       - ragnarok-media:/media:rw
       # - downloads:/path/to/mount/downloads:rw
+    networks:
+      - bridge
     environment:
       - LANG=en_US.UTF-8
       - PUID=1000
