@@ -224,7 +224,7 @@ RUN echo "---- INSTALL AUTO-M4B SVC & DEPENDENCIES ----"
 # copy Pipfile and Pipfile.lock to /auto-m4b
 RUN mkdir -p /auto-m4b
 ADD Pipfile /auto-m4b/
-ADD Pipfile.lock /auto-m4b/
+# ADD Pipfile.lock /auto-m4b/
 ADD pyproject.toml /auto-m4b/
 ADD src /auto-m4b/src
 # ADD run.sh /auto-m4b/run.sh

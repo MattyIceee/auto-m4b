@@ -460,10 +460,17 @@ class Config:
         return self._load_path_env("BACKUP_FOLDER", allow_empty=False)
 
     @cached_property
+    def tmp_dir(self):
+        t = Path(tempfile.gettempdir()).resolve() / "auto-m4b"
+        t.mkdir(parents=True, exist_ok=True)
+        return t
+
+    @cached_property
     def working_dir(self):
         """The working directory for auto-m4b, defaults to /<tmpdir>/auto-m4b."""
-        from_env = self._load_path_env("WORKING_FOLDER", None, allow_empty=True)
-        return from_env or Path(tempfile.gettempdir()).resolve() / "auto-m4b"
+        d = self._load_path_env("WORKING_FOLDER", None, allow_empty=True)
+        d.mkdir(parents=True, exist_ok=True)
+        return d or self.tmp_dir
 
     @cached_property
     def build_dir(self):
@@ -486,8 +493,7 @@ class Config:
 
     @cached_property
     def PID_FILE(self):
-        pid_file = self.working_dir / "running.pid"
-        pid_file.parent.mkdir(parents=True, exist_ok=True)
+        pid_file = tmp_dir / "running.pid"
         return pid_file
 
     def clean(self):

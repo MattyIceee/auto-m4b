@@ -1,6 +1,7 @@
 import traceback
 
 import import_debug
+import sys
 
 from src.lib.typing import copy_kwargs_omit_first_arg
 
@@ -15,13 +16,13 @@ LOOP_COUNT = 0
 
 
 def handle_err(e: Exception):
-    if cfg.DEBUG:
-        print_red(f"\n{traceback.format_exc()}")
+    if "pytest" in sys.modules:
         raise e
-    # elif cfg.TEST or "pytest" in sys.modules:
-    #     raise e
+    elif cfg.DEBUG:
+        print_red(f"\n{traceback.format_exc()}")
     else:
         print_error(f"Error: {e}")
+    time.sleep(cfg.SLEEPTIME)
 
 
 @copy_kwargs_omit_first_arg(AutoM4bArgs.__init__)

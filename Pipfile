@@ -12,7 +12,7 @@ numpy = "*"
 pydantic = "*"
 eyed3 = "*"
 # tinta = {file = "../tinta", editable = true}
-tinta = {git = "https://github.com/brandonscript/tinta.git", branch = "main"}
+tinta = "*"
 python-dotenv = "*"
 columnar = "*"
 
