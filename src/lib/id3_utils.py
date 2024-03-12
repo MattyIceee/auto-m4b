@@ -25,6 +25,7 @@ from eyed3.id3 import Tag
 from src.lib.misc import compare_trim, fix_smart_quotes, get_numbers_in_string, re_group
 from src.lib.term import (
     PATH_COLOR,
+    print_debug,
     print_error,
     print_list,
     smart_print,
@@ -248,7 +249,16 @@ def extract_id3_tag_py(file: Path | None, tag: str) -> str:
         write_err_file(file, e, "ffprobe")
         print_error(f"Error: Could not extract id3 tag {tag} from {file}")
         return ""
-    return probe_result["format"]["tags"].get(tag, "")
+    try:
+        return probe_result["format"]["tags"].get(tag, "")
+    except KeyError:
+        from src.lib.config import cfg
+
+        if cfg.DEBUG:
+            print_debug(
+                f"Could not read '{tag}' from {file}'s id3 tags, it probably doesn't exist"
+            )
+    return ""
 
 
 class ScoreCard:
