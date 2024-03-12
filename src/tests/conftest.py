@@ -119,7 +119,7 @@ def hard_boys__flat_mp3():
     ]
 
 
-@pytest.mark.fixture(scope="function")
+@pytest.fixture(scope="function", autouse=False)
 def benedict_society__mp3():
 
     dir_name = TEST_INBOX / "01 - The Mysterious Benedict Society"

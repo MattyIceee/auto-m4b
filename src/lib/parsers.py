@@ -19,7 +19,7 @@ narrator_pattern = r"(?:read by|narrated by|narrator)\W+(?P<narrator>(?:\w+(?:\s
 narrator_slash_pattern = r"(?P<author>.+)\/(?P<narrator>.+)"
 lastname_firstname_pattern = r"^(?P<lastname>.*?), (?P<firstname>.*)$"
 firstname_lastname_pattern = r"^(?P<firstname>.*?).*\s(?P<lastname>\S+)$"
-part_number_pattern = r",?[-_–—.\s]*?(?:part|ch(?:\.|apter))?[-_–—.\s]*?(\d+)(?:$|[-_–—.\s]*?(?:of|-)[-_–—.\s]*?(\d+)$)"
+part_number_pattern = r",?[-_–—.\s]*?(?:part|ch(?:\.|apter))?[-_–—.\s]*?\W*(\d+)(?:$|[-_–—.\s]*?(?:of|-)[-_–—.\s]*?(\d+)\W*$)"
 part_number_ignore_pattern = r"(?:\bbook\b|\bvol(?:ume)?)\s*\d+$"
 
 if TYPE_CHECKING:
@@ -89,14 +89,14 @@ def extract_path_info(book: "Audiobook", quiet: bool = False) -> "Audiobook":
         re.search(narrator_pattern, book.basename, re.I), "narrator"
     )
 
-    files = [f.name for f in Path(book.inbox_dir).iterdir() if f.is_file()]
+    # remove suffix/extension from files
+    files = [f.stem for f in Path(book.inbox_dir).iterdir() if f.is_file()]
 
     # Get filename common text
     orig_file_name = find_greatest_common_string(files)
+
     orig_file_name = strip_part_number(orig_file_name)
     orig_file_name = re.sub(r"(part|chapter|ch\.)\s*$", "", orig_file_name, flags=re.I)
-    orig_file_name = re.sub(r"\s*$", "", orig_file_name)
-
     orig_file_name = orig_file_name.rstrip().rstrip(string.punctuation)
 
     # strip underscores

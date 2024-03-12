@@ -314,7 +314,7 @@ class Config:
     @cached_property
     def m4b_tool_version(self):
         """Runs m4b-tool --version"""
-        return subprocess.check_output([self.m4b_tool, "--version"]).decode().strip()
+        return subprocess.check_output(f"{self.m4b_tool} m4b-tool --version", shell=True).decode().strip()
 
     @cached_property
     def _m4b_tool(self):
@@ -367,6 +367,8 @@ class Config:
 
     @property
     def ARGS(self) -> AutoM4bArgs:
+        if not hasattr(self, "_ARGS"):
+            self._ARGS = AutoM4bArgs()
         return self._ARGS
 
     @property
@@ -548,6 +550,8 @@ class Config:
             gid = os.getgid()
             is_tty = os.isatty(0)
             # Set the m4b_tool to the docker image
+            # create working_dir if it does not exist
+            self.working_dir.mkdir(parents=True, exist_ok=True)
             self._m4b_tool = [
                 c
                 for c in [

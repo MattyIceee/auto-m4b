@@ -9,6 +9,7 @@ from src.lib.logger import log_global_results
 from src.tests.conftest import TEST_INBOX
 
 FIRST_LINE = r"2023-10-21 22:37:37-0700\s{2,}SUCCESS\s{2,}Stephen Hawking - A Brief History of Time\s{2,}67 kb/s\s{2,}44.1 kHz\s{2,}\.mp3\s{2,}4 files\s{2,}80M\s{2,}-\s{2,}0:35"
+LAST_LINE_MATCH = r"^.*?-\d{4}  SUCCESS  tower_treasure__flat_mp3                                                  64 kb/s     22.1 kHz   .mp3    5 files  22 MB   0h:46m:54s  02:43"
 
 
 def check(test_log: Path, expect_last_lines: list[str]):
@@ -63,9 +64,7 @@ def test_load_existing_log(tower_treasure__flat_mp3: Audiobook, global_test_log:
     assert global_test_log.exists()
     check(
         global_test_log,
-        [
-            r"^.*?-0800  SUCCESS  tower_treasure__flat_mp3                                                  64 kb/s     22.1 kHz   .mp3    5 files  22 MB   0h:46m:54s  02:43"
-        ],
+        [LAST_LINE_MATCH],
     )
 
 
@@ -78,18 +77,14 @@ def test_repeat_success_writes_to_log(
     assert global_test_log.exists()
     check(
         global_test_log,
-        [
-            r"^.*?-0800  SUCCESS  tower_treasure__flat_mp3                                                  64 kb/s     22.1 kHz   .mp3    5 files  22 MB   0h:46m:54s  02:43"
-        ],
+        [LAST_LINE_MATCH],
     )
 
     log_global_results(tower_treasure__flat_mp3, "success", "02m:43s", global_test_log)
     assert global_test_log.exists()
     check(
         global_test_log,
-        [
-            r"^.*?-0800  SUCCESS  tower_treasure__flat_mp3                                                  64 kb/s     22.1 kHz   .mp3    5 files  22 MB   0h:46m:54s  02:43"
-        ],
+        [LAST_LINE_MATCH],
     )
 
 
@@ -107,7 +102,7 @@ def test_repeat_failed_writes_to_log(
     check(
         global_test_log,
         [
-            r"^.*?-0800  FAILED   tower_treasure__flat_mp3                                                  64 kb/s     22.1 kHz   .mp3    5 files  1.25 GB            -"
+            r"^.*?-\d{4}  FAILED   tower_treasure__flat_mp3                                                  64 kb/s     22.1 kHz   .mp3    5 files  1.25 GB            -"
         ],
     )
 
@@ -118,8 +113,8 @@ def test_repeat_failed_writes_to_log(
     check(
         global_test_log,
         [
-            r"^.*?-0800  FAILED   tower_treasure__flat_mp3                                                  64 kb/s     22.1 kHz   .mp3    5 files  1.25 GB            -      -",
-            r"^.*?-0800  SUCCESS  tower_treasure__flat_mp3                                                  64 kb/s     22.1 kHz   .mp3    5 files    22 MB   0h:46m:54s  02:43",
+            r"^.*?-\d{4}  FAILED   tower_treasure__flat_mp3                                                  64 kb/s     22.1 kHz   .mp3    5 files  1.25 GB            -      -",
+            r"^.*?-\d{4}  SUCCESS  tower_treasure__flat_mp3                                                  64 kb/s     22.1 kHz   .mp3    5 files    22 MB   0h:46m:54s  02:43",
         ],
     )
 
