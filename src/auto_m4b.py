@@ -1,7 +1,7 @@
+import sys
 import traceback
 
 import import_debug
-import sys
 
 from src.lib.typing import copy_kwargs_omit_first_arg
 
@@ -28,15 +28,16 @@ def handle_err(e: Exception):
 @copy_kwargs_omit_first_arg(AutoM4bArgs.__init__)
 def app(**kwargs):
     args = AutoM4bArgs(**kwargs)
+    infinite_loop = args.max_loops == -1
     global LOOP_COUNT
     try:
         cfg.startup(args)
-        while args.max_loops == -1 or LOOP_COUNT < args.max_loops:
+        while infinite_loop or LOOP_COUNT < args.max_loops:
             try:
                 run.process_inbox()
             finally:
                 LOOP_COUNT += 1
-                if args.max_loops != -1 and LOOP_COUNT < args.max_loops:
+                if infinite_loop or LOOP_COUNT < args.max_loops:
                     time.sleep(cfg.SLEEPTIME)
     except Exception as e:
         handle_err(e)

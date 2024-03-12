@@ -1,5 +1,4 @@
 import functools
-import inspect
 from collections.abc import Callable
 from typing import Any, cast, Concatenate, Literal, ParamSpec, TypeVar
 
@@ -35,10 +34,12 @@ def copy_kwargs(func: Callable[P, R]) -> Callable[..., Callable[P, R]]:
     def _cast_func(_func: Callable[..., Any]) -> Callable[P, R]:
         return cast(Callable[P, R], _func)
 
-    if inspect.isfunction(func):
-        return _cast_func
+    if not callable(func):
+        raise RuntimeError(
+            f"You must pass a function to this decorator, got {func} instead."
+        )
 
-    raise RuntimeError("You must pass a function to this decorator.")
+    return _cast_func
 
 
 F = TypeVar("F")
@@ -53,7 +54,9 @@ def copy_kwargs_omit_first_arg(
     def _cast_func(_func: Callable[..., Any]) -> Callable[P, R]:
         return cast(Callable[P, R], _func)
 
-    if inspect.isfunction(func):
-        return _cast_func
+    if not callable(func):
+        raise RuntimeError(
+            f"You must pass a function to this decorator, got {func} instead."
+        )
 
-    raise RuntimeError("You must pass a function to this decorator.")
+    return _cast_func

@@ -144,8 +144,15 @@ RUN echo "---- INSTALL M4B-TOOL ----" \
     && M4B_TOOL_PRE_RELEASE_LINK=$(wget -q -O - https://github.com/sandreas/m4b-tool/releases/tag/latest | grep -o 'M4B_TOOL_DOWNLOAD_LINK=[^ ]*' | head -1 | cut -d '=' -f 2) \
     && wget "${M4B_TOOL_PRE_RELEASE_LINK}" -O /tmp/m4b-tool.tar.gz \
     && tar xzf /tmp/m4b-tool.tar.gz -C /tmp/ && rm /tmp/m4b-tool.tar.gz \
-    && mv /tmp/m4b-tool.phar /usr/local/bin/m4b-tool-pre \
-    && chmod +x /usr/local/bin/m4b-tool /usr/local/bin/m4b-tool-pre
+    && mv /tmp/m4b-tool.phar /usr/local/bin/m4b-tool \
+    && chmod +x /usr/local/bin/m4b-tool
+
+
+# Test that the pre-release version is installed
+# ensure `m4b-tool --version` is 'v0.5-prerelease or later'
+RUN echo "---- CHECK M4B-TOOL VERSION ----" && \
+    echo "m4b-tool version: $(m4b-tool --version)" && \
+    m4b-tool --version | grep -qv 'v.0.4.2'
 
 FROM m4b-tool as python
 
@@ -162,7 +169,7 @@ USER $PUID:$PGID
 RUN echo "---- INSTALL PYTHON PREREQS----"
 # RUN apt-get install -y --reinstall ca-certificates
 # RUN add-apt-repository -y 'ppa:deadsnakes/ppa'
-RUN apt-get install -y libssl-dev openssl build-essential
+RUN apt-get update && apt-get install -y libssl-dev openssl build-essential
 # RUN apt-get install -y ffmpeg
 
 RUN echo "---- ADD AUTOM4B USER/GROUP ----"
@@ -224,8 +231,16 @@ RUN echo "---- INSTALL AUTO-M4B SVC & DEPENDENCIES ----"
 # copy Pipfile and Pipfile.lock to /auto-m4b
 RUN mkdir -p /auto-m4b
 ADD Pipfile /auto-m4b/
-# ADD Pipfile.lock /auto-m4b/
+ADD Pipfile.lock /auto-m4b/
 ADD pyproject.toml /auto-m4b/
+
+WORKDIR /auto-m4b
+
+RUN PIPENV_VENV_IN_PROJECT=1 pipenv install --skip-lock
+# ffmpeg.probe is bonkers and needs reinstalling here, so, we do it anyway
+RUN pipenv run pip install ffmpeg-python --force-reinstall
+RUN pipenv run python -c 'import ffmpeg; ffmpeg.probe'
+
 ADD src /auto-m4b/src
 # ADD run.sh /auto-m4b/run.sh
 
@@ -233,13 +248,6 @@ ADD src /auto-m4b/src
 RUN chmod -R 766 /auto-m4b
 RUN chown -R ${USERNAME}:${USERNAME} /auto-m4b
 USER ${USERNAME}
-
-WORKDIR /auto-m4b
-
-RUN PIPENV_VENV_IN_PROJECT=1 pipenv install
-# ffmpeg.probe is bonkers and needs reinstalling here, so, we do it anyway
-RUN pipenv run pip install ffmpeg-python --force-reinstall
-RUN pipenv run python -c 'import ffmpeg; ffmpeg.probe'
 
 USER root
 

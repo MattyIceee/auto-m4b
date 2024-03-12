@@ -309,14 +309,17 @@ class Config:
 
     @cached_property
     def VERSION(self):
-        return os.getenv("VERSION", "stable")
+        return os.getenv("VERSION", "latest")
+
+    @cached_property
+    def m4b_tool_version(self):
+        """Runs m4b-tool --version"""
+        return subprocess.check_output([self.m4b_tool, "--version"]).decode().strip()
 
     @cached_property
     def _m4b_tool(self):
         """Note: if you are using the Dockerized version of m4b-tool, this will always be `m4b-tool`, because the pre-release version is baked into the image."""
-        if self._USE_DOCKER:
-            return ["m4b-tool"]
-        return ["m4b-tool-pre"] if self.VERSION == "latest" else ["m4b-tool"]
+        return ["m4b-tool"]
 
     @property
     def m4b_tool(self):
@@ -469,8 +472,10 @@ class Config:
     def working_dir(self):
         """The working directory for auto-m4b, defaults to /<tmpdir>/auto-m4b."""
         d = self._load_path_env("WORKING_FOLDER", None, allow_empty=True)
+        if not d:
+            return self.tmp_dir
         d.mkdir(parents=True, exist_ok=True)
-        return d or self.tmp_dir
+        return d
 
     @cached_property
     def build_dir(self):
@@ -493,7 +498,7 @@ class Config:
 
     @cached_property
     def PID_FILE(self):
-        pid_file = tmp_dir / "running.pid"
+        pid_file = self.tmp_dir / "running.pid"
         return pid_file
 
     def clean(self):
@@ -505,6 +510,7 @@ class Config:
         clean_dir(self.trash_dir)
 
     def check_dirs(self):
+
         dirs = [
             self.inbox_dir,
             self.converted_dir,

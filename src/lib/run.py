@@ -377,20 +377,32 @@ def process_inbox():
             backup_size_human = book.size("backup", "human")
             backup_plural = pluralize(backup_files_count, "file")
 
-            if orig_files_count == backup_files_count and orig_size_b == backup_size_b:
+            file_count_matches = orig_files_count == backup_files_count
+            size_matches = orig_size_b == backup_size_b
+            size_fuzzy_matches = abs(orig_size_b - backup_size_b) < 1000
+
+            expected = f"{orig_files_count} {orig_plural} ({orig_size_human})"
+            found = f"{backup_files_count} {backup_plural} ({backup_size_human})"
+
+            if file_count_matches and size_matches:
                 print_grey(
                     f"Backup successful - {backup_files_count} {orig_plural} ({backup_size_human})"
                 )
             elif orig_files_count < backup_files_count or orig_size_b < backup_size_b:
                 print_grey(
-                    f"Backup successful - but expected {orig_plural} ({orig_size_human}), found {backup_files_count} {backup_plural} ({backup_size_human})"
+                    f"Backup successful, but extra data found in backup dir - expected {expected}, found {found}"
+                )
+                print_grey("Assuming this is a previous backup and continuing")
+            elif file_count_matches and size_fuzzy_matches:
+                print_grey(
+                    f"Backup successful, but sizes aren't exactly the same - expected {expected}, found {found}"
                 )
                 print_grey("Assuming this is a previous backup and continuing")
             else:
                 print_error(
-                    f"Backup failed - expected {orig_files_count} {orig_plural} ({orig_size_human}), found {backup_files_count} {backup_plural} ({backup_size_human})"
+                    f"Backup failed - expected {expected}, found {found}"
                 )
-                smart_print("Skipping this book")
+                smart_print("Skipping this book\n")
                 continue
 
         if book.converted_file.is_file():
