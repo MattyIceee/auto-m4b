@@ -99,6 +99,12 @@ def extract_path_info(book: "Audiobook", quiet: bool = False) -> "Audiobook":
 
     orig_file_name = orig_file_name.rstrip().rstrip(string.punctuation)
 
+    # strip underscores
+    orig_file_name = orig_file_name.replace("_", " ")
+
+    # strip leading and trailing -._ spaces and punctuation
+    orig_file_name = re.sub(r"^[ \,.\)\}\]_-]*|[ \,.\)\}\]_-]*$", "", orig_file_name)
+
     file_author = swap_firstname_lastname(
         re_group(re.search(author_pattern, orig_file_name), "author")
     )
@@ -118,7 +124,9 @@ def extract_path_info(book: "Audiobook", quiet: bool = False) -> "Audiobook":
         ["author", "title", "year"],
     ):
         if len(f) > len(d):
-            print_debug(f"file_{f} is longer than {f}, setting {f} to {d}")
+            print_debug(
+                f"{o}: file name '{f}' is longer than dir name '{d}', prefer file name"
+            )
             meta[o] = f
 
     book.fs_author = meta["author"]

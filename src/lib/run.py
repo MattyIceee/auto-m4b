@@ -201,20 +201,24 @@ class m4btool:
 # glasses 1: ⌐◒-◒
 # glasses 2: ᒡ◯ᴖ◯ᒢ
 
-
-def process_inbox():
-    audiobooks_count = count_audio_files_in_dir(cfg.inbox_dir, only_file_exts=AUDIO_EXTS)
-
-    if audiobooks_count == 0:
-        return
-
+def banner(verb: str = "Checking"):
     current_local_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     dash = "-" * 24
 
     print_aqua(f"{dash}  ⌐◒-◒  auto-m4b • {current_local_time}  -{dash}")
 
-    print_grey(f"Checking for new books in {{{{{cfg.inbox_dir}}}}} ꨄ︎")
+    print_grey(f"{verb} for new books in {{{{{cfg.inbox_dir}}}}} ꨄ︎")
+
+def process_inbox(first_run: bool = False):
+    audiobooks_count = count_audio_files_in_dir(cfg.inbox_dir, only_file_exts=AUDIO_EXTS)
+
+    if audiobooks_count == 0:
+        if first_run:
+            banner("Watching")
+        return
+
+    banner()
 
     if was_recently_modified(cfg.inbox_dir):  # replace 'unfinished_dirs' with your variable
         smart_print(

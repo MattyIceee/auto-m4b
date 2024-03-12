@@ -24,6 +24,14 @@ TEST_BACKUP = TESTS_TMP_ROOT / "backup"
 TEST_WORKING = TESTS_TMP_ROOT / "working"
 
 
+def make_mock_file(path: Path, size: int = 1024 * 5):
+    if not path.is_absolute():
+        path = TEST_INBOX / path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as f:
+        f.write("a" * size)
+
+
 def rm(p: Path):
     shutil.rmtree(p, ignore_errors=True) if p.is_dir() else p.unlink(missing_ok=True)
 
@@ -111,6 +119,25 @@ def hard_boys__flat_mp3():
     ]
 
 
+@pytest.mark.fixture(scope="function")
+def benedict_society__mp3():
+
+    dir_name = TEST_INBOX / "01 - The Mysterious Benedict Society"
+
+    def _path(i: int) -> Path:
+        return (
+            dir_name
+            / f"Trenton_Lee_Stewart_-_MBS1_-_The_Mysterious_Benedict_Society_({i:02}of11).mp3"
+        )
+
+    for i in range(1, 12):
+        make_mock_file(_path(i))
+
+    yield Audiobook(dir_name)
+
+    shutil.rmtree(dir_name, ignore_errors=True)
+
+
 @pytest.fixture(scope="function", autouse=False)
 def corrupt_audio_book():
     """Create a fake mp3 audiobook with a corrupt file."""
@@ -167,15 +194,13 @@ def mock_inbox(setup):
         book = TEST_INBOX / f"mock_book_{i}"
         book.mkdir(parents=True, exist_ok=True)
         for j in range(1, 4):
-            with open(book / f"mock_book_{i} - part_{j}.mp3", "w") as f:
-                f.write("a" * 1024 * 5)
+            make_mock_file(book / f"mock_book_{i} - part_{j}.mp3")
 
     # make a book with a single nested folder
     nested = TEST_INBOX / "mock_book_nested" / "inner_dir"
     nested.mkdir(parents=True, exist_ok=True)
     for i in range(1, 4):
-        with open(nested / f"mock_book_nested - part_{i}.mp3", "w") as f:
-            f.write("a" * 1024 * 5)
+        make_mock_file(nested / f"mock_book_nested - part_{i}.mp3")
 
     # make a multi-disc book
     multi_disc = TEST_INBOX / "mock_book_multi_disc"
@@ -184,8 +209,7 @@ def mock_inbox(setup):
         disc = multi_disc / f"Disc {d} of 4"
         disc.mkdir(parents=True, exist_ok=True)
         for i in range(1, 3):
-            with open(disc / f"mock_book_multi_disc - part_{i}.mp3", "w") as f:
-                f.write("a" * 1024 * 5)
+            make_mock_file(disc / f"mock_book_multi_disc - part_{i}.mp3")
 
     # make a multi-series directory
     multi_series = TEST_INBOX / "mock_book_multi_series"
@@ -194,13 +218,11 @@ def mock_inbox(setup):
         series = multi_series / f"Series {s}"
         series.mkdir(parents=True, exist_ok=True)
         for i in range(1, 3):
-            with open(series / f"mock_book_multi_series - part_{i}.mp3", "w") as f:
-                f.write("a" * 1024 * 5)
+            make_mock_file(series / f"mock_book_multi_series - part_{i}.mp3")
 
     # make 2 top-level mp3 files
     for t in ["a", "b"]:
-        with open(TEST_INBOX / f"mock_book_standalone_file_{t}.mp3", "w") as f:
-            f.write("a" * 1024 * 5)
+        make_mock_file(TEST_INBOX / f"mock_book_standalone_file_{t}.mp3")
 
     yield TEST_INBOX
 

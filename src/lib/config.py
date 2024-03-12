@@ -397,14 +397,14 @@ class Config:
     def info_str(self):
         info = f"{self.CPU_CORES} CPU cores / "
         info += f"{self.sleeptime_friendly} sleep / "
-        info += f"Max chapter length: {self.max_chapter_length_friendly} / "
+        info += f"Max ch. length: {self.max_chapter_length_friendly} / "
         info += f"Cover images: {"off" if self.SKIP_COVERS else "on"} / "
         if self.USE_DOCKER:
-            info += "m4b-tool: latest (Docker)"
-        elif self.VERSION == "latest":
-            info += "m4b-tool: latest"
+            info += f"m4b-tool version: {self.m4b_tool_version} (Docker)"
+        elif self.VERSION == "{self.m4b_tool_version}":
+            info += f"m4b-tool version: {self.m4b_tool_version}"
         else:
-            info += "m4b-tool: stable"
+            info += f"m4b-tool version: {self.m4b_tool_version}"
 
         return info
 
