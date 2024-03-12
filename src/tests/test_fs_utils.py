@@ -65,3 +65,18 @@ def test_find_next_audio_file(tower_treasure__flat_mp3: Audiobook):
         find_next_audio_file(first_audio_file)
         == tower_treasure__flat_mp3.path / "towertreasure4_02_dixon_64kb.mp3"
     )
+
+
+def test_folder_recently_modified():
+    from src.lib.fs_utils import find_recently_modified_files_and_dirs
+
+    (INBOX / "recently_modified_file.txt").unlink(missing_ok=True)
+    assert find_recently_modified_files_and_dirs(INBOX) == []
+
+    # create a file
+    (INBOX / "recently_modified_file.txt").touch()
+    assert find_recently_modified_files_and_dirs(INBOX) == [
+        INBOX / "recently_modified_file.txt"
+    ]
+    # remove the file
+    (INBOX / "recently_modified_file.txt").unlink()

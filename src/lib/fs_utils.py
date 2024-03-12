@@ -662,25 +662,29 @@ def find_cover_art_file(path: Path) -> Path | None:
 
 
 def find_recently_modified_files_and_dirs(
-    path: Path, minutes: float = 0.1
-) -> list[str]:
+    path: Path, within_seconds: int = 15
+) -> list[Path]:
+    if within_seconds <= 0:
+        within_seconds = 15
     current_time = time.time()
     recent_items = []
 
     for item in Path(path).rglob("*"):
-        if current_time - item.stat().st_mtime < minutes * 60:
-            recent_items.append(str(item))
+        if current_time - item.stat().st_mtime < within_seconds:
+            recent_items.append(item)
 
     return recent_items
 
 
-def was_recently_modified(path: Path, minutes: float = 0.1) -> bool:
+def was_recently_modified(path: Path, seconds: int = 15) -> bool:
     from src.lib.config import cfg
+
+    if seconds <= 0:
+        seconds = 15
 
     if cfg.TEST:
         return False
-    current_time = time.time()
-    return current_time - path.stat().st_mtime < minutes * 60
+    return bool(find_recently_modified_files_and_dirs(path, seconds))
 
 
 FlatListOfFilesInDir = NamedTuple(
