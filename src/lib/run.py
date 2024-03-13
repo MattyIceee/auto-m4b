@@ -216,6 +216,7 @@ def process_inbox(first_run: bool = False):
     if audiobooks_count == 0:
         if first_run:
             banner("Watching")
+            nl()
         return
 
     banner()
