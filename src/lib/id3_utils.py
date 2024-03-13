@@ -8,16 +8,17 @@ from tinta import Tinta
 from src.lib.parsers import (
     find_greatest_common_string,
     get_year_from_date,
+    parse_narrator,
     strip_part_number,
     swap_firstname_lastname,
 )
-from src.lib.typing import TagSource
+from src.lib.typing import BadFileError, TagSource
 
 import_debug.bug.push("src/lib/id3_utils.py")
 import shutil
 import subprocess
 from pathlib import Path
-from typing import cast, Literal, TYPE_CHECKING
+from typing import Any, cast, Literal, TYPE_CHECKING
 
 from eyed3 import AudioFile
 from eyed3.id3 import Tag
@@ -58,7 +59,7 @@ def write_id3_tags_exiftool(file: Path, exiftool_args: list[str]) -> None:
     )
 
 
-def write_id3_tags_eyed3(file: Path, book: "Audiobook") -> None:
+def write_id3_tags_eyed3(file: Path, book: "Audiobook | dict[str, Any]") -> None:
     # uses native python library eyed3 to write id3 tags to file
     try:
         import eyed3
@@ -67,20 +68,58 @@ def write_id3_tags_eyed3(file: Path, book: "Audiobook") -> None:
             "Error: eyed3 is not available, please install it with\n\n $ pip install eyed3\n\n...then try again"
         )
 
+    if not file.exists():
+        raise FileNotFoundError(
+            f"Error: Cannot write id3 tags, '{file}' does not exist"
+        )
+
+    if isinstance(book, dict):
+        title = str(book.get("title", ""))
+        artist = str(book.get("artist", ""))
+        album = str(book.get("album", ""))
+        albumartist = str(book.get("albumartist", ""))
+        composer = str(book.get("composer", ""))
+        date = str(book.get("date", ""))
+        track_num = book.get("track_num", (1, 1))
+        comment = str(book.get("comment", ""))
+    else:
+        title = book.title
+        artist = book.artist
+        album = book.album
+        albumartist = book.albumartist
+        composer = book.composer
+        date = book.date
+        track_num = book.track_num
+        comment = book.comment
+
     audiofile: AudioFile
     if audiofile := eyed3.load(file):  # type: ignore
         audiofile.tag = cast(Tag, audiofile.tag)
-        audiofile.tag.title = book.title
-        audiofile.tag.artist = book.artist
-        audiofile.tag.album = book.album
-        audiofile.tag.album_artist = book.albumartist
-        audiofile.tag.composer = book.composer
-        audiofile.tag.release_date = book.date
-        audiofile.tag.track_num = book.track_num
-        if audiofile.tag.comments:
-            audiofile.tag.comments.set(book.comment)
+        if not audiofile.tag:
+            audiofile.initTag()
+        audiofile.tag.title = title
+        audiofile.tag.artist = artist
+        audiofile.tag.album = album
+        audiofile.tag.album_artist = albumartist
+        audiofile.tag.composer = composer
+        audiofile.tag.release_date = date
+        # if track_num is not None and not a tuple of (int, int), throw error
+        if (
+            not isinstance(track_num, tuple)
+            or len(track_num) != 2
+            or not all(isinstance(i, int) for i in track_num)
+        ):
+            raise ValueError(
+                f"Error: track_num must be a tuple of (int, int), not {track_num}"
+            )
+        audiofile.tag.track_num = track_num
+        audiofile.tag.comments.set(comment)  # type: ignore
 
         audiofile.tag.save()
+    else:
+        raise BadFileError(
+            f"Error: Could not load '{file}' for tagging, it may be corrupt or not an audio file"
+        )
 
 
 def verify_and_update_id3_tags(
@@ -238,21 +277,33 @@ def verify_and_update_id3_tags(
         smart_print(Tinta("Done").aqua("✓").to_str())
 
 
-def extract_id3_tag_py(file: Path | None, tag: str) -> str:
+def extract_id3_tag_py(file: Path | None, tag: str, *, throw=False) -> str:
+    from src.lib.config import cfg
+
     if file is None:
         return ""
+
+    if file and not file.exists():
+        raise FileNotFoundError(
+            f"Error: Cannot extract id3 tag, '{file}' does not exist"
+        )
     try:
         probe_result = ffmpeg.probe(str(file))
     except ffmpeg.Error as e:
         from src.lib.logger import write_err_file
 
         write_err_file(file, e, "ffprobe")
+        if throw:
+            raise BadFileError(
+                f"Error: Could not extract id3 tag {tag} from {file}"
+            ) from e
         print_error(f"Error: Could not extract id3 tag {tag} from {file}")
+        if cfg.DEBUG:
+            print_debug(e.stderr)
         return ""
     try:
         return probe_result["format"]["tags"].get(tag, "")
     except KeyError:
-        from src.lib.config import cfg
 
         if cfg.DEBUG:
             print_debug(
@@ -550,6 +601,8 @@ class MetadataScore:
 
 def extract_metadata(book: "Audiobook", quiet: bool = False) -> "Audiobook":
 
+    from .parsers import narrator_pattern
+
     if not quiet:
         smart_print(
             f"Sampling {{{{{book.sample_audio1.name}}}}} for book metadata and quality info:",
@@ -573,15 +626,6 @@ def extract_metadata(book: "Audiobook", quiet: bool = False) -> "Audiobook":
     id3_album_2 = extract_id3_tag_py(book.sample_audio2, "album")
     id3_sortalbum_2 = extract_id3_tag_py(book.sample_audio2, "sort_album")
 
-    # # get greatest common strings between both files
-    # id3_common_title = find_greatest_common_string([book.id3_title, id3_title_2])
-    # id3_common_album = find_greatest_common_string([book.id3_album, id3_album_2])
-    # id3_common_sortalbum = find_greatest_common_string(
-    #     [book.id3_sortalbum, id3_album_2]
-    # )
-
-    # info about numbers
-
     id3_score = MetadataScore(
         book,
         book.id3_title,
@@ -600,101 +644,6 @@ def extract_metadata(book: "Audiobook", quiet: bool = False) -> "Audiobook":
         book.title = getattr(book, f"id3_{title_source}")
     else:
         book.title = book.fs_title
-
-    # title_matches_title_2 = book.id3_title == id3_title_2
-    # album_matches_album_2 = book.id3_album == id3_album_2
-    # sortalbum_matches_sortalbum_2 = book.id3_sortalbum == book.id3_sortalbum_2
-
-    # album_is_in_title = (
-    #     book.id3_album
-    #     and book.id3_title
-    #     and book.id3_album.lower() in book.id3_title.lower()
-    # )
-    # sortalbum_is_in_title = (
-    #     book.id3_sortalbum
-    #     and book.id3_title
-    #     and book.id3_sortalbum.lower() in book.id3_title.lower()
-    # )
-
-    # title_is_in_album = (
-    #     book.id3_title
-    #     and book.id3_album
-    #     and book.id3_title.lower() in book.id3_album.lower()
-    # )
-
-    # title_is_in_sortalbum = (
-    #     book.id3_title
-    #     and book.id3_sortalbum
-    #     and book.id3_title.lower() in book.id3_sortalbum.lower()
-    # )
-
-    # title_is_in_folder_name = (
-    #     book.id3_title and book.id3_title.lower() in book.basename.lower()
-    # )
-    # album_is_in_folder_name = (
-    #     book.id3_album and book.id3_album.lower() in book.basename.lower()
-    # )
-    # sortalbum_is_in_folder_name = (
-    #     book.id3_sortalbum and book.id3_sortalbum.lower() in book.basename.lower()
-    # )
-
-    # id3_title_is_title = False
-    # id3_album_is_title = False
-    # id3_sortalbum_is_title = False
-
-    # # Title:
-    # if not book.id3_title and not book.id3_album and not book.id3_sortalbum:
-    #     # If no id3_title, id3_album, or id3_sortalbum, use the extracted title
-    #     if not quiet:
-    #         print_debug("No id3_title, id3_album, or id3_sortalbum, so use extracted title")
-    #     book.title = book.fs_title
-    # else:
-    #     # # If (sort)album is in title, it's likely that title is something like {book name}, ch. 6
-    #     # # So if album is in title, prefer album
-    #     # if album_is_in_title:
-    #     #     if not quiet:
-    #     #         print_debug("id3_album is in title")
-    #     #     book.title = book.id3_album
-    #     #     id3_album_is_title = True
-    #     elif sortalbum_is_in_title:
-    #         if not quiet:
-    #             print_debug("id3_sortalbum is in title")
-    #         book.title = book.id3_sortalbum
-    #         id3_sortalbum_is_title = True
-    #     # If id3_title is in _folder_name, prefer id3_title
-    #     elif title_is_in_folder_name:
-    #         if not quiet:
-    #             print_debug("id3_title is in folder name")
-    #         book.title = book.id3_title
-    #         id3_title_is_title = True
-    #     # If both sample files' album name matches, prefer album
-    #     elif album_matches_album_2:
-    #         if not quiet:
-    #             print_debug("Album matches album2")
-    #         book.title = book.id3_album
-    #         id3_album_is_title = True
-    #     # If both sample files' title name matches, prefer title
-    #     elif title_matches_title_2:
-    #         if not quiet:
-    #             print_debug("id3_title matches sample2 id3_title")
-    #         book.title = book.id3_title
-    #         id3_title_is_title = True
-    #     # If title is a part no., we should use album or sortalbum
-    #     elif book.title_is_partno:
-    #         if not quiet:
-    #             print_debug("Title is partno, so we should use album")
-    #         # If album is in _folder_name or if sortalbum doesn't exist, prefer album
-    #         if album_is_in_folder_name or not book.id3_sortalbum:
-    #             book.title = book.id3_album
-    #             id3_album_is_title = True
-    #         elif sortalbum_is_in_folder_name or not book.id3_album:
-    #             book.title = book.id3_sortalbum
-    #             id3_sortalbum_is_title = True
-    #     if not book.title:
-    #         if not quiet:
-    #             print_debug("Can't figure out what title is, so just use it")
-    #         book.title = book.id3_title
-    #         id3_title_is_title = True
 
     if title_source == "title" and book.title_is_partno:
         book.title = strip_part_number(book.title)
@@ -717,7 +666,6 @@ def extract_metadata(book: "Audiobook", quiet: bool = False) -> "Audiobook":
         book.sortalbum = book.id3_album
     else:
         book.sortalbum = book.album
-    # print "  Sort album: $sortalbum"
 
     artist_is_in_folder_name = book.id3_artist.lower() in book.basename.lower()
     albumartist_is_in_folder_name = (
@@ -727,20 +675,6 @@ def extract_metadata(book: "Audiobook", quiet: bool = False) -> "Audiobook":
     id3_artist_is_author = False
     id3_albumartist_is_author = False
     id3_albumartist_is_narrator = False
-
-    id3_artist_has_narrator = "narrat" in book.id3_artist.lower() or re.search(
-        "read.?by", book.id3_artist.lower()
-    )
-    id3_albumartist_has_narrator = (
-        "narrat" in book.id3_albumartist.lower()
-        or re.search("read.?by", book.id3_albumartist.lower())
-    )
-    id3_comment_has_narrator = "narrat" in book.id3_comment.lower() or re.search(
-        "read.?by", book.id3_comment.lower()
-    )
-    id3_composer_has_narrator = "narrat" in book.id3_composer.lower() or re.search(
-        "read.?by", book.id3_composer.lower()
-    )
 
     # Artist:
     if (
@@ -788,11 +722,16 @@ def extract_metadata(book: "Audiobook", quiet: bool = False) -> "Audiobook":
 
     # TODO: Author/Narrator and "Book name by Author" in folder name
 
+    narrator_in_id3_artist = parse_narrator(book.id3_artist)
+    narrator_in_id3_albumartist = parse_narrator(book.id3_albumartist)
+    narrator_in_id3_comment = parse_narrator(book.id3_comment)
+    narrator_in_id3_composer = parse_narrator(book.id3_composer)
+
     id3_artist_has_slash = "/" in book.id3_artist
     id3_albumartist_has_slash = "/" in book.id3_albumartist
 
     narrator_slash_pattern = re.compile(r"(?P<author>.*)/(?P<narrator>.*)")
-    narrator_pattern = re.compile(r"(?P<narrator>.*)")
+    narrator_in_artist_pattern = re.compile(rf"(?P<author>.*)\W+{narrator_pattern}")
 
     # Narrator
     if id3_artist_has_slash:
@@ -803,24 +742,18 @@ def extract_metadata(book: "Audiobook", quiet: bool = False) -> "Audiobook":
         match = narrator_slash_pattern.search(book.id3_albumartist)
         book.narrator = re_group(match, "narrator")
         book.albumartist = re_group(match, "author")
-    elif id3_comment_has_narrator:
-        match = narrator_pattern.search(book.id3_comment)
+    elif bool(narrator_in_id3_artist):
+        match = narrator_in_artist_pattern.search(book.id3_artist)
+        book.artist = re_group(match, "author")
         book.narrator = re_group(match, "narrator")
-    elif id3_artist_has_narrator:
-        match = narrator_pattern.search(book.id3_artist)
+    elif bool(narrator_in_id3_albumartist):
+        match = narrator_in_artist_pattern.search(book.id3_albumartist)
+        book.albumartist = re_group(match, "author")
         book.narrator = re_group(match, "narrator")
-        book.artist = ""
-    elif id3_albumartist_has_narrator:
-        match = narrator_pattern.search(book.id3_albumartist)
-        book.narrator = re_group(match, "narrator")
-        book.albumartist = ""
-    elif id3_albumartist_is_narrator:
-        book.narrator = book.id3_albumartist
-        book.albumartist = ""
-    elif id3_composer_has_narrator:
-        match = narrator_pattern.search(book.id3_composer)
-        book.narrator = re_group(match, "narrator")
-        book.composer = ""
+    elif bool(narrator_in_id3_comment):
+        book.narrator = narrator_in_id3_comment
+    elif bool(narrator_in_id3_composer):
+        book.narrator = narrator_in_id3_composer
     else:
         book.narrator = book.fs_narrator
 
@@ -834,7 +767,7 @@ def extract_metadata(book: "Audiobook", quiet: bool = False) -> "Audiobook":
     if book.narrator:
         if not book.id3_comment:
             book.id3_comment = f"Read by {book.narrator}"
-        elif not id3_comment_has_narrator:
+        elif not narrator_in_id3_comment:
             book.id3_comment = f"Read by {book.narrator} // {book.id3_comment}"
 
     if not quiet:

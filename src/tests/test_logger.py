@@ -119,10 +119,10 @@ def test_repeat_failed_writes_to_log(
     )
 
 
-def test_logs_m4b_tool_failures(corrupt_audio_book: Audiobook, global_test_log: Path):
+def test_logs_m4b_tool_failures(corrupt_audiobook: Audiobook, global_test_log: Path):
     app(max_loops=1, no_fix=True, test=True)
     assert global_test_log.exists()
-    log_file = TEST_INBOX / "corrupt_audio_book" / "m4b-tool.corrupt_audio_book.log"
+    log_file = TEST_INBOX / "corrupt_audiobook" / "m4b-tool.corrupt_audiobook.log"
     assert log_file.exists()
-    ffprobe_log = corrupt_audio_book.sample_audio1.with_suffix(".ffprobe-error.txt")
+    ffprobe_log = corrupt_audiobook.sample_audio1.with_suffix(".ffprobe-error.txt")
     assert ffprobe_log.exists()

@@ -26,6 +26,9 @@ TagSource = Literal[
 ]
 
 
+class BadFileError(Exception): ...
+
+
 # Source: https://stackoverflow.com/a/71968448/1214800
 def copy_kwargs(func: Callable[P, R]) -> Callable[..., Callable[P, R]]:
     """Decorator does nothing but casts the original function to match the given function signature"""

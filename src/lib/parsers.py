@@ -15,7 +15,7 @@ from src.lib.term import print_debug
 author_pattern = r"^(?P<author>.*?)[\W\s]*[-_–—\(]"
 book_title_pattern = r"(?<=[-_–—])[\W\s]*(?P<book_title>[\w\s]+?)\s*(?=\d{4}|\(|\[|$)"
 year_pattern = r"(?P<year>\d{4})"
-narrator_pattern = r"(?:read by|narrated by|narrator)\W+(?P<narrator>(?:\w+(?:\s\w+\.?\s)?[\w-]+))(?:\W|$)"
+narrator_pattern = r"(?:read.?by|narrated.?by|narrator)\W+(?P<narrator>(?:[\w'\.,-]+\s(?:(?!=\s)|$)){1,})"
 narrator_slash_pattern = r"(?P<author>.+)\/(?P<narrator>.+)"
 lastname_firstname_pattern = r"^(?P<lastname>.*?), (?P<firstname>.*)$"
 firstname_lastname_pattern = r"^(?P<firstname>.*?).*\s(?P<lastname>\S+)$"
@@ -85,9 +85,7 @@ def extract_path_info(book: "Audiobook", quiet: bool = False) -> "Audiobook":
 
     dir_title = re_group(re.search(book_title_pattern, book.basename), "book_title")
     dir_year = re_group(re.search(year_pattern, book.basename), "year")
-    dir_narrator = re_group(
-        re.search(narrator_pattern, book.basename, re.I), "narrator"
-    )
+    dir_narrator = parse_narrator(book.basename)
 
     # remove suffix/extension from files
     files = [f.stem for f in Path(book.inbox_dir).iterdir() if f.is_file()]
@@ -166,6 +164,10 @@ def count_roman_numerals(d: Path) -> int:
 
 def get_year_from_date(date: str | None) -> str:
     return re_group(re.search(r"\d{4}", date or ""), default="")
+
+
+def parse_narrator(s: str) -> str:
+    return re_group(re.search(narrator_pattern, s, re.I), "narrator").strip()
 
 
 import_debug.bug.pop("src/lib/parsers.py")
