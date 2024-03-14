@@ -15,6 +15,7 @@ eyed3 = "*"
 tinta = "*"
 python-dotenv = "*"
 columnar = "*"
+python-ffmpeg = "*"
 
 [dev-packages]
 ruff = "*"

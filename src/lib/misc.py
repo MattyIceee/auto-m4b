@@ -6,6 +6,8 @@ from collections.abc import Iterable
 import import_debug
 from dotenv import dotenv_values
 
+from src.lib.typing import DirName, ENV_DIRS
+
 import_debug.bug.push("src/lib/misc.py")
 import re
 from pathlib import Path
@@ -182,3 +184,14 @@ def to_json(obj: dict[str, Any]) -> str:
     return json.dumps(
         {k: sanitize(v) for k, v in obj.items()}, indent=4, sort_keys=True
     )
+
+
+def get_dir_name_from_path(p: Path) -> DirName | None:
+
+    def get_env(k: str) -> str:
+        return os.getenv(k, "")
+
+    known_dirs = zip(map(Path, map(get_env, ENV_DIRS)), ENV_DIRS)
+    for k, d in known_dirs:
+        if k in p.parents:
+            return cast(DirName, d.lower().replace("_folder", ""))

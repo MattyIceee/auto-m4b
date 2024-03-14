@@ -34,7 +34,7 @@ from src.lib.fs_utils import (
 from src.lib.id3_utils import verify_and_update_id3_tags
 from src.lib.logger import log_global_results
 from src.lib.misc import BOOK_ASCII, dockerize_volume, human_elapsed_time, re_group
-from src.lib.parsers import count_roman_numerals
+from src.lib.parsers import count_roman_numerals, roman_numerals_affect_file_order
 from src.lib.term import (
     AMBER_COLOR,
     DARK_GREY_COLOR,
@@ -43,6 +43,7 @@ from src.lib.term import (
     nl,
     print_aqua,
     print_dark_grey,
+    print_debug,
     print_error,
     print_grey,
     print_list,
@@ -158,7 +159,7 @@ class m4btool:
             chapters_file = chapters_files[0]
             _(f'--chapters-file="{chapters_file}"')
             smart_print(
-                f"Found {len(chapters_files)} chapters {pluralize(len(chapters_files), "file")}, setting chapters from {tinted_file(chapters_file.name)}"
+                f"Found {len(chapters_files)} chapters {pluralize(len(chapters_files), 'file')}, setting chapters from {tinted_file(chapters_file.name)}"
             )
 
         _(*build_id3_tags_args(book.title, book.author, book.year, book.comment))
@@ -247,17 +248,17 @@ def process_inbox(first_run: bool = False):
     elif books_count == 0:
         filtered_count = real_books_count - books_count
         print_notice(
-            f"Found {filtered_count} {pluralize(filtered_count, "book")}, but none match '{cfg.MATCH_NAME}' – next check in {cfg.sleeptime_friendly}"
+            f"Found {filtered_count} {pluralize(filtered_count, 'book')}, but none match '{cfg.MATCH_NAME}' – next check in {cfg.sleeptime_friendly}"
         )
         return
 
     elif books_count != real_books_count:
         smart_print(
-            f"Found {books_count} of {real_books_count} {pluralize(real_books_count, "book")} in inbox matching [[{cfg.MATCH_NAME}]]\n",
+            f"Found {books_count} of {real_books_count} {pluralize(real_books_count, 'book')} in inbox matching [[{cfg.MATCH_NAME}]]\n",
             highlight_color=AMBER_COLOR,
         )
     else:
-        smart_print(f"Found {books_count} {pluralize(books_count, "book")} to convert\n")
+        smart_print(f"Found {books_count} {pluralize(books_count, 'book')} to convert\n")
 
     for b, book_full_path in enumerate(audio_dirs):
         book = Audiobook(book_full_path)
@@ -293,16 +294,13 @@ def process_inbox(first_run: bool = False):
 
         if not book.num_files("inbox"):
             print_error(f"Error: {book.inbox_dir} does not contain any known audio files, skipping")
+            book.write_log("No audio files found in this folder")
             continue
 
         if m4b_count == 1:
             smart_print("This book is already an m4b")
             smart_print(f"Moving directly to converted books folder → {book.converted_dir}")
             mv_dir_contents(book.inbox_dir, book.converted_dir)
-            continue
-
-        if book.num_files("inbox") == 0:
-            print_notice("No audio files found, skipping")
             continue
 
         # Check if a copy of this book is in fix_dir and bail
@@ -314,13 +312,14 @@ def process_inbox(first_run: bool = False):
 
         def mv_to_fix_dir():
             if cfg.NO_FIX:
-                cp_file_to_dir(book.log_file, book.inbox_dir, new_filename=f"m4b-tool.{book}.log", overwrite_mode="overwrite-silent")
-                book.update_log_file_dir("inbox")
+                # cp_file_to_dir(book.log_file, book.inbox_dir, new_filename=f"m4b-tool.{book}.log", overwrite_mode="overwrite-silent")
+                # book.set_active_dir("inbox")
+                book.write_log("(This book would have been moved to fix folder, but NO_FIX is enabled)")
                 return
             smart_print(f"Moving to fix folder → {tint_path(book.fix_dir)}")
             mv_dir(book.inbox_dir, cfg.fix_dir)
             cp_file_to_dir(book.log_file, book.fix_dir, new_filename=f"m4b-tool.{book}.log")
-            book.update_log_file_dir("fix")
+            book.set_active_dir("fix")
 
         needs_fixing = False
         if nested_audio_dirs_count > 1 or (
@@ -332,13 +331,20 @@ def process_inbox(first_run: bool = False):
             smart_print(
                 "All files must be in a single folder, named alphabetically in the correct order\n"
             )
+            book.write_log("This book contains multiple folders with audio files - maybe it is a multi-disc book,", "or maybe it is multiple books? All files must be in a single folder,", "named alphabetically in the correct order.")
 
         if roman_numerals_count > 1:
-            needs_fixing = True
-            print_error("Error: Some of this book's files appear to be named with roman numerals")
-            smart_print(
-                "Roman numerals do not sort in alphabetical order; please make sure files are named alphabetically in the correct order, then remove roman numerals from filenames\n"
-            )
+            if roman_numerals_affect_file_order(book.inbox_dir):
+                print_error("Error: Some of this book's files appear to be named with roman numerals")
+                smart_print(
+                    "Roman numerals do not sort in alphabetical order; please make sure files are named alphabetically in the correct order.\n"
+                )
+                book.write_log("Some of this book's files appear to be named with roman numerals. Roman numerals do not sort in alphabetical order; please make sure files are named alphabetically in the correct order.")
+                needs_fixing = True
+            else:
+                print_debug(
+                    f"Found {roman_numerals_count} roman numerals in {book.basename}, but they don't affect file order"
+                )
 
         if needs_fixing:
             mv_to_fix_dir()
@@ -440,6 +446,8 @@ def process_inbox(first_run: bool = False):
         clean_dir(book.build_dir)
         clean_dir(book.build_tmp_dir)
         rm_all_empty_dirs(cfg.merge_dir)
+
+        book.set_active_dir("build")
 
         starttime = time.time()
 
@@ -597,7 +605,7 @@ def process_inbox(first_run: bool = False):
             new_filename=f"m4b-tool.{book}.log",
             overwrite_mode="overwrite-silent",
         )
-        book.update_log_file_dir("converted")
+        book.set_active_dir("converted")
 
         rm_all_empty_dirs(book.build_dir)
 

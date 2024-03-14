@@ -24,6 +24,17 @@ TagSource = Literal[
     "common_sortalbum",
     "unknown",
 ]
+ENV_DIRS = [
+    "INBOX_FOLDER",
+    "CONVERTED_FOLDER",
+    "ARCHIVE_FOLDER",
+    "FIX_FOLDER",
+    "BACKUP_FOLDER",
+    "WORKING_FOLDER",
+    "BUILD_FOLDER",
+    "MERGE_FOLDER",
+    "TRASH_FOLDER",
+]
 
 
 class BadFileError(Exception): ...

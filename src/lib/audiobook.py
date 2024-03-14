@@ -1,5 +1,7 @@
 import import_debug
 
+from src.lib.misc import get_dir_name_from_path
+
 import_debug.bug.push("src/lib/audiobook.py")
 from functools import cached_property
 from pathlib import Path
@@ -58,7 +60,7 @@ class Audiobook(BaseModel):
     title_is_partno: bool = False
     track_num: tuple[int, int] = (1, 1)
     m4b_num_parts: int = 1
-    _log_file_dir: Path | None = None
+    _active_dir: DirName | None = None
 
     def __init__(self, path: Path):
 
@@ -68,7 +70,7 @@ class Audiobook(BaseModel):
         super().__init__(path=path)
 
         self.path = path
-        self._log_file_dir = self.build_dir
+        self._active_dir = get_dir_name_from_path(path)
 
     def __str__(self):
         return f"{self.basename}"
@@ -167,18 +169,20 @@ class Audiobook(BaseModel):
 
     @property
     def log_file(self) -> Path:
-        if not self._log_file_dir:
-            self._log_file_dir = self.build_dir
-        log_file = self._log_file_dir / f"m4b-tool.{self}.log"
+        log_file = self.active_dir / f"m4b-tool.{self}.log"
         log_file.touch(exist_ok=True)
         return log_file
 
-    def write_log(self, s: str):
+    def write_log(self, *s: str):
         with open(self.log_file, "a") as f:
-            f.write(s)
+            f.write(" ".join(s))
 
-    def update_log_file_dir(self, new_dir: DirName):
-        self._log_file_dir = getattr(self, new_dir + "_dir")
+    def set_active_dir(self, new_dir: DirName):
+        self._active_dir = new_dir
+
+    @property
+    def active_dir(self) -> Path:
+        return getattr(self, f"{self._active_dir or "inbox"}_dir")
 
     @property
     def author(self):

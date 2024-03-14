@@ -194,6 +194,10 @@ class Config:
     _ENV_SRC: Any = None
     _USE_DOCKER = False
 
+    def __init__(self):
+        """Do a first load of the environment variables in case we need them before the app runs."""
+        self.load_env(quiet=True)
+
     def startup(self, args: AutoM4bArgs | None = None):
         from src.lib.term import print_aqua, print_dark_grey, print_grey
 
@@ -576,7 +580,7 @@ class Config:
         )
 
     @contextmanager
-    def load_env(self):
+    def load_env(self, quiet: bool = False):
         msg = ""
         if self.ARGS.env:
             if self._ENV_SRC != self.ARGS.env:
@@ -591,7 +595,7 @@ class Config:
             self._ENV = load_env(env_file)
         else:
             self._ENV = {}
-        yield msg
+        yield "" if quiet else msg
 
     def reload(self):
         self.__init__()

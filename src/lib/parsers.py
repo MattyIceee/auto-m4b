@@ -21,6 +21,7 @@ lastname_firstname_pattern = r"^(?P<lastname>.*?), (?P<firstname>.*)$"
 firstname_lastname_pattern = r"^(?P<firstname>.*?).*\s(?P<lastname>\S+)$"
 part_number_pattern = r",?[-_–—.\s]*?(?:part|ch(?:\.|apter))?[-_–—.\s]*?\W*(\d+)(?:$|[-_–—.\s]*?(?:of|-)[-_–—.\s]*?(\d+)\W*$)"
 part_number_ignore_pattern = r"(?:\bbook\b|\bvol(?:ume)?)\s*\d+$"
+roman_numeral_pattern = r"((?:^|(?<=[\W_]))[IVXLCDM]+(?:$|(?=[\W_])))"
 
 if TYPE_CHECKING:
     from src.lib.audiobook import Audiobook
@@ -149,17 +150,38 @@ def extract_path_info(book: "Audiobook", quiet: bool = False) -> "Audiobook":
     return book
 
 
-def count_roman_numerals(d: Path) -> int:
-    roman_numeral_pattern = r"(?:part|ch(?:\.|apter))[-_.\s]*[IVXLCDM]+"
-    roman_numerals = set()
+def get_roman_numerals_dict(d: Path) -> dict[str, int]:
+    """Makes a dictionary of all the different roman numerals found in the directory"""
+    roman_numerals = {}
 
     for file in d.rglob("*"):
         if any(file.suffix == ext for ext in cfg.AUDIO_EXTS):
-            match = re.search(roman_numeral_pattern, str(file), re.I)
+            match = re_group(re.search(roman_numeral_pattern, str(file), re.I), 1)
             if match:
-                roman_numerals.add(match.group())
+                roman_numerals[match.upper()] = roman_numerals.get(match, 0) + 1
 
-    return len(roman_numerals)
+    return roman_numerals
+
+
+def count_roman_numerals(d: Path) -> int:
+    """Counts the number of roman numerals in a directory"""
+    return sum(get_roman_numerals_dict(d).values())
+
+
+def roman_numerals_affect_file_order(d: Path) -> bool:
+    """Compares the order of files in a directory, both with and without roman numerals.
+
+    Args:
+        d (Path): directory to compare
+
+    Returns:
+        bool: True if the files are in the same order, False otherwise
+    """
+    files = [f.stem for f in d.rglob("*") if f.is_file()]
+    files_no_roman = [re.sub(roman_numeral_pattern, "", f) for f in files]
+    sorted_no_roman = list(sorted(files_no_roman))
+
+    return sorted_no_roman != files_no_roman
 
 
 def get_year_from_date(date: str | None) -> str:

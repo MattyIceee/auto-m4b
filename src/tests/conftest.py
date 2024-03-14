@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pytest
 
+from src.lib.typing import ENV_DIRS
+
 sys.path.append(str(Path(__file__).parent.parent))
 
 from src.lib.audiobook import Audiobook
@@ -112,7 +114,7 @@ def tower_treasure__all():
 
 
 @pytest.fixture(scope="function")
-def hard_boys__flat_mp3():
+def hardy_boys__flat_mp3():
     return [
         load_test_fixture("tower_treasure__flat_mp3"),
         load_test_fixture("house_on_the_cliff__flat_mp3"),
@@ -133,7 +135,32 @@ def benedict_society__mp3():
     for i in range(1, 12):
         make_mock_file(_path(i))
 
+    os.environ["MATCH_NAME"] = "Benedict"
+
     yield Audiobook(dir_name)
+
+    os.environ.pop("MATCH_NAME", None)
+
+    shutil.rmtree(dir_name, ignore_errors=True)
+
+
+@pytest.fixture(scope="function", autouse=False)
+def roman_numeral__mp3():
+    dir_name = TEST_INBOX / "Roman Numeral Book"
+
+    def _path(i: int, n: str) -> Path:
+        return dir_name / f"Roman_Numeral_Book_{n} - Part_{i}.mp3"
+
+    for i, n in enumerate(
+        ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"]
+    ):
+        make_mock_file(_path(i, n))
+
+    os.environ["MATCH_NAME"] = "Roman Numeral Book"
+
+    yield Audiobook(dir_name)
+
+    os.environ.pop("MATCH_NAME", None)
 
     shutil.rmtree(dir_name, ignore_errors=True)
 
@@ -189,17 +216,7 @@ def not_an_audio_file():
 
 
 def purge_all():
-    for folder in [
-        "INBOX_FOLDER",
-        "CONVERTED_FOLDER",
-        "ARCHIVE_FOLDER",
-        "FIX_FOLDER",
-        "BACKUP_FOLDER",
-        "WORKING_FOLDER",
-        "BUILD_FOLDER",
-        "MERGE_FOLDER",
-        "TRASH_FOLDER",
-    ]:
+    for folder in ENV_DIRS:
         if folder := os.getenv(folder):
             shutil.rmtree(folder, ignore_errors=True)
 
