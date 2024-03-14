@@ -16,6 +16,12 @@ def test_flat_mp3_2(house_on_the_cliff__flat_mp3: Audiobook):
     assert True
 
 
+def test_bad_bitrate_mp3(the_crusades_through_arab_eyes__flat_mp3: Audiobook):
+
+    app(max_loops=1, no_fix=True, test=True)
+    assert True
+
+
 def test_roman_numeral_mp3(roman_numeral__mp3: Audiobook, capfd: CaptureFixture[str]):
 
     app(max_loops=1, no_fix=True, test=True)

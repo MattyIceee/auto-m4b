@@ -121,6 +121,11 @@ def hardy_boys__flat_mp3():
     ]
 
 
+@pytest.fixture(scope="function")
+def the_crusades_through_arab_eyes__flat_mp3():
+    return load_test_fixture("the_crusades_through_arab_eyes__flat_mp3", exclusive=True)
+
+
 @pytest.fixture(scope="function", autouse=False)
 def benedict_society__mp3():
 

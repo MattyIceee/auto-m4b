@@ -19,11 +19,16 @@ def friendly_date() -> str:
 
 def round_bitrate(bitrate: int) -> int:
     standard_bitrates = np.array(
-        [32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320]
+        [24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320]
     )  # see https://superuser.com/a/465660/254022
     min_bitrate = standard_bitrates[0]
 
     bitrate_k = bitrate // 1000
+
+    if bitrate_k not in standard_bitrates:
+        raise ValueError(
+            f"Bitrate {bitrate_k} is not a standard bitrate - must be one of {standard_bitrates}"
+        )
 
     # get the lower and upper bitrates (inclusive) from the standard_bitrates array
     lower_bitrate = standard_bitrates[standard_bitrates <= bitrate_k][-1]
