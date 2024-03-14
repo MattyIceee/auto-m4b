@@ -1,16 +1,11 @@
 import sys
-import traceback
-
-import import_debug
-
-from src.lib.typing import copy_kwargs_omit_first_arg
-
-import_debug.bug.push("src/auto_m4b.py")
 import time
+import traceback
 
 from src.lib import run
 from src.lib.config import AutoM4bArgs, cfg
 from src.lib.term import print_error, print_red
+from src.lib.typing import copy_kwargs_omit_first_arg
 
 LOOP_COUNT = 0
 
@@ -45,8 +40,6 @@ def app(**kwargs):
         handle_err(e)
     finally:
         cfg.PID_FILE.unlink(missing_ok=True)
-
-    import_debug.bug.pop("src/auto_m4b.py")
 
 
 if __name__ == "__main__":

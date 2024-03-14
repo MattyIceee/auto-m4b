@@ -1,20 +1,15 @@
 import re
 import traceback
-from typing import Any
-
-import import_debug
-
-from src.lib.formatters import log_date, pluralize
-from src.lib.misc import re_group
-from src.lib.term import multiline_is_empty
-
-import_debug.bug.push("src/lib/logger.py")
 from pathlib import Path
+from typing import Any
 
 from columnar import columnar
 
 from src.lib.audiobook import Audiobook
 from src.lib.config import cfg
+from src.lib.formatters import log_date, pluralize
+from src.lib.misc import re_group
+from src.lib.term import multiline_is_empty
 
 LOG_HEADERS = [
     "Date",
@@ -170,4 +165,3 @@ def write_err_file(
         f.write(f"{full_stack}\n{str(e)}{stderr}")
 
 
-import_debug.bug.pop("src/lib/logger.py")

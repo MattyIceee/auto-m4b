@@ -1,13 +1,10 @@
-import import_debug
-
-from src.lib.misc import re_group
-
-import_debug.bug.push("src/lib/term.py")
 import re
 from pathlib import Path
 from typing import Any
 
 from tinta import Tinta
+
+from src.lib.misc import re_group
 
 Tinta.load_colors("src/colors.ini")
 
@@ -455,6 +452,3 @@ def fmt_linebreak_path(path: Path, limit: int = 120, indent: int = 0) -> str:
                 output += "/"
 
     return output
-
-
-import_debug.bug.pop("src/lib/term.py")

@@ -1,15 +1,12 @@
-from typing import Any, Literal
-
-import import_debug
-from tinta import Tinta
-
-import_debug.bug.push("src/lib/run.py")
 import re
 import shutil
 import subprocess
 import time
 from datetime import datetime
 from pathlib import Path
+from typing import Any, Literal
+
+from tinta import Tinta
 
 from src.lib.audiobook import Audiobook
 from src.lib.config import AUDIO_EXTS, cfg
@@ -139,7 +136,7 @@ class m4btool:
             _(("--audio-codec", "copy"))
         else:
             _((f"--audio-codec", "libfdk_aac"))
-            _((f"--audio-bitrate", book.bitrate))
+            _((f"--audio-bitrate", book.bitrate_target))
             _((f"--audio-samplerate", book.samplerate))
 
         _(("--jobs", cfg.CPU_CORES))
@@ -695,4 +692,3 @@ def process_inbox(first_run: bool = False):
     nl()
 
 
-import_debug.bug.pop("src/lib/run.py")

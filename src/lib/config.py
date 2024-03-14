@@ -1,23 +1,18 @@
-import time
-from contextlib import contextmanager
-from datetime import datetime
-
-import import_debug
-
-from src.lib.misc import get_git_root, load_env, parse_bool, to_json
-from src.lib.term import nl, print_amber
-
-import_debug.bug.push("src/lib/config.py")
 import argparse
 import os
 import shutil
 import subprocess
 import tempfile
+import time
+from contextlib import contextmanager
+from datetime import datetime
 from functools import cached_property
 from multiprocessing import cpu_count
 from pathlib import Path
 from typing import Any, cast, Literal, overload, TypeVar
 
+from src.lib.misc import get_git_root, load_env, parse_bool, to_json
+from src.lib.term import nl, print_amber
 from src.lib.typing import ExifWriter, OverwriteMode
 
 DEFAULT_SLEEPTIME = 10  # Set this to your default sleep time
@@ -173,7 +168,6 @@ def singleton(class_: type[C]) -> type[C]:
 
         def __new__(cls, *args, **kwargs):
             if class_w._instance is None:
-                import_debug.bug.push("src/lib/config.py -> new Config()")
                 class_w._instance = super(class_w, cls).__new__(cls, *args, **kwargs)
                 class_w._instance._sealed = False
             return class_w._instance
@@ -606,4 +600,3 @@ class Config:
 cfg = Config()
 
 __all__ = ["cfg"]
-import_debug.bug.pop("src/lib/config.py")

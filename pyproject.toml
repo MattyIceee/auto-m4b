@@ -6,6 +6,7 @@ explicit_package_bases = true
 ignore_missing_imports = true
 check_untyped_defs = true
 mypy_path = "src/types:.venv/lib/python3.12/site-packages"
+plugins = "numpy.typing.mypy_plugin"
 
 [tool.mypy-applications]
 ignore_missing_imports = false

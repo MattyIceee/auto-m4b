@@ -1,17 +1,14 @@
 import os
+import re
 import shutil
 import subprocess
 from collections.abc import Iterable
+from pathlib import Path
+from typing import Any, cast, TypeVar
 
-import import_debug
 from dotenv import dotenv_values
 
 from src.lib.typing import DirName, ENV_DIRS
-
-import_debug.bug.push("src/lib/misc.py")
-import re
-from pathlib import Path
-from typing import Any, cast, TypeVar
 
 BOOK_ASCII = """
         .--.                    .---.
@@ -147,9 +144,6 @@ def load_env(
         env_vars[k] = os.environ[k]
 
     return env_vars
-
-
-import_debug.bug.pop("src/lib/misc.py")
 
 
 def dockerize_volume(

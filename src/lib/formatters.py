@@ -1,11 +1,11 @@
-import humanize
-import import_debug
-
-import_debug.bug.push("src/lib/formatters.py")
 from datetime import datetime
+from pathlib import Path
 
+import cachetools.func
+import humanize
 import inflect
-import numpy as np
+
+from src.lib.typing import MEMO_TTL, STANDARD_BITRATES
 
 
 def log_date() -> str:
@@ -17,31 +17,27 @@ def friendly_date() -> str:
     return datetime.now().strftime("%I:%M:%S %p, %a, %d %b %Y")
 
 
-def round_bitrate(bitrate: int) -> int:
-    standard_bitrates = np.array(
-        [24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320]
-    )  # see https://superuser.com/a/465660/254022
-    min_bitrate = standard_bitrates[0]
+@cachetools.func.ttl_cache(maxsize=128, ttl=MEMO_TTL)
+def get_nearest_standard_bitrate(bitrate: int) -> int:
+    min_bitrate = STANDARD_BITRATES[0]
 
-    bitrate_k = bitrate // 1000
+    bitrate_k = bitrate // 1000 if bitrate > 999 else bitrate
 
-    if bitrate_k not in standard_bitrates:
-        raise ValueError(
-            f"Bitrate {bitrate_k} is not a standard bitrate - must be one of {standard_bitrates}"
-        )
+    if bitrate_k in STANDARD_BITRATES:
+        return bitrate
 
-    # get the lower and upper bitrates (inclusive) from the standard_bitrates array
-    lower_bitrate = standard_bitrates[standard_bitrates <= bitrate_k][-1]
+    # get the lower and upper bitrates (inclusive) from the STANDARD_BITRATES array
+    lower_bitrate = STANDARD_BITRATES[STANDARD_BITRATES <= bitrate_k][-1]
     upper_bitrate = (
-        standard_bitrates[standard_bitrates >= bitrate_k][0]
-        if any(standard_bitrates >= bitrate_k)
+        STANDARD_BITRATES[STANDARD_BITRATES >= bitrate_k][0]
+        if any(STANDARD_BITRATES >= bitrate_k)
         else None
     )
 
     # should never happen, but if the upper bitrate is empty, then the bitrate is higher
     # than the highest standard bitrate, so return the highest standard bitrate
     if upper_bitrate is None:
-        closest_bitrate = standard_bitrates[-1]
+        closest_bitrate = STANDARD_BITRATES[-1]
     else:
         # get 25% of the difference between lower and upper
         diff = (upper_bitrate - lower_bitrate) // 4
@@ -51,11 +47,22 @@ def round_bitrate(bitrate: int) -> int:
             upper_bitrate if bitrate_k + diff >= bitrate_k else lower_bitrate
         )
 
+    closest_bitrate = int(closest_bitrate)
+
     # if the closest bitrate is less than the minimum bitrate, use the minimum bitrate
     if closest_bitrate < min_bitrate:
         closest_bitrate = min_bitrate
 
     return closest_bitrate * 1000
+
+
+def human_bitrate(file: Path) -> str:
+    from src.lib.ffmpeg_utils import get_bitrate_py, is_variable_bitrate
+
+    std, actual = get_bitrate_py(file)
+    if is_variable_bitrate(file):
+        return f"~{round(actual / 1000)} kb/s"
+    return f"{round(std / 1000)} kb/s"
 
 
 def human_size(size: int) -> str:
@@ -71,6 +78,3 @@ def pluralize(count: int, singular: str, plural: str | None = None) -> str:
         return p.plural(singular) if plural is None else plural
     else:
         return f"{singular}(s)"
-
-
-import_debug.bug.pop("src/lib/formatters.py")

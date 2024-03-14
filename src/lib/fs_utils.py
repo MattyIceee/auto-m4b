@@ -1,17 +1,12 @@
-import re
-
-import import_debug
-
-from src.lib.formatters import human_size
-
-import_debug.bug.push("src/lib/fs_utils.py")
 import os
+import re
 import shutil
 import time
 from pathlib import Path
 from typing import Any, Literal, NamedTuple, overload
 
 from src.lib.config import AUDIO_EXTS
+from src.lib.formatters import human_size
 from src.lib.term import (
     print_debug,
     print_error,
@@ -739,6 +734,3 @@ def get_flat_list_of_files_in_dir(
 
 def dir_is_empty(path: Path) -> bool:
     return not any(path.iterdir())
-
-
-import_debug.bug.pop("src/lib/fs_utils.py")

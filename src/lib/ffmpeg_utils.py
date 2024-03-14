@@ -1,18 +1,14 @@
-import import_debug
-
-from src.lib.term import print_error
-
-import_debug.bug.push("src/lib/ffmpeg_utils.py")
 import subprocess
 from pathlib import Path
 from typing import Any, Literal, overload
 
+import cachetools.func
 import ffmpeg
 
 from src.lib.config import AUDIO_EXTS
-from src.lib.formatters import round_bitrate
-
-DurationFmt = Literal["seconds", "human"]
+from src.lib.formatters import get_nearest_standard_bitrate
+from src.lib.term import print_error
+from src.lib.typing import DurationFmt, MEMO_TTL
 
 
 def get_file_duration(file_path: Path) -> float:
@@ -85,17 +81,32 @@ def get_duration(path: Path, fmt: DurationFmt = "human") -> str | float:
 #     return round_bitrate(int(bitrate)) if round else int(bitrate)
 
 
-def get_bitrate_py(file: Path, round: bool = True) -> int:
+def is_variable_bitrate(file: Path) -> bool:
+    bitrate, nearest_std_bitrate = get_bitrate_py(file)
+    return abs(bitrate - nearest_std_bitrate) > 0.5
+
+
+@cachetools.func.ttl_cache(maxsize=128, ttl=MEMO_TTL)
+def get_bitrate_py(file: Path) -> tuple[int, int]:
+    """Returns the bitrate of an audio file in bits per second.
+
+    Args:
+        file (Path): Path to the audio file
+        round_result (bool, optional): Whether to round the result to the nearest standard bitrate. Defaults to True.
+
+    Returns:
+        tuple[int, int]: (in kbps) The nearest standard bitrate, and the actual bitrate rounded to the nearest int.
+    """
     try:
         probe_result = ffmpeg.probe(str(file))
-        bitrate = probe_result["streams"][0]["bit_rate"]
-        return round_bitrate(int(bitrate)) if round else int(bitrate)
+        actual_bitrate = int(probe_result["streams"][0]["bit_rate"])
+        return get_nearest_standard_bitrate(actual_bitrate), actual_bitrate
     except ffmpeg.Error as e:
         from src.lib.logger import write_err_file
 
         write_err_file(file, e, "ffprobe", e.stderr.decode())
         print_error(f"Error getting bitrate for {file}")
-        return 0
+        return 0, 0
 
 
 # def get_samplerate(file: Path) -> int:
@@ -104,6 +115,7 @@ def get_bitrate_py(file: Path, round: bool = True) -> int:
 #     return int(sample_rate)
 
 
+@cachetools.func.ttl_cache(maxsize=128, ttl=MEMO_TTL)
 def get_samplerate_py(file: Path) -> int:
     try:
         probe_result = ffmpeg.probe(str(file))
@@ -167,6 +179,3 @@ def build_id3_tags_args(
     id3tags.update({"encoded-by": "PHNTM", "genre": "Audiobook"})
 
     return [(f"--{k}", v) for k, v in id3tags.items()]
-
-
-import_debug.bug.pop("src/lib/fs_utils.py")

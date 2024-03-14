@@ -2,6 +2,8 @@ import functools
 from collections.abc import Callable
 from typing import Any, cast, Concatenate, Literal, ParamSpec, TypeVar
 
+import numpy as np
+
 P = ParamSpec("P")
 R = TypeVar("R")
 
@@ -11,6 +13,7 @@ OverwriteMode = Literal["skip", "skip-silent", "overwrite", "overwrite-silent"]
 OVERWRITE_MODES = ["skip", "skip-silent", "overwrite", "overwrite-silent"]
 PathType = Literal["dir", "file"]
 SizeFmt = Literal["bytes", "human"]
+DurationFmt = Literal["seconds", "human"]
 DirName = Literal[
     "inbox", "converted", "archive", "fix", "backup", "build", "merge", "trash"
 ]
@@ -35,6 +38,12 @@ ENV_DIRS = [
     "MERGE_FOLDER",
     "TRASH_FOLDER",
 ]
+
+STANDARD_BITRATES = np.array(
+    [24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320], int
+)  # see https://superuser.com/a/465660/254022
+
+MEMO_TTL = 60 * 5  # 5 minutes
 
 
 class BadFileError(Exception): ...

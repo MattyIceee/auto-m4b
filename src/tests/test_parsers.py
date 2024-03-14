@@ -1,9 +1,12 @@
 import pytest
 
 from src.lib.audiobook import Audiobook
+from src.lib.ffmpeg_utils import get_bitrate_py, is_variable_bitrate
+from src.lib.formatters import human_bitrate
 from src.lib.id3_utils import extract_id3_tag_py, write_id3_tags_eyed3
 from src.lib.parsers import extract_path_info
 from src.lib.typing import BadFileError
+from src.tests.conftest import FIXTURES_ROOT
 
 
 def test_extract_path_info(benedict_society__mp3):
@@ -36,3 +39,29 @@ def test_parse_id3_narrator(blank_audiobook: Audiobook):
     book = Audiobook(blank_audiobook.sample_audio1).extract_metadata()
     assert book.id3_comment == test_str
     assert book.narrator == "Del Roy"
+
+
+def test_bitrate_vbr():
+
+    vbr_file = FIXTURES_ROOT / "bitrate" / "vbr.mp3"
+
+    std_bitrate, actual = get_bitrate_py(vbr_file)
+    assert std_bitrate == 48000
+    assert actual == 45567
+
+    assert is_variable_bitrate(vbr_file)
+
+    assert human_bitrate(vbr_file) == "~46 kb/s"
+
+
+def test_bitrate_cbr():
+
+    cbr_file = FIXTURES_ROOT / "bitrate" / "cbr.mp3"
+
+    std_bitrate, actual = get_bitrate_py(cbr_file)
+    assert std_bitrate == 128000
+    assert actual == 128000
+
+    assert not is_variable_bitrate(cbr_file)
+
+    assert human_bitrate(cbr_file) == "128 kb/s"

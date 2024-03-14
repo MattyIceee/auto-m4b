@@ -11,11 +11,12 @@ ffmpeg-python = "*"
 numpy = "*"
 pydantic = "*"
 eyed3 = "*"
-# tinta = {file = "../tinta", editable = true}
 tinta = "*"
 python-dotenv = "*"
 columnar = "*"
 python-ffmpeg = "*"
+cachetools = "*"
+types-cachetools = "*"
 
 [dev-packages]
 ruff = "*"

@@ -1,8 +1,3 @@
-import import_debug
-
-from src.lib.misc import get_dir_name_from_path
-
-import_debug.bug.push("src/lib/audiobook.py")
 from functools import cached_property
 from pathlib import Path
 from typing import cast, Literal, overload
@@ -16,6 +11,7 @@ from src.lib.ffmpeg_utils import (
     get_duration,
     get_samplerate_py,
 )
+from src.lib.formatters import human_bitrate
 from src.lib.fs_utils import (
     count_audio_files_in_dir,
     find_cover_art_file,
@@ -24,6 +20,7 @@ from src.lib.fs_utils import (
     get_size,
 )
 from src.lib.id3_utils import extract_metadata
+from src.lib.misc import get_dir_name_from_path
 from src.lib.parsers import extract_path_info
 from src.lib.typing import AudiobookFmt, DirName, SizeFmt
 
@@ -159,11 +156,15 @@ class Audiobook(BaseModel):
     def duration(self, for_dir: DirName, fmt: DurationFmt = "seconds"):
         return get_duration(getattr(self, for_dir + "_dir"), fmt=fmt)
 
-    @cached_property
-    def bitrate(self):
-        return get_bitrate_py(self.sample_audio1)
+    @property
+    def bitrate_actual(self):
+        return get_bitrate_py(self.sample_audio1)[1]
 
-    @cached_property
+    @property
+    def bitrate_target(self):
+        return get_bitrate_py(self.sample_audio1)[0]
+
+    @property
     def samplerate(self):
         return get_samplerate_py(self.sample_audio1)
 
@@ -190,7 +191,7 @@ class Audiobook(BaseModel):
 
     @property
     def bitrate_friendly(self):
-        return f"{round(self.bitrate / 1000)} kb/s"
+        return human_bitrate(self.sample_audio1)
 
     @property
     def samplerate_friendly(self):  # round to nearest .1 kHz
@@ -253,5 +254,3 @@ Original duration: {self.duration("inbox", "human")}
                 continue
             print(f"- {k}: {v}")
 
-
-import_debug.bug.pop("src/lib/audiobook.py")

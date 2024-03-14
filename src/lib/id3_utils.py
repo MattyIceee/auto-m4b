@@ -1,10 +1,16 @@
 import re
+import shutil
+import subprocess
 import sys
+from pathlib import Path
+from typing import Any, cast, Literal, TYPE_CHECKING
 
 import ffmpeg
-import import_debug
+from eyed3 import AudioFile
+from eyed3.id3 import Tag
 from tinta import Tinta
 
+from src.lib.misc import compare_trim, fix_smart_quotes, get_numbers_in_string, re_group
 from src.lib.parsers import (
     find_greatest_common_string,
     get_year_from_date,
@@ -12,18 +18,6 @@ from src.lib.parsers import (
     strip_part_number,
     swap_firstname_lastname,
 )
-from src.lib.typing import BadFileError, TagSource
-
-import_debug.bug.push("src/lib/id3_utils.py")
-import shutil
-import subprocess
-from pathlib import Path
-from typing import Any, cast, Literal, TYPE_CHECKING
-
-from eyed3 import AudioFile
-from eyed3.id3 import Tag
-
-from src.lib.misc import compare_trim, fix_smart_quotes, get_numbers_in_string, re_group
 from src.lib.term import (
     PATH_COLOR,
     print_debug,
@@ -31,6 +25,7 @@ from src.lib.term import (
     print_list,
     smart_print,
 )
+from src.lib.typing import BadFileError, TagSource
 
 MissingApplicationError = ValueError
 
@@ -799,6 +794,3 @@ def extract_metadata(book: "Audiobook", quiet: bool = False) -> "Audiobook":
             print_list(f"No cover art")
 
     return book
-
-
-import_debug.bug.pop("src/lib/id3_utils.py")
