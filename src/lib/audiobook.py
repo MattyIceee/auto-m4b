@@ -177,7 +177,11 @@ class Audiobook(BaseModel):
 
     def write_log(self, *s: str):
         with open(self.log_file, "a") as f:
-            f.write(" ".join(s))
+            line = " ".join(s)
+            # ensure newline at end of file
+            if not line.endswith("\n"):
+                line += "\n"
+            f.write(line)
 
     def set_active_dir(self, new_dir: DirName):
         self._active_dir = new_dir

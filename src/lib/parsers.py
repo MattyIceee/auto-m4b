@@ -1,6 +1,7 @@
 import os
 import re
 import string
+from dataclasses import dataclass
 from itertools import combinations
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -19,6 +20,23 @@ firstname_lastname_pattern = r"^(?P<firstname>.*?).*\s(?P<lastname>\S+)$"
 part_number_pattern = r",?[-_–—.\s]*?(?:part|ch(?:\.|apter))?[-_–—.\s]*?\W*(\d+)(?:$|[-_–—.\s]*?(?:of|-)[-_–—.\s]*?(\d+)\W*$)"
 part_number_ignore_pattern = r"(?:\bbook\b|\bvol(?:ume)?)\s*\d+$"
 roman_numeral_pattern = r"((?:^|(?<=[\W_]))[IVXLCDM]+(?:$|(?=[\W_])))"
+
+
+@dataclass
+class roman_numeral:
+    ones = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX"]
+    tens = ["X", "XX", "XXX", "XL", "L", "LX", "LXX", "LXXX", "XC"]
+
+    @classmethod
+    def is_valid(cls, s: str) -> bool:
+        """Test input against all possible valid roman numerals from 1 to 99"""
+        s = s.upper()
+        for ten in cls.tens:
+            for one in cls.ones:
+                if s == ten + one or s == ten or s == one:
+                    return True
+        return False
+
 
 if TYPE_CHECKING:
     from src.lib.audiobook import Audiobook
@@ -147,22 +165,38 @@ def extract_path_info(book: "Audiobook", quiet: bool = False) -> "Audiobook":
     return book
 
 
-def get_roman_numerals_dict(d: Path) -> dict[str, int]:
+def get_roman_numerals_dict(*ss: str) -> dict[str, int]:
+
+    found_roman_numerals = {}
+
+    if len(ss) == 1 and isinstance(ss[0], list):
+        ss = ss[0]  # type: ignore
+
+    for s in ss:
+        match = re_group(
+            re.search(roman_numeral_pattern, s, re.I), 1, default=""
+        ).upper()
+        if match and roman_numeral.is_valid(match):
+            found_roman_numerals[match] = found_roman_numerals.get(match, 0) + 1
+
+    return found_roman_numerals
+
+
+def find_roman_numerals(d: Path) -> dict[str, int]:
     """Makes a dictionary of all the different roman numerals found in the directory"""
-    roman_numerals = {}
 
-    for file in d.rglob("*"):
-        if any(file.suffix == ext for ext in cfg.AUDIO_EXTS):
-            match = re_group(re.search(roman_numeral_pattern, str(file), re.I), 1)
-            if match:
-                roman_numerals[match.upper()] = roman_numerals.get(match, 0) + 1
+    return get_roman_numerals_dict(
+        *[
+            str(f)
+            for f in d.rglob("*")
+            if any(f.suffix == ext for ext in cfg.AUDIO_EXTS)
+        ]
+    )
 
-    return roman_numerals
 
-
-def count_roman_numerals(d: Path) -> int:
-    """Counts the number of roman numerals in a directory"""
-    return sum(get_roman_numerals_dict(d).values())
+def count_distinct_roman_numerals(d: Path) -> int:
+    """Counts the number of unique roman numerals in a directory, ignoring 'I' to avoid false positives"""
+    return len([n for n in find_roman_numerals(d).keys() if n != "I"])
 
 
 def roman_numerals_affect_file_order(d: Path) -> bool:

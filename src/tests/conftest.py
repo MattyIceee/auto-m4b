@@ -82,6 +82,7 @@ def load_test_fixture(
     for f in src.glob("**/*"):
         dst_f = dst / f.relative_to(src)
         if f.is_file() and not dst_f.exists():
+            dst_f.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy(f, dst_f)
 
     if exclusive:
@@ -157,6 +158,11 @@ def conspiracy_theories__flat_mp3():
         exclusive=True,
         override_name="The Great Courses - Conspiracies & Conspiracy Theories What We Should and Shouldn't Believe - and Why",
     )
+
+
+@pytest.fixture(scope="function")
+def secret_project_series__nested_flat_mixed():
+    return load_test_fixture("secret_project_series__nested_flat_mixed", exclusive=True)
 
 
 @pytest.fixture(scope="function", autouse=False)

@@ -64,3 +64,39 @@ def test_bitrate_cbr(bitrate_cbr__mp3: Audiobook):
     assert not is_variable_bitrate(cbr_file)
 
     assert human_bitrate(cbr_file) == "128 kb/s"
+
+
+@pytest.mark.parametrize(
+    "input, expected",
+    [
+        ("A", {}),
+        ("B", {}),
+        ("8", {}),
+        ("I", {"I": 1}),
+        ("II", {"II": 1}),
+        ("III", {"III": 1}),
+        ("IV", {"IV": 1}),
+        ("V", {"V": 1}),
+        ("VI", {"VI": 1}),
+        ("VII", {"VII": 1}),
+        ("VIII", {"VIII": 1}),
+        ("IX", {"IX": 1}),
+        ("X", {"X": 1}),
+        (["Star Wars", "Episode", "IV", "A New Hope"], {"IV": 1}),
+        (["Star Wars", "Episode", "V", "The Empire Strikes Back"], {"V": 1}),
+        (["Star Wars", "Episode", "VI", "Return of the Jedi"], {"VI": 1}),
+        (["Star Wars", "Episode", "VII", "The Force Awakens"], {"VII": 1}),
+        (["Star Wars", "Episode", "VIII", "The Last Jedi"], {"VIII": 1}),
+        (["Star Wars", "Episode", "IX", "The Rise of Skywalker"], {"IX": 1}),
+        (["Star Trek III: The Search for Spock"], {"III": 1}),
+        (
+            ["Chapter I", "Chapter II", "Chapter III", "Chapter IV"],
+            {"I": 1, "II": 1, "III": 1, "IV": 1},
+        ),
+    ],
+)
+def test_get_roman_numerals_dict(input, expected):
+
+    from src.lib.parsers import get_roman_numerals_dict
+
+    assert get_roman_numerals_dict(input) == expected

@@ -31,7 +31,7 @@ from src.lib.fs_utils import (
 from src.lib.id3_utils import verify_and_update_id3_tags
 from src.lib.logger import log_global_results
 from src.lib.misc import BOOK_ASCII, dockerize_volume, re_group
-from src.lib.parsers import count_roman_numerals, roman_numerals_affect_file_order
+from src.lib.parsers import count_distinct_roman_numerals, roman_numerals_affect_file_order
 from src.lib.term import (
     AMBER_COLOR,
     DARK_GREY_COLOR,
@@ -289,9 +289,9 @@ def process_inbox(first_run: bool = False, failed_books: list[Path] = [], last_t
         smart_print(Tinta().dark_grey(vline).aqua(book.basename).dark_grey(vline).to_str())
         border(bl, br)
 
-        nested_audio_dirs = find_base_dirs_with_audio_files(book.inbox_dir, mindepth=2)
+        nested_audio_dirs = find_base_dirs_with_audio_files(book.inbox_dir, mindepth=1)
         nested_audio_dirs_count = len(nested_audio_dirs)
-        roman_numerals_count = count_roman_numerals(book.inbox_dir)
+        roman_numerals_count = count_distinct_roman_numerals(book.inbox_dir)
 
         # check if the current dir was modified in the last 1m and skip if so
         if was_recently_modified(book.inbox_dir):
