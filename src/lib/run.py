@@ -208,7 +208,7 @@ def banner(verb: str = "Checking"):
 
     print_grey(f"{verb} for new books in {{{{{cfg.inbox_dir}}}}} ꨄ︎")
 
-def process_inbox(first_run: bool = False):
+def process_inbox(first_run: bool = False, failed_books: list[Path] = []):
     audiobooks_count = count_audio_files_in_dir(cfg.inbox_dir, only_file_exts=AUDIO_EXTS)
 
     if audiobooks_count == 0:
@@ -236,6 +236,10 @@ def process_inbox(first_run: bool = False):
 
     if cfg.MATCH_NAME:
         audio_dirs = [d for d in audio_dirs if name_matches(d, cfg.MATCH_NAME)]
+        books_count = len(audio_dirs)
+
+    if failed_books:
+        audio_dirs = [d for d in audio_dirs if d not in failed_books]
         books_count = len(audio_dirs)
 
     # If no books to convert, print, sleep, and exit
@@ -292,6 +296,7 @@ def process_inbox(first_run: bool = False):
         if not book.num_files("inbox"):
             print_error(f"Error: {book.inbox_dir} does not contain any known audio files, skipping")
             book.write_log("No audio files found in this folder")
+            failed_books.append(book.inbox_dir)
             continue
 
         if m4b_count == 1:
@@ -305,9 +310,11 @@ def process_inbox(first_run: bool = False):
             print_error(
                 "Error: A copy of this book is in the fix folder, please fix it and try again"
             )
+            failed_books.append(book.inbox_dir)
             continue
 
         def mv_to_fix_dir():
+            failed_books.append(book.inbox_dir)
             if cfg.NO_FIX:
                 # cp_file_to_dir(book.log_file, book.inbox_dir, new_filename=f"m4b-tool.{book}.log", overwrite_mode="overwrite-silent")
                 # book.set_active_dir("inbox")
