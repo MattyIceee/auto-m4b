@@ -543,7 +543,9 @@ class Config:
         docker_image_exists = has_docker and bool(
             subprocess.check_output(["docker", "images", "-q", "sandreas/m4b-tool:latest"]).strip()
         )
-        if has_docker and docker_image_exists:
+        docker_ready = has_docker and docker_image_exists
+        env_use_docker = bool(os.getenv("USE_DOCKER", self.ENV.get("USE_DOCKER", False)))
+        if docker_ready and env_use_docker:
             uid = os.getuid()
             gid = os.getgid()
             is_tty = os.isatty(0)
@@ -569,9 +571,19 @@ class Config:
             self._USE_DOCKER = True
             return True
 
-        raise RuntimeError(
-            f"{{{{{self._m4b_tool}}}}} is not installed or not in PATH, please install it and try again\n     (See https://github.com/sandreas/m4b-tool)\n\n     If you are using Docker, make sure the image 'sandreas/m4b-tool:latest' is available and you have added an appropriate alias (hint: run ./install-m4b-tool.sh)."
-        )
+        elif env_use_docker:
+            if not has_docker:
+                raise RuntimeError(
+                    f"Could not find 'docker' in PATH, please install Docker and try again, or set USE_DOCKER to N to use the native m4b-tool (if installed)"
+                )
+            elif not docker_image_exists:
+                raise RuntimeError(
+                    f"Could not find the image 'sandreas/m4b-tool:latest', run\n\n $ docker pull sandreas/m4b-tool:latest\n  # or\n $ ./install-m4b-tool.sh\n\nand try again, or set USE_DOCKER to N to use the native m4b-tool (if installed)"
+                )
+        else:
+            raise RuntimeError(
+                f"Could not find '{self.m4b_tool}' in PATH, please install it and try again (see https://github.com/sandreas/m4b-tool).\nIf you are using Docker, make sure the image 'sandreas/m4b-tool:latest' is available, and you've aliased m4b-tool to run the container.\nFor easy Docker setup, run:\n\n$ ./install-m4b-tool.sh"
+            )
 
     @contextmanager
     def load_env(self, quiet: bool = False):

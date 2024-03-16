@@ -3,6 +3,7 @@ import shutil
 import sys
 from pathlib import Path
 
+import dotenv
 import pytest
 
 from src.lib.typing import ENV_DIRS
@@ -55,6 +56,9 @@ def setup():
     os.environ["TEST"] = "Y"
     os.environ["SLEEPTIME"] = "0.1"
 
+    for env in get_git_root().glob(".env.local*"):
+        dotenv.load_dotenv(env)
+
     load_env(TESTS_ROOT / ".env.test", clean_working_dirs=True)
 
 
@@ -64,13 +68,15 @@ def clear_match_name():
     os.environ.pop("MATCH_NAME", None)
 
 
-def load_test_fixture(name: str, exclusive: bool = False):
+def load_test_fixture(
+    name: str, *, exclusive: bool = False, override_name: str | None = None
+):
     src = FIXTURES_ROOT / name
     if not src.exists():
         raise FileNotFoundError(
             f"Fixture {name} not found. Does it exist in {FIXTURES_ROOT}?"
         )
-    dst = TEST_INBOX / name
+    dst = TEST_INBOX / (override_name or name)
     dst.mkdir(parents=True, exist_ok=True)
 
     for f in src.glob("**/*"):
@@ -80,6 +86,9 @@ def load_test_fixture(name: str, exclusive: bool = False):
 
     if exclusive:
         os.environ["MATCH_NAME"] = name
+
+    converted_dir = TEST_CONVERTED / (override_name or name)
+    shutil.rmtree(converted_dir, ignore_errors=True)
 
     return Audiobook(dst)
 
@@ -124,6 +133,20 @@ def hardy_boys__flat_mp3():
 @pytest.fixture(scope="function")
 def the_crusades_through_arab_eyes__flat_mp3():
     return load_test_fixture("the_crusades_through_arab_eyes__flat_mp3", exclusive=True)
+
+
+@pytest.fixture(scope="function")
+def the_sunlit_man__flat_mp3():
+    return load_test_fixture("the_sunlit_man__flat_mp3", exclusive=True)
+
+
+@pytest.fixture(scope="function")
+def conspiracy_theories__flat_mp3():
+    return load_test_fixture(
+        "conspiracy_theories__flat_mp3",
+        exclusive=True,
+        override_name="The Great Courses - Conspiracies & Conspiracy Theories What We Should and Shouldn't Believe - and Why",
+    )
 
 
 @pytest.fixture(scope="function", autouse=False)

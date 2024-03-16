@@ -77,7 +77,7 @@ def log_global_results(
                         ]
                     )
                 else:
-                    raise ValueError(f"Couldn't parse log row: {line}")
+                    raise ValueError(f"Couldn't parse log row: '{line}'\nin file: {log_file}")
 
     num_cols = len(LOG_HEADERS)
 
@@ -130,6 +130,7 @@ def log_global_results(
         no_borders=True,
         max_column_width=70,
         justify=LOG_JUSTIFY,
+        wrap_max=0, # don't wrap
     )
 
     table_cleaned = []

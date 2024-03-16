@@ -161,9 +161,21 @@ FROM m4b-tool as python
 # ENV CPU_CORES=""
 # ENV SLEEPTIME=""
 
+RUN echo "---- ADD AUTOM4B USER/GROUP ----"
+# set up user account
+ARG USERNAME=autom4b
+ARG PUID
+ARG PGID
 
-# swtich to $PUID and $PGID user
-USER $PUID:$PGID
+RUN if [ -z ${PUID} ] || [ -z ${PGID} ]; then \
+    echo "PUID and PGID must be set: pass --build-arg PUID=### --build-arg PGID=## or set in docker-compose.yml > build > args"; \
+    exit 1; \
+    fi
+
+# check if group exists, if not, create it
+RUN getent group ${USERNAME} || groupadd -g ${PGID} ${USERNAME}
+# check if user exists, if not, create it but don't prompt for input
+RUN getent passwd ${USERNAME} || useradd -m -u ${PUID} -g ${PGID} -s /bin/bash ${USERNAME}
 
 #Python deps
 RUN echo "---- INSTALL PYTHON PREREQS----"
@@ -171,15 +183,6 @@ RUN echo "---- INSTALL PYTHON PREREQS----"
 # RUN add-apt-repository -y 'ppa:deadsnakes/ppa'
 RUN apt-get update && apt-get install -y libssl-dev openssl build-essential
 # RUN apt-get install -y ffmpeg
-
-RUN echo "---- ADD AUTOM4B USER/GROUP ----"
-# set up user account
-ARG USERNAME=autom4b
-ARG PUID=
-ARG GUID=
-
-RUN addgroup --gid ${GUID} ${USERNAME}
-RUN adduser -u ${PUID} --gid ${GUID} --disabled-password --gecos "" ${USERNAME} 
 
 USER ${USERNAME}
 RUN sh -c "$(wget -O- https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" --unattended
