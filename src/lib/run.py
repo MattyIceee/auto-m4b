@@ -268,6 +268,7 @@ def process_inbox(first_run: bool = False, failed_books: list[Path] = [], last_t
 
     for b, book_full_path in enumerate(audio_dirs):
         book = Audiobook(book_full_path)
+        book.log_file.unlink(missing_ok=True)
 
         m4b_count = count_audio_files_in_dir(book.inbox_dir, only_file_exts=["m4b"])
         root_only_audio_files_count = count_audio_files_in_dir(

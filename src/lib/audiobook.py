@@ -70,6 +70,7 @@ class Audiobook(BaseModel):
         self.path = path
         self._active_dir = get_dir_name_from_path(path)
 
+
     def __str__(self):
         return f"{self.basename}"
 
