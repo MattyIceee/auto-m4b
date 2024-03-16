@@ -11,7 +11,7 @@ from tinta import Tinta
 from src.lib.audiobook import Audiobook
 from src.lib.config import AUDIO_EXTS, cfg
 from src.lib.ffmpeg_utils import build_id3_tags_args
-from src.lib.formatters import friendly_date, log_date, pluralize
+from src.lib.formatters import friendly_date, human_elapsed_time, log_date, pluralize
 from src.lib.fs_utils import (
     clean_dir,
     count_audio_files_in_dir,
@@ -30,7 +30,7 @@ from src.lib.fs_utils import (
 )
 from src.lib.id3_utils import verify_and_update_id3_tags
 from src.lib.logger import log_global_results
-from src.lib.misc import BOOK_ASCII, dockerize_volume, human_elapsed_time, re_group
+from src.lib.misc import BOOK_ASCII, dockerize_volume, re_group
 from src.lib.parsers import count_roman_numerals, roman_numerals_affect_file_order
 from src.lib.term import (
     AMBER_COLOR,
@@ -576,7 +576,7 @@ def process_inbox(first_run: bool = False):
             overwrite_mode="overwrite-silent",
         )
 
-        log_global_results(book, "SUCCESS", elapsedtime_friendly)
+        log_global_results(book, "SUCCESS", elapsedtime)
 
         # TODO: Only handles single m4b output file, not multiple files.
         verify_and_update_id3_tags(book, "build")

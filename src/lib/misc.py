@@ -68,19 +68,6 @@ def fix_smart_quotes(_string: str) -> str:
     return _string.translate(trans)
 
 
-def human_elapsed_time(elapsedtime: int) -> str:
-    # make friendly elapsed time as HHh:MMm:SSs but don't show hours if 0
-    # e.g. 00m:52s, 12m:52s, 1h:12m:52s
-
-    hours, remainder = divmod(elapsedtime, 3600)
-    minutes, seconds = divmod(remainder, 60)
-
-    if hours:
-        return f"{hours}h:{minutes:02}m:{seconds:02}s"
-    else:
-        return f"{minutes:02}m:{seconds:02}s"
-
-
 def get_numbers_in_string(s: str) -> str:
     """Returns a list of numbers found in a string, in order they are found."""
     return "".join(re.findall(r"\d", s))

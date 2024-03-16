@@ -94,6 +94,16 @@ def load_test_fixture(
 
 
 @pytest.fixture(scope="function")
+def bitrate_vbr__mp3():
+    return load_test_fixture("bitrate_vbr__mp3", exclusive=True)
+
+
+@pytest.fixture(scope="function")
+def bitrate_cbr__mp3():
+    return load_test_fixture("bitrate_cbr__mp3", exclusive=True)
+
+
+@pytest.fixture(scope="function")
 def tower_treasure__flat_mp3():
     return load_test_fixture("tower_treasure__flat_mp3", exclusive=True)
 
@@ -199,6 +209,8 @@ def blank_audiobook():
     book = TEST_INBOX / "blank_audiobook"
     book.mkdir(parents=True, exist_ok=True)
 
+    os.environ["MATCH_NAME"] = "blank_audiobook"
+
     # write a completely valid audiofile that plays a tone A4 for 2 seconds
     with open(book / f"blank_audiobook.mp3", "wb") as f:
         f.write(
@@ -216,6 +228,7 @@ def blank_audiobook():
 def corrupt_audiobook():
     """Create a fake mp3 audiobook with a corrupt file."""
     book = TEST_INBOX / "corrupt_audiobook"
+    os.environ["MATCH_NAME"] = "corrupt_audiobook"
     book.mkdir(parents=True, exist_ok=True)
     with open(book / f"corrupt_audiobook.mp3", "wb") as f:
         f.write(b"\xff\xfb\xd6\x04")

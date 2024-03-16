@@ -1,11 +1,12 @@
 from datetime import datetime
 from pathlib import Path
+from typing import Literal, overload
 
 import cachetools.func
 import humanize
 import inflect
 
-from src.lib.typing import MEMO_TTL, STANDARD_BITRATES
+from src.lib.typing import DurationFmt, MEMO_TTL, STANDARD_BITRATES
 
 
 def log_date() -> str:
@@ -68,6 +69,64 @@ def human_bitrate(file: Path) -> str:
 def human_size(size: int) -> str:
     f = "%.2f" if size >= 1024**3 else "%d"
     return humanize.naturalsize(size, format=f)
+
+
+@overload
+def format_duration(
+    seconds: float,
+    fmt: Literal["human"],
+    *,
+    always_show_hours: bool = True,
+    show_units: bool = True,
+    fallback: int | str = "-",
+) -> str: ...
+
+
+@overload
+def format_duration(
+    seconds: float,
+    fmt: Literal["seconds"],
+    *,
+    always_show_hours: bool = True,
+    show_units: bool = True,
+    fallback: int | str = "-",
+) -> int: ...
+
+
+def format_duration(
+    seconds: int | float,
+    fmt: DurationFmt,
+    *,
+    always_show_hours: bool = True,
+    show_units: bool = True,
+    fallback: int | str = "-",
+) -> str | int:
+    # make friendly elapsed time as HHh:MMm:SSs but don't show hours if 0
+    # e.g. 00m:52s, 12m:52s, 1h:12m:52s
+    if fmt == "human":
+        duration_int = round(seconds)
+        if duration_int > 0:
+            h = duration_int // 3600
+            m = (duration_int % 3600) // 60
+            s = duration_int % 60
+
+            match (bool(h or always_show_hours), show_units):
+                case (True, True):
+                    return f"{h}h:{m:02}m:{s:02}s"
+                case (True, False):
+                    return f"{h}:{m:02}:{s:02}"
+                case (False, True):
+                    return f"{m:02}m:{s:02}s"
+                case (False, False):
+                    return f"{m:02}:{s:02}"
+
+        return fallback
+
+    return round(seconds)
+
+
+def human_elapsed_time(seconds: int | float) -> str:
+    return format_duration(seconds, "human", always_show_hours=False, show_units=False)
 
 
 def pluralize(count: int, singular: str, plural: str | None = None) -> str:

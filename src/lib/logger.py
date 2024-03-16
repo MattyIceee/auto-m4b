@@ -7,7 +7,7 @@ from columnar import columnar
 
 from src.lib.audiobook import Audiobook
 from src.lib.config import cfg
-from src.lib.formatters import log_date, pluralize
+from src.lib.formatters import human_elapsed_time, log_date, pluralize
 from src.lib.misc import re_group
 from src.lib.term import multiline_is_empty
 
@@ -24,7 +24,7 @@ LOG_HEADERS = [
     "Time",
 ]
 LOG_JUSTIFY = ["l", "l", "l", "r", "r", "r", "r", "r", "r", "r"]
-log_pattern = r"(?P<date>^\d.*?)\s*(?P<result>SUCCESS|FAILED|UNKNOWN)\s*(?P<book_name>.+?(?=\d{1,3} kb/s|\d{2}\.\d kHz))\s*(?P<bitrate>\d+ kb/s)?\s*(?P<samplerate>[\d.]+ kHz)?\s*(?P<file_type>\.\w+)?\s*(?P<num_files>\d+ files?)?\s*(?P<size>[\d.]+\s*[bBkKMGi]+)?\s*(?P<duration>[\dhms:-]*)?\s*(?P<elapsed>\S+)?"
+log_pattern = r"(?P<date>^\d.*?)\s*(?P<result>SUCCESS|FAILED|UNKNOWN)\s*(?P<book_name>.+?(?=\d{1,3} kb/s|\d{2}\.\d kHz))\s*(?P<bitrate>~?\d+ kb/s)?\s*(?P<samplerate>[\d.]+ kHz)?\s*(?P<file_type>\.\w+)?\s*(?P<num_files>\d+ files?)?\s*(?P<size>[\d.]+\s*[bBkKMGi]+)?\s*(?P<duration>[\dhms:-]*)?\s*(?P<elapsed>\S+)?"
 # TEST:
 # 2023-10-22 18:37:58-0700   FAILED    The Law of Attraction by Esther and Jerry Hicks    129 kb/s      44.1 kHz   .wma    85 files   336M         -
 
@@ -32,7 +32,7 @@ log_pattern = r"(?P<date>^\d.*?)\s*(?P<result>SUCCESS|FAILED|UNKNOWN)\s*(?P<book
 def log_global_results(
     book: Audiobook,
     result: str,
-    elapsed: str,
+    elapsed_s: int | float,
     log_file: Path | None = None,
 ) -> None:
     # note: requires `column` version 2.39 or higher, available in util-linux 2.39 or higher
@@ -43,6 +43,9 @@ def log_global_results(
     # sanitize book_src to remove multiple spaces and replace | with _
 
     # get current log data and load it into columns - split by tabs or spaces >= 2
+
+    human_elapsed = human_elapsed_time(elapsed_s)
+
 
     if not log_file:
         log_file = cfg.GLOBAL_LOG_FILE
@@ -94,8 +97,8 @@ def log_global_results(
     # pad result with spaces to 9 characters
     # result = f"{result:<10}"
 
-    # strip all chars from elapsed that are not number or :
-    elapsed = "".join(c for c in str(elapsed) if c.isdigit() or c == ":")
+    # # strip all chars from elapsed that are not number or :
+    # human_elapsed = "".join(c for c in str(human_elapsed) if c.isdigit() or c == ":")
 
     # Read the current auto-m4b.log file and replace all double spaces with |
     # with open(log_file, "r") as f:
@@ -118,7 +121,7 @@ def log_global_results(
             f"{book.num_files('inbox')} {pluralize(book.num_files('inbox'), "file")}",
             book.size("inbox", "human"),
             book.duration("inbox", "human") or "-",
-            elapsed or "",
+            human_elapsed or "",
         ]
     )
 

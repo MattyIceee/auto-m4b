@@ -1,4 +1,5 @@
 from functools import cached_property
+from math import floor
 from pathlib import Path
 from typing import cast, Literal, overload
 
@@ -195,7 +196,11 @@ class Audiobook(BaseModel):
 
     @property
     def samplerate_friendly(self):  # round to nearest .1 kHz
-        return f"{round(self.samplerate / 1000, 1)} kHz"
+        khz = self.samplerate / 1000
+        if round(khz % 1, 2) <= 0.05:
+            # if sample rate is .05 or less from a 0, round down to the nearest 0
+            return f"{int(floor(khz))} kHz"
+        return f"{round(khz, 1)} kHz"
 
     @cached_property
     def cover_art(self):

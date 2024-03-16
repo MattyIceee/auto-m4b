@@ -6,7 +6,7 @@ import cachetools.func
 import ffmpeg
 
 from src.lib.config import AUDIO_EXTS
-from src.lib.formatters import get_nearest_standard_bitrate
+from src.lib.formatters import format_duration, get_nearest_standard_bitrate
 from src.lib.term import print_error
 from src.lib.typing import DurationFmt, MEMO_TTL
 
@@ -25,17 +25,6 @@ def get_file_duration_py(file_path: Path) -> float:
         write_err_file(file_path, e, "ffprobe", e.stderr.decode())
         print_error(f"Error getting duration for {file_path}")
         return 0
-
-
-def format_duration(duration: float, fmt: DurationFmt) -> str | float:
-    if fmt == "human":
-        duration_int = round(duration)
-        if duration_int > 0:
-            return f"{duration_int // 3600}h:{(duration_int % 3600) // 60}m:{duration_int % 60}s"
-        else:
-            return "-"
-
-    return round(duration)
 
 
 @overload

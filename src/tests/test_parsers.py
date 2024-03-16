@@ -6,7 +6,6 @@ from src.lib.formatters import human_bitrate
 from src.lib.id3_utils import extract_id3_tag_py, write_id3_tags_eyed3
 from src.lib.parsers import extract_path_info
 from src.lib.typing import BadFileError
-from src.tests.conftest import FIXTURES_ROOT
 
 
 def test_extract_path_info(benedict_society__mp3):
@@ -41,9 +40,9 @@ def test_parse_id3_narrator(blank_audiobook: Audiobook):
     assert book.narrator == "Del Roy"
 
 
-def test_bitrate_vbr():
+def test_bitrate_vbr(bitrate_vbr__mp3: Audiobook):
 
-    vbr_file = FIXTURES_ROOT / "bitrate" / "vbr.mp3"
+    vbr_file = bitrate_vbr__mp3.sample_audio1
 
     std_bitrate, actual = get_bitrate_py(vbr_file)
     assert std_bitrate == 48000
@@ -54,9 +53,9 @@ def test_bitrate_vbr():
     assert human_bitrate(vbr_file) == "~46 kb/s"
 
 
-def test_bitrate_cbr():
+def test_bitrate_cbr(bitrate_cbr__mp3: Audiobook):
 
-    cbr_file = FIXTURES_ROOT / "bitrate" / "cbr.mp3"
+    cbr_file = bitrate_cbr__mp3.sample_audio1
 
     std_bitrate, actual = get_bitrate_py(cbr_file)
     assert std_bitrate == 128000
