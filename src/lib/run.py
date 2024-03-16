@@ -208,13 +208,17 @@ def banner(verb: str = "Checking"):
 
     print_grey(f"{verb} for new books in {{{{{cfg.inbox_dir}}}}} ꨄ︎")
 
-def process_inbox(first_run: bool = False, failed_books: list[Path] = []):
+def process_inbox(first_run: bool = False, failed_books: list[Path] = [], last_touched: float = 0):
     audiobooks_count = count_audio_files_in_dir(cfg.inbox_dir, only_file_exts=AUDIO_EXTS)
 
     if audiobooks_count == 0:
         if first_run:
             banner("Watching")
             nl()
+        return
+
+    # compare last_touched to inbox dir's mtime - if inbox dir has not been modified since last run, skip
+    if last_touched and last_touched == cfg.inbox_dir.stat().st_mtime:
         return
 
     banner()
@@ -248,9 +252,10 @@ def process_inbox(first_run: bool = False, failed_books: list[Path] = []):
         return
     elif books_count == 0:
         filtered_count = real_books_count - books_count
-        print_notice(
-            f"Found {filtered_count} {pluralize(filtered_count, 'book')}, but none match '{cfg.MATCH_NAME}' – next check in {cfg.sleeptime_friendly}"
-        )
+        if cfg.MATCH_NAME:
+            print_notice(
+                f"Found {filtered_count} {pluralize(filtered_count, 'book')}, but none match '{cfg.MATCH_NAME}' – next check in {cfg.sleeptime_friendly}"
+            )
         return
 
     elif books_count != real_books_count:
