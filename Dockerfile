@@ -244,7 +244,7 @@ RUN PIPENV_VENV_IN_PROJECT=1 pipenv install --skip-lock
 RUN pipenv run pip install ffmpeg-python --force-reinstall
 RUN pipenv run python -c 'import ffmpeg; ffmpeg.probe'
 
-ADD src /auto-m4b/src
+COPY src /auto-m4b/src
 # ADD run.sh /auto-m4b/run.sh
 
 # RUN chmod +x /auto-m4b/run.sh
