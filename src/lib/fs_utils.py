@@ -701,16 +701,17 @@ def mv_to_fix_dir(book: "Audiobook", fail_book: Callable[["Audiobook"], None]):
             "(This book would have been moved to fix folder, but NO_FIX is enabled)"
         )
         book.set_active_dir("inbox")
-        if book.log_file.exists():
-            # update inbox log with build dir log, preceded by a \n
-            if build_log := book.build_dir / f"m4b-tool.{book}.log":
+        if (
+            build_log := book.build_dir / f"m4b-tool.{book}.log"
+        ) and build_log.exists():
+            if book.log_file.exists():
+                # update inbox log with build dir log, preceded by a \n
                 with open(build_log, "r") as f:
                     log = f.read()
                 with open(book.log_file, "a") as f:
                     f.write(f"\n{log}")
-        else:
-            # move build dir log to inbox dir
-            if build_log := book.build_dir / f"m4b-tool.{book}.log":
+            else:
+                # move build dir log to inbox dir
                 shutil.move(build_log, book.log_file)
         return
     smart_print(f"Moving to fix folder → {tint_path(book.fix_dir)}")
