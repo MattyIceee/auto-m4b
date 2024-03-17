@@ -2,8 +2,9 @@ import os
 import re
 import shutil
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Literal, NamedTuple, overload
+from typing import Any, Literal, NamedTuple, overload, TYPE_CHECKING
 
 from src.lib.config import AUDIO_EXTS
 from src.lib.formatters import human_size
@@ -13,6 +14,8 @@ from src.lib.term import (
     print_grey,
     print_notice,
     print_warning,
+    smart_print,
+    tint_path,
 )
 from src.lib.typing import (
     copy_kwargs_omit_first_arg,
@@ -22,6 +25,9 @@ from src.lib.typing import (
     PathType,
     SizeFmt,
 )
+
+if TYPE_CHECKING:
+    from src.lib.audiobook import Audiobook
 
 
 @overload
@@ -683,8 +689,34 @@ def was_recently_modified(path: Path, seconds: float = 15) -> bool:
     now = time.time()
     time_since_lm = now - last_modified_time
     return time_since_lm < seconds
+    # return bool(find_recently_modified_files_and_dirs(path, seconds))
 
-    return bool(find_recently_modified_files_and_dirs(path, seconds))
+
+def mv_to_fix_dir(book: "Audiobook", fail_book: Callable[["Audiobook"], None]):
+    from src.lib.config import cfg
+
+    fail_book(book)
+    if cfg.NO_FIX:
+        book.write_log(
+            "(This book would have been moved to fix folder, but NO_FIX is enabled)"
+        )
+        book.set_active_dir("inbox")
+        if book.log_file.exists():
+            # update inbox log with build dir log, preceded by a \n
+            if build_log := book.build_dir / f"m4b-tool.{book}.log":
+                with open(build_log, "r") as f:
+                    log = f.read()
+                with open(book.log_file, "a") as f:
+                    f.write(f"\n{log}")
+        else:
+            # move build dir log to inbox dir
+            if build_log := book.build_dir / f"m4b-tool.{book}.log":
+                shutil.move(build_log, book.log_file)
+        return
+    smart_print(f"Moving to fix folder → {tint_path(book.fix_dir)}")
+    mv_dir(book.inbox_dir, cfg.fix_dir)
+    cp_file_to_dir(book.log_file, book.fix_dir, new_filename=f"m4b-tool.{book}.log")
+    book.set_active_dir("fix")
 
 
 FlatListOfFilesInDir = NamedTuple(

@@ -1,3 +1,4 @@
+import os
 import re
 import shutil
 import subprocess
@@ -6,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 
+from pydantic import json
 from tinta import Tinta
 
 from src.lib.audiobook import Audiobook
@@ -16,14 +18,13 @@ from src.lib.fs_utils import (
     clean_dir,
     count_audio_files_in_dir,
     cp_dir,
-    cp_file_to_dir,
     dir_is_empty,
     find_base_dirs_with_audio_files,
     flatten_files_in_dir,
     is_ok_to_delete,
-    mv_dir,
     mv_dir_contents,
     mv_file_to_dir,
+    mv_to_fix_dir,
     name_matches,
     rm_all_empty_dirs,
     was_recently_modified,
@@ -34,7 +35,7 @@ from src.lib.misc import BOOK_ASCII, dockerize_volume, re_group
 from src.lib.parsers import count_distinct_roman_numerals, roman_numerals_affect_file_order
 from src.lib.term import (
     AMBER_COLOR,
-    DARK_GREY_COLOR,
+    border,
     divider,
     fmt_linebreak_path,
     nl,
@@ -53,9 +54,14 @@ from src.lib.term import (
     tint_warning,
     tinted_file,
     tinted_m4b,
+    vline,
 )
+from src.lib.typing import FailedBooks
 
 TOUCHED: float = 0
+FAILED_BOOKS: FailedBooks = {}
+if os.getenv("FAILED_BOOKS"):
+    FAILED_BOOKS = json.loads(os.getenv("FAILED_BOOKS", "{}"))
 
 def print_launch_and_set_running():
     if cfg.SLEEPTIME and not cfg.TEST:
@@ -209,8 +215,18 @@ def banner(verb: str = "Checking"):
 
     print_grey(f"{verb} for new books in {{{{{cfg.inbox_dir}}}}} ꨄ︎")
 
-def process_inbox(first_run: bool = False, failed_books: list[Path] = []):
-    global TOUCHED
+
+
+def fail_book(book: Audiobook):
+    """Adds the book's path to the failed books dict with a value of the last modified date of of the book"""
+    global FAILED_BOOKS
+    if book.inbox_dir in FAILED_BOOKS:
+        return
+    FAILED_BOOKS[book.inbox_dir] = book.inbox_dir.stat().st_mtime
+
+def process_inbox(first_run: bool = False):
+    global TOUCHED, FAILED_BOOKS
+
     audiobooks_count = count_audio_files_in_dir(cfg.inbox_dir, only_file_exts=AUDIO_EXTS)
 
     # compare last_touched to inbox dir's mtime - if inbox dir has not been modified since last run, skip
@@ -243,34 +259,54 @@ def process_inbox(first_run: bool = False, failed_books: list[Path] = []):
 
     # Find directories containing audio files, handling single quote if present
     audio_dirs = find_base_dirs_with_audio_files(cfg.inbox_dir, mindepth=1)
-    real_books_count = len(audio_dirs)
-    books_count = real_books_count
+    total_books_count = len(audio_dirs)
+    failed_books_count = len(FAILED_BOOKS)
+    filtered_books_count = 0
+    books_count = total_books_count
 
     if cfg.MATCH_NAME:
-        audio_dirs = [d for d in audio_dirs if name_matches(d, cfg.MATCH_NAME)]
+        audio_dirs = [d for d in audio_dirs if name_matches(d.relative_to(cfg.inbox_dir), cfg.MATCH_NAME)]
         books_count = len(audio_dirs)
+        filtered_books_count = total_books_count - books_count
 
-    if failed_books:
-        audio_dirs = [d for d in audio_dirs if d not in failed_books]
+    if FAILED_BOOKS:
+        for book, last_modified in FAILED_BOOKS.copy().items():
+            if book.stat().st_mtime > last_modified:
+                FAILED_BOOKS.pop(book)
+        audio_dirs = [d for d in audio_dirs if d not in FAILED_BOOKS.keys()]
         books_count = len(audio_dirs)
+        failed_books_count = len(FAILED_BOOKS)
 
     # If no books to convert, print, sleep, and exit
-    if real_books_count == 0:  # replace 'books_count' with your variable
+    if total_books_count == 0:  # replace 'books_count' with your variable
         smart_print(f"No books to convert, next check in {cfg.sleeptime_friendly}\n")
         return
     elif books_count == 0:
-        filtered_count = real_books_count - books_count
-        if cfg.MATCH_NAME:
-            print_notice(
-                f"Found {filtered_count} {pluralize(filtered_count, 'book')}, but none match '{cfg.MATCH_NAME}' – next check in {cfg.sleeptime_friendly}"
+        if cfg.MATCH_NAME and filtered_books_count:
+            smart_print(
+                f"Found {filtered_books_count} {pluralize(filtered_books_count, 'book')} in the inbox, but none match [[{cfg.MATCH_NAME}]]",
+                highlight_color=AMBER_COLOR
+            )
+        elif failed_books_count:
+            smart_print(
+                f"Found {failed_books_count} {pluralize(failed_books_count, 'book')} in the inbox that failed to convert - waiting for them to be fixed",
+                highlight_color=AMBER_COLOR
             )
         return
 
-    elif books_count != real_books_count:
-        smart_print(
-            f"Found {books_count} {pluralize(books_count, 'book')} in the inbox matching [[{cfg.MATCH_NAME}]] ({real_books_count} total)\n",
+    elif books_count != total_books_count:
+        skipping = f"skipping {failed_books_count} that previously failed" if failed_books_count else ""
+        if cfg.MATCH_NAME and filtered_books_count:
+            skipping = f", {skipping}" if skipping else ""
+            smart_print(
+            f"Found {books_count} {pluralize(books_count, 'book')} in the inbox matching [[{cfg.MATCH_NAME}]] ({total_books_count} total{skipping})\n",
             highlight_color=AMBER_COLOR,
-        )
+            )
+        elif failed_books_count:
+            smart_print(
+                f"Found {books_count} {pluralize(books_count, 'book')} to convert ({skipping})\n",
+                highlight_color=AMBER_COLOR,
+            )
     else:
         smart_print(f"Found {books_count} {pluralize(books_count, 'book')} to convert\n")
 
@@ -282,20 +318,10 @@ def process_inbox(first_run: bool = False, failed_books: list[Path] = []):
             book.inbox_dir, only_file_exts=AUDIO_EXTS, maxdepth=1
         )
 
-        vline = "|"
-        hline = "-"
-        tl = "•"
-        tr = "•"
-        bl = "•"
-        br = "•"
 
-        border = lambda l, r: smart_print(
-            l + hline * (len(book.basename) + 2) + r, color=DARK_GREY_COLOR
-        )
-
-        border(tl, tr)
+        border(len(book.basename))
         smart_print(Tinta().dark_grey(vline).aqua(book.basename).dark_grey(vline).to_str())
-        border(bl, br)
+        border(len(book.basename))
 
         nested_audio_dirs = find_base_dirs_with_audio_files(book.inbox_dir, mindepth=1)
         nested_audio_dirs_count = len(nested_audio_dirs)
@@ -312,7 +338,7 @@ def process_inbox(first_run: bool = False, failed_books: list[Path] = []):
         if not book.num_files("inbox"):
             print_error(f"Error: {book.inbox_dir} does not contain any known audio files, skipping")
             book.write_log("No audio files found in this folder")
-            failed_books.append(book.inbox_dir)
+            fail_book(book)
             continue
 
         if m4b_count == 1:
@@ -326,18 +352,10 @@ def process_inbox(first_run: bool = False, failed_books: list[Path] = []):
             print_error(
                 "Error: A copy of this book is in the fix folder, please fix it and try again"
             )
-            failed_books.append(book.inbox_dir)
+            fail_book(book)
             continue
 
-        def mv_to_fix_dir():
-            failed_books.append(book.inbox_dir)
-            if cfg.NO_FIX:
-                book.write_log("(This book would have been moved to fix folder, but NO_FIX is enabled)")
-                return
-            smart_print(f"Moving to fix folder → {tint_path(book.fix_dir)}")
-            mv_dir(book.inbox_dir, cfg.fix_dir)
-            cp_file_to_dir(book.log_file, book.fix_dir, new_filename=f"m4b-tool.{book}.log")
-            book.set_active_dir("fix")
+
 
         needs_fixing = False
         if nested_audio_dirs_count > 1 or (
@@ -365,7 +383,7 @@ def process_inbox(first_run: bool = False, failed_books: list[Path] = []):
                 )
 
         if needs_fixing:
-            mv_to_fix_dir()
+            mv_to_fix_dir(book, fail_book)
             continue
 
         if nested_audio_dirs_count == 1:
@@ -486,6 +504,7 @@ def process_inbox(first_run: bool = False, failed_books: list[Path] = []):
 
         proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         if proc.stderr:
+            book.write_log(proc.stderr.decode())
             nl()
             raise RuntimeError(proc.stderr.decode())
         else:
@@ -561,14 +580,14 @@ def process_inbox(first_run: bool = False, failed_books: list[Path] = []):
             smart_print(f"See log file in {tint_light_grey(book.fix_dir)} for details\n")
         elif not book.build_file.exists():
             print_error(
-                f"Error: m4b-tool failed to convert {{{{{book}}}}}, no output .m4b file was found"
+                f"Error: m4b-tool failed to convert [[{book}]], no output .m4b file was found"
             )
-            err = "No output file found, conversion or copying probably failed, but no error was reported"
+            err = f"m4b-tool failed to convert {book}, no output .m4b file was found"
 
         if err:
-            mv_to_fix_dir()
             stderr = proc.stderr.decode() if proc.stderr else ""
             book.write_log(f"{err}\n{stderr}")
+            mv_to_fix_dir(book, fail_book)
             log_global_results(book, "FAILED", 0)
             continue
         else:
@@ -639,7 +658,7 @@ def process_inbox(first_run: bool = False, failed_books: list[Path] = []):
             print_error(
                 f"Error: The output file does not exist, something went wrong during the conversion\n     Expected it to be at {book.converted_file}"
             )
-            mv_to_fix_dir()
+            mv_to_fix_dir(book, fail_book)
             continue
 
         # Remove description.txt from output folder if "$book [$desc_quality].txt" exists
@@ -702,7 +721,7 @@ def process_inbox(first_run: bool = False, failed_books: list[Path] = []):
 
     if books_count >= 1:
         print_grey(
-            f"Finished converting all available books, next check in {cfg.sleeptime_friendly}"
+            f"Finished converting all available books, waiting for more to be added to the inbox"
         )
         # touch inbox so that we can check if it was modified since last run
         cfg.inbox_dir.touch()
@@ -710,7 +729,7 @@ def process_inbox(first_run: bool = False, failed_books: list[Path] = []):
         if not cfg.NO_ASCII:
             print_dark_grey(BOOK_ASCII)
     else:
-        print_dark_grey(f"Next check in {cfg.sleeptime_friendly}")
+        print_dark_grey(f"Waiting for books to be added to the inbox...")
 
     divider()
     nl()

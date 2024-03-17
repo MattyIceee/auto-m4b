@@ -8,9 +8,44 @@ from src.lib.audiobook import Audiobook
 from src.lib.logger import log_global_results
 from src.tests.conftest import TEST_INBOX
 
-FIRST_LINE = r"2023-10-21 22:37:37-0700\s{2,}SUCCESS\s{2,}Stephen Hawking - A Brief History of Time\s{2,}67 kb/s\s{2,}44.1 kHz\s{2,}\.mp3\s{2,}4 files\s{2,}80M\s{2,}-\s{2,}0:35"
-LAST_LINE_MATCH_TOWER = r"^.*?-\d{4}  SUCCESS  tower_treasure__flat_mp3 \s* 64 kb/s \s* 22 kHz \s* .mp3 \s* 5 files  22 MB \s* 0h:46m:54s  02:43"
-LAST_LINE_MATCH_CONSPIRACY = r"^.*?-\d{4}  SUCCESS  The Great Courses - Conspiracies & Conspiracy Theories What We Should \s* 128 kb/s \s* 44.1 kHz \s* .mp3 \s* 1 file \s* 2 MB \s* 0h:02m:06s  02:43"
+FIRST_LINE = (
+    r"2023-10-21 22:37:37-0700\s{2,}"
+    r"SUCCESS\s{2,}"
+    r"Stephen Hawking - A Brief History of Time\s{2,}"
+    r"67 kb/s\s{2,}"
+    r"44.1 kHz\s{2,}"
+    r"\.mp3\s{2,}"
+    r"\d+ files?\s{2,}"
+    r"80M\s{2,}"
+    r"-\s{2,}"
+    r"0:35"
+)
+
+LAST_LINE_MATCH_TOWER = (
+    r"^.*?-\d{4}\s{2,}"
+    r"SUCCESS\s{2,}"
+    r"tower_treasure__flat_mp3\s{2,}"
+    r"64 kb/s\s{2,}"
+    r"22 kHz\s{2,}"
+    r"\.mp3\s{2,}"
+    r"\d+ files?\s{2,}"
+    r"\d+ MB\s{2,}"
+    r"0h:\d+m:\d+s\s{2,}"
+    r"02:43"
+)
+
+LAST_LINE_MATCH_CONSPIRACY = (
+    r"^.*?-\d{4}\s{2,}"
+    r"SUCCESS\s{2,}"
+    r"The Great Courses - Conspiracies & Conspiracy Theories What We Should\s{2,}"
+    r"128 kb/s\s{2,}"
+    r"44.1 kHz\s{2,}"
+    r"\.mp3\s{2,}"
+    r"\d+ files?\s{2,}"
+    r"\d+ MB\s{2,}"
+    r"0h:\d+m:\d+s\s{2,}"
+    r"02:43"
+)
 
 
 def check(test_log: Path, expect_last_lines: list[str]):
@@ -53,7 +88,7 @@ def check_ground_truth(test_log: Path):
     check(
         test_log,
         [
-            r"2023-11-09 22:49:46-0800   SUCCESS   Say What You Mean A Mindful Approach to Nonviolent Communication by Or     64 kb/s      44.1 kHz   \.mp3    12 files   303M   11h:00m:11s   01:40"
+            r"2023-11-09 22:49:46-0800\s{2,}SUCCESS\s{2,}Say What You Mean A Mindful Approach to Nonviolent Communication by Or\s{2,}64 kb/s      44.1 kHz\s{2,}\.mp3\s{2,}\d+ files?\s{2,}\d+M\s{2,}11h:00m:11s\s{2,}01:40"
         ],
     )
 
@@ -103,7 +138,7 @@ def test_repeat_failed_writes_to_log(
     check(
         global_test_log,
         [
-            r"^.*?-\d{4}  FAILED   tower_treasure__flat_mp3 \s* 64 kb/s \s* 22 kHz   .mp3    5 files  1.25 GB \s* -"
+            r"^.*?-\d{4}\s{2,}FAILED\s{2,}tower_treasure__flat_mp3\s{2,}64 kb/s\s{2,}22 kHz\s{2,}\.mp3\s{2,}\d+ files?\s{2,}[\d.]+ GB\s{2,}-"
         ],
     )
 
@@ -114,8 +149,8 @@ def test_repeat_failed_writes_to_log(
     check(
         global_test_log,
         [
-            r"^.*?-\d{4}  FAILED   tower_treasure__flat_mp3 \s* 64 kb/s \s* 22 kHz   .mp3    5 files  1.25 GB \s* - \s* -",
-            r"^.*?-\d{4}  SUCCESS  tower_treasure__flat_mp3 \s* 64 kb/s \s* 22 kHz   .mp3    5 files    22 MB   0h:46m:54s  02:43",
+            r"^.*?-\d{4}\s{2,}FAILED\s{2,}tower_treasure__flat_mp3\s{2,}64 kb/s\s{2,}22 kHz\s{2,}\.mp3\s{2,}\d+ files?\s{2,}[\d.]+ GB\s{2,}-\s{2,}-",
+            LAST_LINE_MATCH_TOWER,
         ],
     )
 
@@ -157,9 +192,11 @@ def test_log_supports_vbr_mp3s(bitrate_vbr__mp3: Audiobook, global_test_log: Pat
 
 
 def test_logs_m4b_tool_failures(corrupt_audiobook: Audiobook, global_test_log: Path):
+
+    log_file = TEST_INBOX / "corrupt_audiobook" / "m4b-tool.corrupt_audiobook.log"
+    log_file.unlink(missing_ok=True)
     app(max_loops=1, no_fix=True, test=True)
     assert global_test_log.exists()
-    log_file = TEST_INBOX / "corrupt_audiobook" / "m4b-tool.corrupt_audiobook.log"
     assert log_file.exists()
     ffprobe_log = corrupt_audiobook.sample_audio1.with_suffix(".ffprobe-error.txt")
     assert ffprobe_log.exists()

@@ -228,6 +228,14 @@ def nl(num_newlines=1):
     smart_print("\n" * num_newlines, end="")
 
 
+vline = "|"
+hline = "-"
+
+
+def border(book_name_len: int):
+    return smart_print("•" + hline * (book_name_len + 2) + "•", color=DARK_GREY_COLOR)
+
+
 def print_grey(*args: Any, highlight_color: int | None = LIGHT_GREY_COLOR):
     smart_print(
         " ".join(map(str, args)), color=GREY_COLOR, highlight_color=highlight_color

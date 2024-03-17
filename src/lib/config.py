@@ -261,7 +261,10 @@ class Config:
         be used to filter books or directories."""
         if self.ARGS.match_name:
             return self.ARGS.match_name
-        return os.getenv("MATCH_NAME", None)
+        match_name = os.getenv("MATCH_NAME", None)
+        if str(match_name).lower() in ["none", ""]:
+            return None
+        return match_name
 
     @cached_property
     def CPU_CORES(self) -> int:

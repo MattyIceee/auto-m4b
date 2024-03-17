@@ -1,7 +1,6 @@
 import sys
 import time
 import traceback
-from pathlib import Path
 
 from src.lib import run
 from src.lib.config import AutoM4bArgs, cfg
@@ -9,7 +8,6 @@ from src.lib.term import print_error, print_red
 from src.lib.typing import copy_kwargs_omit_first_arg
 
 LOOP_COUNT = 0
-FAILED_BOOKS: list[Path] = []
 
 
 def handle_err(e: Exception):
@@ -27,15 +25,13 @@ def app(**kwargs):
     args = AutoM4bArgs(**kwargs)
     infinite_loop = args.max_loops == -1
     first_time = True
-    global LOOP_COUNT, FAILED_BOOKS
+    global LOOP_COUNT
+    LOOP_COUNT = 0
     try:
         cfg.startup(args)
         while infinite_loop or LOOP_COUNT < args.max_loops:
             try:
-                run.process_inbox(
-                    first_run=first_time,
-                    failed_books=FAILED_BOOKS,
-                )
+                run.process_inbox(first_run=first_time)
             finally:
                 LOOP_COUNT += 1
                 first_time = False

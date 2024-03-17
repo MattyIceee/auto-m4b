@@ -1,5 +1,6 @@
 import asyncio
 import os
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -38,6 +39,10 @@ def make_mock_file(path: Path, size: int = 1024 * 5):
 
 def rm(p: Path):
     shutil.rmtree(p, ignore_errors=True) if p.is_dir() else p.unlink(missing_ok=True)
+
+
+def strip_ansi_codes(s: str) -> str:
+    return re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", s)
 
 
 @pytest.fixture(autouse=True, scope="session")
