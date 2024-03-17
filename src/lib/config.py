@@ -400,11 +400,11 @@ class Config:
         info += f"Max ch. length: {self.max_chapter_length_friendly} / "
         info += f"Cover images: {"off" if self.SKIP_COVERS else "on"} / "
         if self.USE_DOCKER:
-            info += f"m4b-tool version: {self.m4b_tool_version} (Docker)"
+            info += f"{self.m4b_tool_version} (Docker)"
         elif self.VERSION == "{self.m4b_tool_version}":
-            info += f"m4b-tool version: {self.m4b_tool_version}"
+            info += f"{self.m4b_tool_version}"
         else:
-            info += f"m4b-tool version: {self.m4b_tool_version}"
+            info += f"{self.m4b_tool_version}"
 
         return info
 

@@ -55,6 +55,7 @@ from src.lib.term import (
     tinted_m4b,
 )
 
+TOUCHED: float = 0
 
 def print_launch_and_set_running():
     if cfg.SLEEPTIME and not cfg.TEST:
@@ -208,8 +209,12 @@ def banner(verb: str = "Checking"):
 
     print_grey(f"{verb} for new books in {{{{{cfg.inbox_dir}}}}} ꨄ︎")
 
-def process_inbox(first_run: bool = False, failed_books: list[Path] = [], last_touched: float = 0):
+def process_inbox(first_run: bool = False, failed_books: list[Path] = []):
+    global TOUCHED
     audiobooks_count = count_audio_files_in_dir(cfg.inbox_dir, only_file_exts=AUDIO_EXTS)
+
+    # compare last_touched to inbox dir's mtime - if inbox dir has not been modified since last run, skip
+    inbox_touched_since_last_run = cfg.inbox_dir.stat().st_mtime > TOUCHED
 
     if audiobooks_count == 0:
         if first_run:
@@ -217,17 +222,20 @@ def process_inbox(first_run: bool = False, failed_books: list[Path] = [], last_t
             nl()
         return
 
-    # compare last_touched to inbox dir's mtime - if inbox dir has not been modified since last run, skip
-    if last_touched and last_touched == cfg.inbox_dir.stat().st_mtime:
+    if not inbox_touched_since_last_run:
         return
+    TOUCHED = cfg.inbox_dir.stat().st_mtime
 
     banner()
 
-    if was_recently_modified(cfg.inbox_dir):  # replace 'unfinished_dirs' with your variable
-        smart_print(
-            "The inbox folder was recently modified, waiting in case files are being copied...\n"
-        )
-        return
+    did_wait_for_copy = False
+    while was_recently_modified(cfg.inbox_dir): 
+        if not did_wait_for_copy:
+            print_notice(
+                "The inbox folder was recently modified, waiting in case files are still being copied or moved...\n"
+            )
+            did_wait_for_copy = True
+        time.sleep(0.5)
 
     standalone_count = count_audio_files_in_dir(cfg.inbox_dir, maxdepth=0)
     if standalone_count:
@@ -260,7 +268,7 @@ def process_inbox(first_run: bool = False, failed_books: list[Path] = [], last_t
 
     elif books_count != real_books_count:
         smart_print(
-            f"Found {books_count} of {real_books_count} {pluralize(real_books_count, 'book')} in inbox matching [[{cfg.MATCH_NAME}]]\n",
+            f"Found {books_count} {pluralize(books_count, 'book')} in the inbox matching [[{cfg.MATCH_NAME}]] ({real_books_count} total)\n",
             highlight_color=AMBER_COLOR,
         )
     else:
@@ -268,7 +276,6 @@ def process_inbox(first_run: bool = False, failed_books: list[Path] = [], last_t
 
     for b, book_full_path in enumerate(audio_dirs):
         book = Audiobook(book_full_path)
-        book.log_file.unlink(missing_ok=True)
 
         m4b_count = count_audio_files_in_dir(book.inbox_dir, only_file_exts=["m4b"])
         root_only_audio_files_count = count_audio_files_in_dir(
@@ -299,6 +306,9 @@ def process_inbox(first_run: bool = False, failed_books: list[Path] = [], last_t
             print_notice("Skipping this book, it was recently updated and may still be copying")
             continue
 
+        # can't modify the inbox dir until we check whether it was modified recently
+        book.log_file.unlink(missing_ok=True)
+
         if not book.num_files("inbox"):
             print_error(f"Error: {book.inbox_dir} does not contain any known audio files, skipping")
             book.write_log("No audio files found in this folder")
@@ -322,8 +332,6 @@ def process_inbox(first_run: bool = False, failed_books: list[Path] = [], last_t
         def mv_to_fix_dir():
             failed_books.append(book.inbox_dir)
             if cfg.NO_FIX:
-                # cp_file_to_dir(book.log_file, book.inbox_dir, new_filename=f"m4b-tool.{book}.log", overwrite_mode="overwrite-silent")
-                # book.set_active_dir("inbox")
                 book.write_log("(This book would have been moved to fix folder, but NO_FIX is enabled)")
                 return
             smart_print(f"Moving to fix folder → {tint_path(book.fix_dir)}")
@@ -561,7 +569,7 @@ def process_inbox(first_run: bool = False, failed_books: list[Path] = [], last_t
             mv_to_fix_dir()
             stderr = proc.stderr.decode() if proc.stderr else ""
             book.write_log(f"{err}\n{stderr}")
-            log_global_results(book, "FAILED", "-")
+            log_global_results(book, "FAILED", 0)
             continue
         else:
             book.write_log(f"{endtime_log}  {book}  Converted in {elapsedtime_friendly}\n")
@@ -696,6 +704,9 @@ def process_inbox(first_run: bool = False, failed_books: list[Path] = [], last_t
         print_grey(
             f"Finished converting all available books, next check in {cfg.sleeptime_friendly}"
         )
+        # touch inbox so that we can check if it was modified since last run
+        cfg.inbox_dir.touch()
+        TOUCHED = cfg.inbox_dir.stat().st_mtime
         if not cfg.NO_ASCII:
             print_dark_grey(BOOK_ASCII)
     else:

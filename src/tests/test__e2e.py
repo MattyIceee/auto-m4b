@@ -1,6 +1,10 @@
+import asyncio
 import os
 import shutil
+import time
+from collections.abc import Callable, Coroutine
 from copy import deepcopy
+from typing import Any
 
 from pytest import CaptureFixture
 
@@ -35,6 +39,51 @@ def test_roman_numerals__mp3(roman_numeral__mp3: Audiobook, capfd: CaptureFixtur
     assert msg in stdout
 
 
+def test_failed_book_displays_only_once(
+    roman_numeral__mp3: Audiobook, capfd: CaptureFixture[str]
+):
+
+    app(max_loops=3, no_fix=True, test=True)
+    msg = "Error: Some of this book's files appear to be named with roman numerals"
+    stdout, _ = capfd.readouterr()
+    # the message should only appear once
+    assert stdout.count(msg) == 1
+
+
+def test_header_only_prints_when_there_are_books_to_process(
+    tower_treasure__flat_mp3: Audiobook, capfd: CaptureFixture[str]
+):
+
+    os.environ["MATCH_NAME"] = "test-do-not-match"
+    app(max_loops=10, no_fix=True, test=True)
+
+    msg = "auto-m4b • "
+    stdout, _ = capfd.readouterr()
+    # the message should only appear once
+    assert stdout.count(msg) == 1
+
+
+def test_app_waits_while_inbox_updates_then_processes(
+    tower_treasure__flat_mp3: Audiobook,
+    mock_inbox_being_copied_to: Callable[[int], Coroutine[Any, Any, None]],
+    capfd: CaptureFixture[str],
+):
+
+    async def wrapper():
+        asyncio.create_task(mock_inbox_being_copied_to(5))
+
+    time.sleep(1)
+    asyncio.run(wrapper())
+    app(max_loops=1, no_fix=True, test=True)
+    # time.sleep(1)
+    inbox_msg = "recently modified, waiting"
+    book_msg = "Skipping this book, it was recently"
+    stdout, _ = capfd.readouterr()
+    # the message should only appear once
+    assert stdout.count(inbox_msg) == 1
+    assert stdout.count(book_msg) == 0
+
+
 def test_secret_project_series__nested_flat_mixed(
     secret_project_series__nested_flat_mixed: Audiobook, capfd: CaptureFixture[str]
 ):
@@ -59,6 +108,7 @@ def test_long_filename__mp3(conspiracy_theories__flat_mp3: Audiobook):
     assert conspiracy_theories__flat_mp3.converted_dir.exists()
     # do the conversion again to test the log file
     shutil.rmtree(conspiracy_theories__flat_mp3.converted_dir, ignore_errors=True)
+    time.sleep(2)
 
     app(max_loops=2, no_fix=True, test=True)
     assert conspiracy_theories__flat_mp3_copy.converted_dir.exists()

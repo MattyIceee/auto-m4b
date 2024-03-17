@@ -657,7 +657,7 @@ def find_cover_art_file(path: Path) -> Path | None:
 
 
 def find_recently_modified_files_and_dirs(
-    path: Path, within_seconds: int = 15
+    path: Path, within_seconds: float = 15
 ) -> list[Path]:
     if within_seconds <= 0:
         within_seconds = 15
@@ -671,14 +671,19 @@ def find_recently_modified_files_and_dirs(
     return recent_items
 
 
-def was_recently_modified(path: Path, seconds: int = 15) -> bool:
+def was_recently_modified(path: Path, seconds: float = 15) -> bool:
     from src.lib.config import cfg
 
-    if seconds <= 0:
-        seconds = 15
-
     if cfg.TEST:
-        return False
+        seconds = 2
+
+    seconds = max(seconds, 0)
+
+    last_modified_time = path.stat().st_mtime
+    now = time.time()
+    time_since_lm = now - last_modified_time
+    return time_since_lm < seconds
+
     return bool(find_recently_modified_files_and_dirs(path, seconds))
 
 

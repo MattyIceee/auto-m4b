@@ -10,7 +10,6 @@ from src.lib.typing import copy_kwargs_omit_first_arg
 
 LOOP_COUNT = 0
 FAILED_BOOKS: list[Path] = []
-TOUCHED = 0
 
 
 def handle_err(e: Exception):
@@ -28,7 +27,7 @@ def app(**kwargs):
     args = AutoM4bArgs(**kwargs)
     infinite_loop = args.max_loops == -1
     first_time = True
-    global LOOP_COUNT, FAILED_BOOKS, TOUCHED
+    global LOOP_COUNT, FAILED_BOOKS
     try:
         cfg.startup(args)
         while infinite_loop or LOOP_COUNT < args.max_loops:
@@ -36,12 +35,10 @@ def app(**kwargs):
                 run.process_inbox(
                     first_run=first_time,
                     failed_books=FAILED_BOOKS,
-                    last_touched=TOUCHED,
                 )
             finally:
                 LOOP_COUNT += 1
                 first_time = False
-                TOUCHED = cfg.inbox_dir.stat().st_mtime
                 if infinite_loop or LOOP_COUNT < args.max_loops:
                     time.sleep(cfg.SLEEPTIME)
     except Exception as e:

@@ -1,3 +1,4 @@
+import asyncio
 import os
 import shutil
 import sys
@@ -334,6 +335,29 @@ def mock_inbox(setup):
         shutil.rmtree(backup_inbox, ignore_errors=True)
 
     # remove everything in the inbox that starts with `mock_book_`
+    for f in TEST_INBOX.glob("mock_book_*"):
+        rm(f)
+
+
+@pytest.fixture(scope="function", autouse=False)
+def mock_inbox_being_copied_to():
+    """Runs an async function that updates the inbox every second for `seconds` seconds by creating and deleting a test file."""
+
+    # def wrapper(seconds: int = 5):
+    async def update_inbox(seconds: int = 5):
+        print("Mocking inbox being copied to...")
+        for i in range(seconds):
+            make_mock_file(TEST_INBOX / f"mock_book_{i}.mp3")
+            await asyncio.sleep(1)
+            # rm(TEST_INBOX / f"mock_book_{i}.mp3")
+        print("Mocked copy to inbox complete")
+
+        # loop = asyncio.get_event_loop()
+        # loop.run_until_complete(update_inbox())
+
+    yield update_inbox
+
+    # cleanup
     for f in TEST_INBOX.glob("mock_book_*"):
         rm(f)
 
