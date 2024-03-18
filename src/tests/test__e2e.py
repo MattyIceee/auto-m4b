@@ -99,6 +99,52 @@ def test_failed_books_retry_if_touched(
     assert out.count("named with roman numerals") == 1
 
 
+def test_failed_books_retry_when_fixed(
+    tower_treasure__multidisc_mp3: Audiobook,
+    capfd: CaptureFixture[str],
+):
+
+    shutil.rmtree(tower_treasure__multidisc_mp3.converted_dir, ignore_errors=True)
+    # remove all mp3 files in the root dir of tower_treasure__multidisc_mp3 (no nested dirs)
+    for f in tower_treasure__multidisc_mp3.inbox_dir.iterdir():
+        if f.is_file() and f.suffix == ".mp3":
+            f.unlink()
+    app(max_loops=2, no_fix=True, test=True)
+    out = get_output(capfd)
+    assert out.count("multi-disc") == 1
+    os.environ["FAILED_BOOKS"] = '{"tower_treasure__multidisc_mp3": %s}' % str(
+        time.time() + 30
+    )
+    app(max_loops=4, no_fix=True, test=True)
+    out = get_output(capfd)
+    assert out.count("multi-disc") == 0
+    last_touched = tower_treasure__multidisc_mp3.inbox_dir.stat().st_mtime
+    # find all audio files in tower_treasure__multidisc_mp3.inbox_dir and move them to the root of it
+
+    async def async_app():
+        os.environ["FAILED_BOOKS"] = '{"tower_treasure__multidisc_mp3": %s}' % str(
+            time.time() + 30
+        )
+        app(max_loops=10, no_fix=True, test=True)
+
+    async def wrapper():
+        task = asyncio.create_task(async_app())
+        await asyncio.sleep(1)
+        # when task is done, assert converted dir exists
+        await task
+
+        # assert tower_treasure__multidisc_mp3.converted_dir.exists()
+
+    asyncio.run(wrapper())
+
+    for f in tower_treasure__multidisc_mp3.inbox_dir.rglob("*"):
+        if f.is_file():
+            f.rename(tower_treasure__multidisc_mp3.inbox_dir / f.name)
+
+    assert tower_treasure__multidisc_mp3.inbox_dir.stat().st_mtime > last_touched
+    shutil.rmtree(tower_treasure__multidisc_mp3.inbox_dir, ignore_errors=True)
+
+
 def test_header_only_prints_when_there_are_books_to_process(
     tower_treasure__flat_mp3: Audiobook, capfd: CaptureFixture[str]
 ):

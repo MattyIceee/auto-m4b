@@ -21,6 +21,7 @@ from src.lib.fs_utils import (
     dir_is_empty,
     find_base_dirs_with_audio_files,
     flatten_files_in_dir,
+    get_last_updated,
     is_ok_to_delete,
     mv_dir_contents,
     mv_file_to_dir,
@@ -92,11 +93,11 @@ def process_standalone_files():
         # if a file of the same name exists, rename the incoming file to prevent data loss using (copy), (copy 1), (copy 2) etc.
         if ext == ".m4b":
             unique_target = cfg.converted_dir / file_name
-            print("This book is already an m4b")
-            print(f"Moving directly to converted books folder → {unique_target}")
+            smart_print("This book is already an m4b")
+            smart_print(f"Moving directly to converted books folder → {unique_target}")
 
             if unique_target.exists():
-                print(
+                smart_print(
                     "(A file with the same name already exists in the output dir, this one will be renamed to prevent data loss)"
                 )
 
@@ -112,9 +113,9 @@ def process_standalone_files():
             shutil.move(str(audio_file), str(unique_target))
 
             if unique_target.exists():
-                print(f"Successfully moved to {unique_target}")
+                smart_print(f"Successfully moved to {unique_target}")
         else:
-            print(f"Moving book into its own folder → {folder_name}/")
+            smart_print(f"Moving book into its own folder → {folder_name}/")
             new_folder = cfg.inbox_dir / folder_name
             new_folder.mkdir(exist_ok=True)
             shutil.move(str(audio_file), str(new_folder))
@@ -230,7 +231,7 @@ def process_inbox(first_run: bool = False):
     audiobooks_count = count_audio_files_in_dir(cfg.inbox_dir, only_file_exts=AUDIO_EXTS)
 
     # compare last_touched to inbox dir's mtime - if inbox dir has not been modified since last run, skip
-    inbox_touched_since_last_run = cfg.inbox_dir.stat().st_mtime > TOUCHED
+    inbox_touched_since_last_run = get_last_updated(cfg.inbox_dir) > TOUCHED
 
     if audiobooks_count == 0:
         if first_run:

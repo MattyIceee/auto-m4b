@@ -1,8 +1,9 @@
+import fnmatch
 import os
 import re
 import shutil
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any, Literal, NamedTuple, overload, TYPE_CHECKING
 
@@ -662,34 +663,64 @@ def find_cover_art_file(path: Path) -> Path | None:
         return max(all_images_in_dir, key=lambda f: f.stat().st_size)
 
 
-def find_recently_modified_files_and_dirs(
-    path: Path, within_seconds: float = 15
-) -> list[Path]:
-    if within_seconds <= 0:
-        within_seconds = 15
-    current_time = time.time()
-    recent_items = []
-
-    for item in Path(path).rglob("*"):
-        if current_time - item.stat().st_mtime < within_seconds:
-            recent_items.append(item)
-
-    return recent_items
-
-
-def was_recently_modified(path: Path, seconds: float = 15) -> bool:
+def filter_ignored(paths: Iterable[Path]) -> list[Path]:
     from src.lib.config import cfg
 
-    if cfg.TEST:
-        seconds = 2
+    return [
+        p
+        for p in paths
+        if not any(fnmatch.filter([str(p.name)], ignore) for ignore in cfg.IGNORE_FILES)
+    ]
 
-    seconds = max(seconds, 0)
 
-    last_modified_time = path.stat().st_mtime
-    now = time.time()
-    time_since_lm = now - last_modified_time
-    return time_since_lm < seconds
-    # return bool(find_recently_modified_files_and_dirs(path, seconds))
+def find_recently_modified_files_and_dirs(
+    path: Path, within_seconds: float = 0, since: float = 0
+) -> list[tuple[Path, float]]:
+    from src.lib.config import cfg
+
+    if within_seconds <= 0:
+        within_seconds = 2 if cfg.TEST else 15
+    current_time = time.time()
+    recent_items: list[tuple[Path, float]] = []
+
+    for p in reversed(sorted(path.rglob("*.txt"), key=lambda f: f.stat().st_mtime)):
+        # check p against cfg.IGNORE_FILES - a list of glob patterns to ignore
+        age = (since or current_time) - p.stat().st_mtime
+        if age < within_seconds:
+            recent_items.append((p, age))
+
+    return [(p, a) for p, a in recent_items if filter_ignored([p])]
+
+
+def get_last_updated(path: Path) -> float:
+    this_m = path.stat().st_mtime
+    if path.is_file():
+        return this_m
+    paths_m = [this_m] + [f.stat().st_mtime for f in path.rglob("*") if f.is_file()]
+    return max(paths_m, default=0)
+
+
+def was_recently_modified(
+    path: Path, within_seconds: float = 0, since: float = 0
+) -> bool:
+    from src.lib.config import cfg
+
+    if within_seconds <= 0:
+        within_seconds = 2 if cfg.TEST else 15
+
+    within_seconds = max(within_seconds, 0)
+
+    this_m = time.time() - path.stat().st_mtime < within_seconds
+
+    if path.is_file():
+        return this_m
+
+    # last_modified_time = path.stat().st_mtime
+    # now = time.time()
+    # time_since_lm = now - last_modified_time
+    # return time_since_lm < within_seconds
+    recents = find_recently_modified_files_and_dirs(path, within_seconds, since)
+    return bool(this_m or recents)
 
 
 def mv_to_fix_dir(book: "Audiobook", fail_book: Callable[["Audiobook"], None]):

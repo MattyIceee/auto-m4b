@@ -47,6 +47,8 @@ IGNORE_FILES = [
     "Thumbs.db",
     "@eaDir",
     "*.sh",
+    "*.bat",
+    "*.exe",
 ]
 
 WORKING_DIRS = [
