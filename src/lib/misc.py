@@ -1,3 +1,4 @@
+import asyncio
 import os
 import re
 import shutil
@@ -177,3 +178,14 @@ def get_dir_name_from_path(p: Path) -> DirName | None:
     for k, d in known_dirs:
         if k in p.parents:
             return cast(DirName, d.lower().replace("_folder", ""))
+
+def get_or_create_event_loop():
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError as e:
+        if str(e).startswith('There is no current event loop in thread'):
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        else:
+            raise e
+    return loop

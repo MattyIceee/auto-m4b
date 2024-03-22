@@ -236,7 +236,11 @@ class Config:
 
     @cached_property
     def OVERWRITE_MODE(self) -> OverwriteMode:
-        return "overwrite" if parse_bool(os.getenv("OVERWRITE_EXISTING", False)) else "skip"
+        return (
+            "overwrite"
+            if parse_bool(os.getenv("OVERWRITE_EXISTING", False))
+            else "skip"
+        )
 
     # @cached_property
     # def overwrite_arg(self):
@@ -281,7 +285,9 @@ class Config:
         """If it can be represented as a whole number, do so as {number}s
         otherwise, show as a float rounded to 1 decimal place, e.g. 0.1s"""
         return (
-            f"{int(self.SLEEPTIME)}s" if self.SLEEPTIME.is_integer() else f"{self.SLEEPTIME:.1f}s"
+            f"{int(self.SLEEPTIME)}s"
+            if self.SLEEPTIME.is_integer()
+            else f"{self.SLEEPTIME:.1f}s"
         )
 
     @cached_property
@@ -292,7 +298,12 @@ class Config:
 
     @cached_property
     def max_chapter_length_friendly(self):
-        return "-".join([str(int(int(t) / 60)) for t in self.MAX_CHAPTER_LENGTH.split(",")]) + "m"
+        return (
+            "-".join(
+                [str(int(int(t) / 60)) for t in self.MAX_CHAPTER_LENGTH.split(",")]
+            )
+            + "m"
+        )
 
     @cached_property
     def SKIP_COVERS(self):
@@ -317,7 +328,11 @@ class Config:
     @cached_property
     def m4b_tool_version(self):
         """Runs m4b-tool --version"""
-        return subprocess.check_output(f"{self.m4b_tool} m4b-tool --version", shell=True).decode().strip()
+        return (
+            subprocess.check_output(f"{self.m4b_tool} m4b-tool --version", shell=True)
+            .decode()
+            .strip()
+        )
 
     @cached_property
     def _m4b_tool(self):
@@ -329,7 +344,9 @@ class Config:
         return " ".join(self._m4b_tool)
 
     @overload
-    def _load_path_env(self, key: str, default: Path, allow_empty: bool = ...) -> Path: ...
+    def _load_path_env(
+        self, key: str, default: Path, allow_empty: bool = ...
+    ) -> Path: ...
 
     @overload
     def _load_path_env(
@@ -403,7 +420,7 @@ class Config:
         info = f"{self.CPU_CORES} CPU cores / "
         info += f"{self.sleeptime_friendly} sleep / "
         info += f"Max ch. length: {self.max_chapter_length_friendly} / "
-        info += f"Cover images: {"off" if self.SKIP_COVERS else "on"} / "
+        # info += f"Cover images: {"off" if self.SKIP_COVERS else "on"} / "
         if self.USE_DOCKER:
             info += f"{self.m4b_tool_version} (Docker)"
         elif self.VERSION == "{self.m4b_tool_version}":
@@ -546,10 +563,14 @@ class Config:
         # docker images -q sandreas/m4b-tool:latest
         has_docker = bool(shutil.which("docker"))
         docker_image_exists = has_docker and bool(
-            subprocess.check_output(["docker", "images", "-q", "sandreas/m4b-tool:latest"]).strip()
+            subprocess.check_output(
+                ["docker", "images", "-q", "sandreas/m4b-tool:latest"]
+            ).strip()
         )
         docker_ready = has_docker and docker_image_exists
-        env_use_docker = bool(os.getenv("USE_DOCKER", self.ENV.get("USE_DOCKER", False)))
+        env_use_docker = bool(
+            os.getenv("USE_DOCKER", self.ENV.get("USE_DOCKER", False))
+        )
         if docker_ready and env_use_docker:
             uid = os.getuid()
             gid = os.getgid()

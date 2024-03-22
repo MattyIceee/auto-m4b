@@ -19,6 +19,7 @@ DirName = Literal[
     "inbox", "converted", "archive", "fix", "backup", "build", "merge", "trash"
 ]
 FailedBooks = dict[Path, float]
+InboxHashes = dict[Path, str]
 ExifWriter = Literal["exiftool", "eyed3"]
 TagSource = Literal[
     "title",

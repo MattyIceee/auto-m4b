@@ -19,6 +19,8 @@ from src.lib.fs_utils import (
     find_first_audio_file,
     find_next_audio_file,
     get_size,
+    hash_dir_audio_files,
+    last_updated_at,
 )
 from src.lib.id3_utils import extract_metadata
 from src.lib.misc import get_dir_name_from_path
@@ -132,6 +134,12 @@ class Audiobook(BaseModel):
     @cached_property
     def sample_audio2(self):
         return find_next_audio_file(self.sample_audio1)
+
+    def last_updated_at(self, for_dir: DirName = "inbox"):
+        return last_updated_at(getattr(self, for_dir + "_dir"), only_file_exts=cfg.AUDIO_EXTS)
+
+    def hash(self, for_dir: DirName = "inbox"):
+        return hash_dir_audio_files(getattr(self, for_dir + "_dir"))
 
     @cached_property
     def orig_file_type(self):

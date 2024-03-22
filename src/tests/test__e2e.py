@@ -1,4 +1,7 @@
 import asyncio
+import concurrent
+import concurrent.futures
+import json
 import os
 import shutil
 import time
@@ -6,11 +9,18 @@ from collections.abc import Callable, Coroutine
 from copy import deepcopy
 from typing import Any
 
+import pytest
 from pytest import CaptureFixture
+from tinta import Tinta
 
 from src.auto_m4b import app
 from src.lib.audiobook import Audiobook
-from src.tests.conftest import strip_ansi_codes, TEST_CONVERTED, TEST_INBOX
+from src.lib.fs_utils import flatten_files_in_dir, last_updated_at
+from src.tests.conftest import (
+    strip_ansi_codes,
+    TEST_CONVERTED,
+    TEST_INBOX,
+)
 
 
 def get_output(capfd: CaptureFixture[str]) -> str:
@@ -76,73 +86,89 @@ def test_failed_books_show_as_skipped(
     assert out.count("Converted tower_treasure__flat_mp3") == 1
 
 
-def test_failed_books_retry_if_touched(
+def test_failed_books_skip_if_unchanged(
     roman_numeral__mp3: Audiobook,
     tower_treasure__flat_mp3: Audiobook,
+    house_on_the_cliff__flat_mp3: Audiobook,
     capfd: CaptureFixture[str],
 ):
 
+    from src.lib.config import cfg
+    from src.lib.run import flush_inbox_hash
+
     os.environ["MATCH_NAME"] = "^(Roman|tower)"
-    app(max_loops=2, no_fix=True, test=True)
+    app(max_loops=1, no_fix=True, test=True)
     out = get_output(capfd)
     assert out.count("2 books in the inbox") == 1
     assert out.count("named with roman numerals") == 1
-    os.environ["FAILED_BOOKS"] = '{"Roman Numeral Book": %s}' % str(time.time() + 30)
+    os.environ["FAILED_BOOKS"] = json.dumps(
+        {"Roman Numeral Book": str(time.time() + 30)}
+    )
     TEST_INBOX.touch()
-    app(max_loops=4, no_fix=True, test=True)
+    cfg.MATCH_NAME = "^(Roman|tower|house)"
+    # time.sleep(2)
+    flush_inbox_hash()
+    app(max_loops=3, no_fix=True, test=True)
     out = get_output(capfd)
     assert out.count("skipping 1 that previously failed") == 1
     (TEST_INBOX / "Roman Numeral Book").touch()
     TEST_INBOX.touch()
-    app(max_loops=6, no_fix=True, test=True)
-    out = get_output(capfd)
-    assert out.count("named with roman numerals") == 1
-
-
-def test_failed_books_retry_when_fixed(
-    tower_treasure__multidisc_mp3: Audiobook,
-    capfd: CaptureFixture[str],
-):
-
-    shutil.rmtree(tower_treasure__multidisc_mp3.converted_dir, ignore_errors=True)
-    # remove all mp3 files in the root dir of tower_treasure__multidisc_mp3 (no nested dirs)
-    for f in tower_treasure__multidisc_mp3.inbox_dir.iterdir():
-        if f.is_file() and f.suffix == ".mp3":
-            f.unlink()
+    cfg.DEBUG = True
     app(max_loops=2, no_fix=True, test=True)
     out = get_output(capfd)
-    assert out.count("multi-disc") == 1
-    os.environ["FAILED_BOOKS"] = '{"tower_treasure__multidisc_mp3": %s}' % str(
-        time.time() + 30
+    assert out.count("Skipping this loop, inbox hash is the same") == 2
+
+
+async def run_app_failed_books_retry_when_fixed():
+    os.environ["FAILED_BOOKS"] = json.dumps(
+        {"old_mill__multidisc_mp3": str(time.time() + 2)}
     )
+    os.environ["SLEEPTIME"] = "2"
+    # await asyncio.sleep(2)
+    Tinta().tint(213, "Starting app...").print()
+    # await asyncio.sleep(0.5)
     app(max_loops=4, no_fix=True, test=True)
-    out = get_output(capfd)
-    assert out.count("multi-disc") == 0
-    last_touched = tower_treasure__multidisc_mp3.inbox_dir.stat().st_mtime
-    # find all audio files in tower_treasure__multidisc_mp3.inbox_dir and move them to the root of it
+    Tinta().tint(213, "Finished app").print()
 
-    async def async_app():
-        os.environ["FAILED_BOOKS"] = '{"tower_treasure__multidisc_mp3": %s}' % str(
-            time.time() + 30
+
+def flatten_book(book: Audiobook):
+    from src.lib.config import cfg
+
+    time.sleep(5)
+    Tinta().tint(213, f"About to flatten book {book}").print()
+    Tinta().tint(
+        213,
+        f"Inbox last updated at {last_updated_at(cfg.inbox_dir, only_file_exts=cfg.AUDIO_EXTS)}",
+    ).print()
+    flatten_files_in_dir(book.inbox_dir)
+    Tinta().tint(213, f"Fixed {book}").print()
+    Tinta().tint(
+        213,
+        f"Inbox last updated at {last_updated_at(cfg.inbox_dir, only_file_exts=cfg.AUDIO_EXTS)}",
+    ).print()
+
+
+@pytest.mark.asyncio
+async def test_failed_books_retry_when_fixed(
+    old_mill__multidisc_mp3: Audiobook, capfd: CaptureFixture[str]
+):
+    inbox_dir = old_mill__multidisc_mp3.inbox_dir
+    converted_dir = old_mill__multidisc_mp3.converted_dir
+    shutil.rmtree(converted_dir, ignore_errors=True)
+
+    app_task = asyncio.create_task(run_app_failed_books_retry_when_fixed())
+
+    # Use concurrent.futures to run the file system changes in a separate thread
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        await asyncio.get_running_loop().run_in_executor(
+            executor, flatten_book, old_mill__multidisc_mp3
         )
-        app(max_loops=10, no_fix=True, test=True)
 
-    async def wrapper():
-        task = asyncio.create_task(async_app())
-        await asyncio.sleep(1)
-        # when task is done, assert converted dir exists
-        await task
-
-        # assert tower_treasure__multidisc_mp3.converted_dir.exists()
-
-    asyncio.run(wrapper())
-
-    for f in tower_treasure__multidisc_mp3.inbox_dir.rglob("*"):
-        if f.is_file():
-            f.rename(tower_treasure__multidisc_mp3.inbox_dir / f.name)
-
-    assert tower_treasure__multidisc_mp3.inbox_dir.stat().st_mtime > last_touched
-    shutil.rmtree(tower_treasure__multidisc_mp3.inbox_dir, ignore_errors=True)
+    # Wait for the app task to complete
+    await app_task
+    assert converted_dir.exists()
+    assert get_output(capfd).count("trying again") == 1
+    shutil.rmtree(inbox_dir, ignore_errors=True)
 
 
 def test_header_only_prints_when_there_are_books_to_process(
@@ -217,3 +243,15 @@ def test_hardy_boys__flat_mp3s(
     app(max_loops=1, no_fix=True, test=True)
     assert tower_treasure__flat_mp3.converted_dir.exists()
     assert house_on_the_cliff__flat_mp3.converted_dir.exists()
+
+
+def test_multi_disc_fails(
+    old_mill__multidisc_mp3: Audiobook,
+    capfd: CaptureFixture[str],
+):
+
+    shutil.rmtree(old_mill__multidisc_mp3.converted_dir, ignore_errors=True)
+    time.sleep(2)
+    app(max_loops=2, no_fix=True, test=True)
+    out = get_output(capfd)
+    assert out.count("multi-disc") == 1

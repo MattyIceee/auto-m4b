@@ -4,6 +4,7 @@ import re
 import shutil
 import sys
 from pathlib import Path
+import time
 
 import dotenv
 import pytest
@@ -65,7 +66,7 @@ def setup():
     for env in get_git_root().glob(".env.local*"):
         dotenv.load_dotenv(env)
 
-    load_env(TESTS_ROOT / ".env.test", clean_working_dirs=True)
+    load_env(GIT_ROOT / ".env.test", clean_working_dirs=True)
 
 
 @pytest.fixture(scope="function", autouse=True)
@@ -121,8 +122,13 @@ def house_on_the_cliff__flat_mp3():
 
 
 @pytest.fixture(scope="function")
-def tower_treasure__multidisc_mp3():
-    return load_test_fixture("tower_treasure__multidisc_mp3", exclusive=True)
+def old_mill__multidisc_mp3():
+    # delete any files in the root of this dir
+    book = load_test_fixture("old_mill__multidisc_mp3", exclusive=True)
+    for f in (TEST_INBOX / "old_mill__multidisc_mp3").iterdir():
+        if f.is_file():
+            f.unlink(missing_ok=True)
+    return book
 
 
 @pytest.fixture(scope="function")
@@ -134,7 +140,7 @@ def tower_treasure__nested_mp3():
 def tower_treasure__all():
     return [
         load_test_fixture("tower_treasure__flat_mp3"),
-        load_test_fixture("tower_treasure__multidisc_mp3"),
+        load_test_fixture("old_mill__multidisc_mp3"),
         load_test_fixture("tower_treasure__nested_mp3"),
     ]
 
@@ -375,3 +381,72 @@ def global_test_log():
     shutil.copy2(orig_log, test_log)
     yield test_log
     test_log.unlink(missing_ok=True)
+
+
+def find_tmp_ray_session_dirs():
+    return sorted(
+        [d for d in Path("/tmp/ray").iterdir() if d.is_dir()], key=os.path.getctime
+    )
+
+
+async def get_tmp_ray_session_dir():
+    curr_time = time.time()
+
+    i = 0
+    while (
+        not [
+            p for p in find_tmp_ray_session_dirs() if curr_time - p.stat().st_ctime < 30
+        ]
+        and i < 20
+    ):
+        print("Waiting for Ray tmp session dir to be created")
+        await asyncio.sleep(0.25)
+        i += 1
+
+    new_ray_session_dirs = [
+        p for p in find_tmp_ray_session_dirs() if curr_time - p.stat().st_ctime < 30
+    ]
+    if not new_ray_session_dirs:
+        raise Exception(
+            "Could not find a Ray session dir that was created within the last 30"
+            " seconds, perhaps something went wrong? Here are the dirs I found:",
+            find_tmp_ray_session_dirs(),
+        )
+
+    if len(new_ray_session_dirs) > 1:
+        raise Exception(
+            "Found multiple Ray session dirs that were created within the last 30"
+            " seconds, you should clear out /tmp/ray (or this is a symptom of tests"
+            " running too close together)"
+        )
+
+    return new_ray_session_dirs[0]
+
+
+async def watch_for_log_file():
+    tmp_ray_session_dir = await get_tmp_ray_session_dir()
+    agent_log = tmp_ray_session_dir / "logs" / "runtime_env_agent.log"
+    max_attempts = 20
+    i = 0
+    while not agent_log.exists() and i < max_attempts:
+        print("Waiting for runtime_env_agent.log to be created")
+        time.sleep(0.25)
+        i += 1
+    assert agent_log.exists(), (
+        f"{agent_log} does not exist - either the test failed, the log file was"
+        " not created yet (try increasing the timeout), or the test completed too"
+        " quickly and the log file has already been cleaned up."
+    )
+    max_reads = 20
+    i = 0
+    text = ""
+    while agent_log.exists() and i < max_reads:
+        # print("Reading runtime_env_agent.log")
+        with open(agent_log, "r") as f:
+            text = f.read()
+        # await asyncio.sleep(0.1)
+        time.sleep(0.1)
+        i += 1
+    print("Returning runtime_env_agent.log text")
+    return text
+

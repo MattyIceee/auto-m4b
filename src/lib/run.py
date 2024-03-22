@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import shutil
@@ -7,7 +8,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import json
 from tinta import Tinta
 
 from src.lib.audiobook import Audiobook
@@ -17,12 +17,20 @@ from src.lib.formatters import friendly_date, human_elapsed_time, log_date, plur
 from src.lib.fs_utils import (
     clean_dir,
     count_audio_files_in_dir,
+    count_audio_files_in_inbox,
+    count_standalone_books_in_inbox,
     cp_dir,
     dir_is_empty,
     find_base_dirs_with_audio_files,
+    find_book_dirs_in_inbox,
     flatten_files_in_dir,
-    get_last_updated,
+    hash_dir_audio_files,
+    hash_dirs,
+    hash_inbox,
+    inbox_last_updated_at,
+    inbox_was_recently_modified,
     is_ok_to_delete,
+    last_updated_at,
     mv_dir_contents,
     mv_file_to_dir,
     mv_to_fix_dir,
@@ -57,12 +65,17 @@ from src.lib.term import (
     tinted_m4b,
     vline,
 )
-from src.lib.typing import FailedBooks
+from src.lib.typing import FailedBooks, InboxHashes
 
-TOUCHED: float = 0
 FAILED_BOOKS: FailedBooks = {}
+INBOX_HASH: str = ""
+INBOX_BOOK_HASHES: InboxHashes = {} 
 if os.getenv("FAILED_BOOKS"):
     FAILED_BOOKS = json.loads(os.getenv("FAILED_BOOKS", "{}"))
+
+def flush_inbox_hash():
+    global INBOX_HASH
+    INBOX_HASH = ""
 
 def print_launch_and_set_running():
     if cfg.SLEEPTIME and not cfg.TEST:
@@ -208,6 +221,15 @@ class m4btool:
 # glasses 2: ᒡ◯ᴖ◯ᒢ
 
 def banner(verb: str = "Checking"):
+    global INBOX_HASH
+    if hash_inbox() == INBOX_HASH:
+        return
+
+    if not INBOX_HASH:
+        verb = "Watching"
+    else:
+        verb = "Checking"
+
     current_local_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     dash = "-" * 24
@@ -216,6 +238,10 @@ def banner(verb: str = "Checking"):
 
     print_grey(f"{verb} for new books in {{{{{cfg.inbox_dir}}}}} ꨄ︎")
 
+    if not INBOX_HASH:
+        print_debug(f"First run, banner should say 'watching'")
+        nl()
+
 
 
 def fail_book(book: Audiobook):
@@ -223,30 +249,25 @@ def fail_book(book: Audiobook):
     global FAILED_BOOKS
     if book.inbox_dir in FAILED_BOOKS:
         return
-    FAILED_BOOKS[book.inbox_dir] = book.inbox_dir.stat().st_mtime
+    FAILED_BOOKS[book.inbox_dir] = book.last_updated_at()
 
 def process_inbox(first_run: bool = False):
-    global TOUCHED, FAILED_BOOKS
+    global FAILED_BOOKS, INBOX_HASH, INBOX_BOOK_HASHES
 
-    audiobooks_count = count_audio_files_in_dir(cfg.inbox_dir, only_file_exts=AUDIO_EXTS)
-
+    last_updated = inbox_last_updated_at()
+    audiobooks_count = count_audio_files_in_inbox()
     # compare last_touched to inbox dir's mtime - if inbox dir has not been modified since last run, skip
-    inbox_touched_since_last_run = get_last_updated(cfg.inbox_dir) > TOUCHED
-
+    # recently_updated= find_recently_modified_files_and_dirs(cfg.inbox_dir, 10, only_file_exts=cfg.AUDIO_EXTS)
     if audiobooks_count == 0:
         if first_run:
-            banner("Watching")
-            nl()
+            banner()
+        print_debug(f"No audio files found in {cfg.inbox_dir}, last updated at {last_updated}, next check in {cfg.sleeptime_friendly}")
         return
-
-    if not inbox_touched_since_last_run:
-        return
-    TOUCHED = cfg.inbox_dir.stat().st_mtime
 
     banner()
 
     did_wait_for_copy = False
-    while was_recently_modified(cfg.inbox_dir): 
+    while inbox_was_recently_modified(): 
         if not did_wait_for_copy:
             print_notice(
                 "The inbox folder was recently modified, waiting in case files are still being copied or moved...\n"
@@ -254,12 +275,24 @@ def process_inbox(first_run: bool = False):
             did_wait_for_copy = True
         time.sleep(0.5)
 
-    standalone_count = count_audio_files_in_dir(cfg.inbox_dir, maxdepth=0)
+    if did_wait_for_copy:
+        print_debug("Done waiting for inbox to be modified")
+
+    last_updated = inbox_last_updated_at()
+
+    if hash_inbox() == INBOX_HASH:
+        print_debug(f"Skipping this loop, inbox hash is the same (was last touched {friendly_date(last_updated)})")
+        return
+
+    print_debug(f"Last updated: {last_updated}")
+
+    standalone_count = count_standalone_books_in_inbox()
     if standalone_count:
         process_standalone_files()
 
     # Find directories containing audio files, handling single quote if present
-    audio_dirs = find_base_dirs_with_audio_files(cfg.inbox_dir, mindepth=1)
+    audio_dirs = find_book_dirs_in_inbox()
+
     total_books_count = len(audio_dirs)
     failed_books_count = len(FAILED_BOOKS)
     filtered_books_count = 0
@@ -270,13 +303,28 @@ def process_inbox(first_run: bool = False):
         books_count = len(audio_dirs)
         filtered_books_count = total_books_count - books_count
 
+    updated_broken_books = []
+
     if FAILED_BOOKS:
+        print_debug(f"Found failed books: {[k.name for k in FAILED_BOOKS.keys()]}")
         for book, last_modified in FAILED_BOOKS.copy().items():
-            if book.stat().st_mtime > last_modified:
+            was_modified = last_updated_at(book, only_file_exts=cfg.AUDIO_EXTS) > last_modified
+            hash_changed = hash_dir_audio_files(book) != INBOX_BOOK_HASHES.get(book, None)
+            if was_modified:
+                print_debug(f"Book has been modified since it failed last, checking if hash has changed")
+            if hash_changed:
+                print_debug(f"Book hash changed since it failed last, removing it from failed books\n        ← {INBOX_BOOK_HASHES.get(book)}\n        → {hash_dir_audio_files(book)}")
                 FAILED_BOOKS.pop(book)
+                updated_broken_books.append(book)
+                os.environ["FAILED_BOOKS"] = json.dumps(FAILED_BOOKS)
+            else:
+                print_debug(f"Bok hash is hte same, keeping it in failed books\n        ← {INBOX_BOOK_HASHES.get(book)}\n        → {hash_dir_audio_files(book)}")
         audio_dirs = [d for d in audio_dirs if d not in FAILED_BOOKS.keys()]
         books_count = len(audio_dirs)
         failed_books_count = len(FAILED_BOOKS)
+
+    INBOX_HASH = hash_inbox()
+    INBOX_BOOK_HASHES = hash_dirs(audio_dirs)
 
     # If no books to convert, print, sleep, and exit
     if total_books_count == 0:  # replace 'books_count' with your variable
@@ -313,7 +361,6 @@ def process_inbox(first_run: bool = False):
 
     for b, book_full_path in enumerate(audio_dirs):
         book = Audiobook(book_full_path)
-
         m4b_count = count_audio_files_in_dir(book.inbox_dir, only_file_exts=["m4b"])
         root_only_audio_files_count = count_audio_files_in_dir(
             book.inbox_dir, only_file_exts=AUDIO_EXTS, maxdepth=1
@@ -332,6 +379,10 @@ def process_inbox(first_run: bool = False):
         if was_recently_modified(book.inbox_dir):
             print_notice("Skipping this book, it was recently updated and may still be copying")
             continue
+
+        if book.inbox_dir in updated_broken_books:
+            nl()
+            smart_print(f"This book previously failed, but it has been updated – trying again")
 
         # can't modify the inbox dir until we check whether it was modified recently
         book.log_file.unlink(missing_ok=True)
@@ -355,8 +406,6 @@ def process_inbox(first_run: bool = False):
             )
             fail_book(book)
             continue
-
-
 
         needs_fixing = False
         if nested_audio_dirs_count > 1 or (
@@ -725,8 +774,7 @@ def process_inbox(first_run: bool = False):
             f"Finished converting all available books, waiting for more to be added to the inbox"
         )
         # touch inbox so that we can check if it was modified since last run
-        cfg.inbox_dir.touch()
-        TOUCHED = cfg.inbox_dir.stat().st_mtime
+        # TOUCHED = last_updated_at(cfg.inbox_dir, only_file_exts=cfg.AUDIO_EXTS)
         if not cfg.NO_ASCII:
             print_dark_grey(BOOK_ASCII)
     else:

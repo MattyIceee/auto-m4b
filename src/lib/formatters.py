@@ -14,8 +14,14 @@ def log_date() -> str:
     return datetime.now(tz=current_tz).strftime("%Y-%m-%d %H:%M:%S%z")
 
 
-def friendly_date() -> str:
-    return datetime.now().strftime("%I:%M:%S %p, %a, %d %b %Y")
+def friendly_date(d: datetime | float | None = None) -> str:
+    if isinstance(d, float) or isinstance(d, int):
+        t = datetime.fromtimestamp(d)
+    elif d is None:
+        t = datetime.now()
+    else:
+        t = d
+    return t.strftime("%I:%M:%S %p, %a, %d %b %Y")
 
 
 @cachetools.func.ttl_cache(maxsize=128, ttl=MEMO_TTL)

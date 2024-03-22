@@ -23,6 +23,8 @@ ruff = "*"
 black = "*"
 mypy = "*"
 pytest = "*"
+pytest-asyncio = "*"
+pillow = "*"
 
 [requires]
 python_version = "3.12"

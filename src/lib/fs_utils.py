@@ -132,6 +132,20 @@ def count_audio_files_in_dir(
     return len(audio_files)
 
 
+def count_audio_files_in_inbox() -> int:
+    from src.lib.config import cfg
+
+    return count_audio_files_in_dir(cfg.inbox_dir, only_file_exts=cfg.AUDIO_EXTS)
+
+
+def count_standalone_books_in_inbox() -> int:
+    from src.lib.config import cfg
+
+    return count_audio_files_in_dir(
+        cfg.inbox_dir, only_file_exts=cfg.AUDIO_EXTS, maxdepth=0
+    )
+
+
 @overload
 def get_size(
     path: Path, fmt: Literal["bytes"] = "bytes", only_file_exts: list[str] = []
@@ -588,6 +602,12 @@ def find_base_dirs_with_audio_files(
     return list(sorted(all_roots_with_audio_files))
 
 
+def find_book_dirs_in_inbox():
+    from src.lib.config import cfg
+
+    return find_base_dirs_with_audio_files(cfg.inbox_dir, mindepth=1)
+
+
 def clean_dir(dir_path: Path) -> None:
     dir_path = dir_path.resolve()
 
@@ -654,13 +674,19 @@ def find_cover_art_file(path: Path) -> Path | None:
     all_images_in_dir = [f for f in path.rglob("*") if f.suffix in supported_image_exts]
 
     # if any of the images match *cover* or *folder*, return it
-    for img in all_images_in_dir:
-        if img.name.lower() in ["cover", "folder"]:
-            return img
+    img = next(
+        (i for i in all_images_in_dir if i.name.lower() in ["cover", "folder"]), None
+    )
 
     # otherwise, find the biggest image
-    if all_images_in_dir:
-        return max(all_images_in_dir, key=lambda f: f.stat().st_size)
+    if not img and all_images_in_dir:
+        img = max(all_images_in_dir, key=lambda f: f.stat().st_size)
+
+    # if img less than 10kb, return None
+    if img and img.stat().st_size < 10240:
+        return None
+
+    return img
 
 
 def filter_ignored(paths: Iterable[Path]) -> list[Path]:
@@ -674,34 +700,57 @@ def filter_ignored(paths: Iterable[Path]) -> list[Path]:
 
 
 def find_recently_modified_files_and_dirs(
-    path: Path, within_seconds: float = 0, since: float = 0
-) -> list[tuple[Path, float]]:
+    path: Path,
+    within_seconds: float = 0,
+    *,
+    since: float = 0,
+    only_file_exts: list[str] = [],
+) -> list[tuple[Path, float, float]]:
     from src.lib.config import cfg
 
     if within_seconds <= 0:
         within_seconds = 2 if cfg.TEST else 15
     current_time = time.time()
-    recent_items: list[tuple[Path, float]] = []
+    recent_items: list[tuple[Path, float, float]] = []
 
-    for p in reversed(sorted(path.rglob("*.txt"), key=lambda f: f.stat().st_mtime)):
+    for p in reversed(sorted(path.rglob("*"), key=lambda f: f.stat().st_mtime)):
         # check p against cfg.IGNORE_FILES - a list of glob patterns to ignore
-        age = (since or current_time) - p.stat().st_mtime
-        if age < within_seconds:
-            recent_items.append((p, age))
+        if not p.exists():
+            continue  # protect against race conditions & async ops
+        if p.is_file() and (not only_file_exts or p.suffix in only_file_exts):
+            continue
+        last_modified = p.stat().st_mtime
+        age = (since or current_time) - last_modified
+        if age < within_seconds and filter_ignored([p]):
+            recent_items.append((p, age, last_modified))
 
-    return [(p, a) for p, a in recent_items if filter_ignored([p])]
+    return recent_items
 
 
-def get_last_updated(path: Path) -> float:
-    this_m = path.stat().st_mtime
-    if path.is_file():
-        return this_m
-    paths_m = [this_m] + [f.stat().st_mtime for f in path.rglob("*") if f.is_file()]
+def last_updated_at(path: Path, *, only_file_exts: list[str] = []) -> float:
+    find_all_sorted_by_modified = find_recently_modified_files_and_dirs(
+        path, 60, since=0, only_file_exts=only_file_exts
+    )
+    paths_m = [m for _1, _2, m in find_all_sorted_by_modified]
     return max(paths_m, default=0)
 
 
+def last_updated_audio_files_at(path: Path) -> float:
+    return last_updated_at(path, only_file_exts=AUDIO_EXTS)
+
+
+def inbox_last_updated_at() -> float:
+    from src.lib.config import cfg
+
+    return last_updated_at(cfg.inbox_dir, only_file_exts=cfg.AUDIO_EXTS)
+
+
 def was_recently_modified(
-    path: Path, within_seconds: float = 0, since: float = 0
+    path: Path,
+    within_seconds: float = 0,
+    since: float = 0,
+    *,
+    only_file_exts: list[str] = [],
 ) -> bool:
     from src.lib.config import cfg
 
@@ -713,14 +762,65 @@ def was_recently_modified(
     this_m = time.time() - path.stat().st_mtime < within_seconds
 
     if path.is_file():
+        if only_file_exts and path.suffix not in only_file_exts:
+            return False
         return this_m
 
     # last_modified_time = path.stat().st_mtime
     # now = time.time()
     # time_since_lm = now - last_modified_time
     # return time_since_lm < within_seconds
-    recents = find_recently_modified_files_and_dirs(path, within_seconds, since)
+    recents = find_recently_modified_files_and_dirs(
+        path, within_seconds, since=since, only_file_exts=only_file_exts
+    )
     return bool(this_m or recents)
+
+
+def inbox_was_recently_modified() -> bool:
+    from src.lib.config import cfg
+
+    return was_recently_modified(cfg.inbox_dir, only_file_exts=cfg.AUDIO_EXTS)
+
+
+def hash_dir(path: Path, *, only_file_exts: list[str] = [], debug: bool = True) -> str:
+    """Makes a has of the dir's contents of filenames and file sizes in an array, sorted by filename
+    then hashes the array"""
+    import hashlib
+
+    def hash_file(f: Path) -> str:
+        if any(
+            [
+                not f.is_file(),
+                f.name.startswith("."),
+                only_file_exts and f.suffix not in only_file_exts,
+            ]
+        ):
+            return ""
+        return f"{f.relative_to(path)}|{f.stat().st_size}"
+
+    files = sorted(
+        filter(None, [hash_file(f) for f in path.rglob("*")]),  # case insensitive sort
+        key=lambda f: f.lower(),
+    )
+    if debug:
+        return files  # type: ignore
+    return hashlib.md5(":".join(files).encode()).hexdigest()
+
+
+def hash_dir_audio_files(path: Path, *, debug: bool = False) -> str:
+    """Makes a hash of the dir's audio files' filenames and file sizes in an array, sorted by filename
+    then hashes the array"""
+    return hash_dir(path, only_file_exts=AUDIO_EXTS, debug=debug)
+
+
+def hash_inbox():
+    from src.lib.config import cfg
+
+    return hash_dir_audio_files(cfg.inbox_dir)
+
+
+def hash_dirs(dirs: list[Path]) -> dict[Path, str]:
+    return {p: hash_dir_audio_files(p) for p in dirs if p.exists()}
 
 
 def mv_to_fix_dir(book: "Audiobook", fail_book: Callable[["Audiobook"], None]):
