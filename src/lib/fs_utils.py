@@ -19,6 +19,7 @@ from src.lib.term import (
     tint_path,
 )
 from src.lib.typing import (
+    BookHashesDict,
     copy_kwargs_omit_first_arg,
     Operation,
     OVERWRITE_MODES,
@@ -713,16 +714,22 @@ def find_recently_modified_files_and_dirs(
     current_time = time.time()
     recent_items: list[tuple[Path, float, float]] = []
 
-    for p in reversed(sorted(path.rglob("*"), key=lambda f: f.stat().st_mtime)):
+    found_items = list(
+        sorted(
+            [(f, f.stat().st_mtime) for f in filter_ignored(path.rglob("*"))],
+            key=lambda x: -x[1],
+        )
+    )
+
+    for path, last_modified in found_items:
         # check p against cfg.IGNORE_FILES - a list of glob patterns to ignore
-        if not p.exists():
+        if not path.exists():
             continue  # protect against race conditions & async ops
-        if p.is_file() and (not only_file_exts or p.suffix in only_file_exts):
+        if path.is_file() and only_file_exts and path.suffix in only_file_exts:
             continue
-        last_modified = p.stat().st_mtime
         age = (since or current_time) - last_modified
-        if age < within_seconds and filter_ignored([p]):
-            recent_items.append((p, age, last_modified))
+        if age < within_seconds:
+            recent_items.append((path, age, last_modified))
 
     return recent_items
 
@@ -799,7 +806,9 @@ def hash_dir(path: Path, *, only_file_exts: list[str] = [], debug: bool = True) 
         return f"{f.relative_to(path)}|{f.stat().st_size}"
 
     files = sorted(
-        filter(None, [hash_file(f) for f in path.rglob("*")]),  # case insensitive sort
+        filter(
+            None, [hash_file(f) for f in filter_ignored(path.rglob("*"))]
+        ),  # case insensitive sort
         key=lambda f: f.lower(),
     )
     if debug:
@@ -819,8 +828,8 @@ def hash_inbox():
     return hash_dir_audio_files(cfg.inbox_dir)
 
 
-def hash_dirs(dirs: list[Path]) -> dict[Path, str]:
-    return {p: hash_dir_audio_files(p) for p in dirs if p.exists()}
+def hash_inbox_books(dirs: list[Path]) -> BookHashesDict:
+    return {p.name: hash_dir_audio_files(p) for p in dirs if p.exists()}
 
 
 def mv_to_fix_dir(book: "Audiobook", fail_book: Callable[["Audiobook"], None]):

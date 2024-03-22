@@ -12,26 +12,26 @@ from src.lib.fs_utils import (
     find_first_audio_file,
     find_next_audio_file,
 )
-from src.tests.conftest import TEST_INBOX
+from src.tests.conftest import TEST_DIRS
 
 expect_flat_dirs = [
-    TEST_INBOX / "mock_book_1",
-    TEST_INBOX / "mock_book_2",
-    TEST_INBOX / "mock_book_3",
-    TEST_INBOX / "mock_book_4",
+    TEST_DIRS.inbox / "mock_book_1",
+    TEST_DIRS.inbox / "mock_book_2",
+    TEST_DIRS.inbox / "mock_book_3",
+    TEST_DIRS.inbox / "mock_book_4",
 ]
 
 expect_deep_dirs = [
-    TEST_INBOX / "mock_book_multi_disc",
-    TEST_INBOX / "mock_book_multi_series",
-    TEST_INBOX / "mock_book_nested",
+    TEST_DIRS.inbox / "mock_book_multi_disc",
+    TEST_DIRS.inbox / "mock_book_multi_series",
+    TEST_DIRS.inbox / "mock_book_nested",
 ]
 
 expect_all_dirs = expect_flat_dirs + expect_deep_dirs
 
 expect_only_standalone_files = [
-    TEST_INBOX / "mock_book_standalone_file_a.mp3",
-    TEST_INBOX / "mock_book_standalone_file_b.mp3",
+    TEST_DIRS.inbox / "mock_book_standalone_file_a.mp3",
+    TEST_DIRS.inbox / "mock_book_standalone_file_b.mp3",
 ]
 
 expect_all = expect_all_dirs + expect_only_standalone_files
@@ -40,13 +40,13 @@ expect_all = expect_all_dirs + expect_only_standalone_files
 @pytest.mark.parametrize(
     "path, mindepth, maxdepth, expected",
     [
-        (TEST_INBOX, None, None, expect_all_dirs),
-        (TEST_INBOX, 0, None, expect_all_dirs),
-        (TEST_INBOX, None, 0, []),
-        (TEST_INBOX, 0, 1, expect_flat_dirs),
-        (TEST_INBOX, 1, 1, expect_flat_dirs),
-        (TEST_INBOX, 1, 2, expect_all_dirs),
-        (TEST_INBOX, 2, 2, expect_deep_dirs),
+        (TEST_DIRS.inbox, None, None, expect_all_dirs),
+        (TEST_DIRS.inbox, 0, None, expect_all_dirs),
+        (TEST_DIRS.inbox, None, 0, []),
+        (TEST_DIRS.inbox, 0, 1, expect_flat_dirs),
+        (TEST_DIRS.inbox, 1, 1, expect_flat_dirs),
+        (TEST_DIRS.inbox, 1, 2, expect_all_dirs),
+        (TEST_DIRS.inbox, 2, 2, expect_deep_dirs),
     ],
 )
 @pytest.mark.usefixtures("mock_inbox", "setup")
@@ -76,35 +76,35 @@ def test_find_next_audio_file(tower_treasure__flat_mp3: Audiobook):
 def test_folder_recently_modified():
     from src.lib.fs_utils import find_recently_modified_files_and_dirs
 
-    (TEST_INBOX / "recently_modified_file.txt").unlink(missing_ok=True)
-    time.sleep(2)
-    assert find_recently_modified_files_and_dirs(TEST_INBOX, 1) == []
+    (TEST_DIRS.inbox / "recently_modified_file.txt").unlink(missing_ok=True)
+    time.sleep(1)
+    assert find_recently_modified_files_and_dirs(TEST_DIRS.inbox, 0.5) == []
 
     # create a file
     time.sleep(0.5)
-    (TEST_INBOX / "recently_modified_file.txt").touch()
+    (TEST_DIRS.inbox / "recently_modified_file.txt").touch()
     assert (
-        find_recently_modified_files_and_dirs(TEST_INBOX, 5)[0][0]
-        == TEST_INBOX / "recently_modified_file.txt"
+        find_recently_modified_files_and_dirs(TEST_DIRS.inbox, 5)[0][0]
+        == TEST_DIRS.inbox / "recently_modified_file.txt"
     )
     # remove the file
-    (TEST_INBOX / "recently_modified_file.txt").unlink()
+    (TEST_DIRS.inbox / "recently_modified_file.txt").unlink()
 
 
 def test_was_recently_modified():
     from src.lib.fs_utils import was_recently_modified
 
-    nested_dir = TEST_INBOX / "test_was_recently_modified"
+    nested_dir = TEST_DIRS.inbox / "test_was_recently_modified"
     shutil.rmtree(nested_dir, ignore_errors=True)
     nested_dir.mkdir(parents=True, exist_ok=True)
 
     time.sleep(1)
     (nested_dir / "recently_modified_file.txt").unlink(missing_ok=True)
-    assert not was_recently_modified(TEST_INBOX, 1)
+    assert not was_recently_modified(TEST_DIRS.inbox, 1)
 
     # create a file
     (nested_dir / "recently_modified_file.txt").touch()
-    assert was_recently_modified(TEST_INBOX, 1)
+    assert was_recently_modified(TEST_DIRS.inbox, 1)
     # remove the file
     (nested_dir / "recently_modified_file.txt").unlink()
 
@@ -114,7 +114,7 @@ def test_last_updated_at(
 ):
     from src.lib.fs_utils import last_updated_at
 
-    inbox_last_updated = last_updated_at(TEST_INBOX)
+    inbox_last_updated = last_updated_at(TEST_DIRS.inbox)
     book_last_updated = last_updated_at(old_mill__multidisc_mp3.path)
 
     # move a file in multi-disc book to its root
@@ -124,7 +124,7 @@ def test_last_updated_at(
             f.touch()
             break
 
-    assert last_updated_at(TEST_INBOX) > inbox_last_updated
+    assert last_updated_at(TEST_DIRS.inbox) > inbox_last_updated
     assert last_updated_at(old_mill__multidisc_mp3.path) > book_last_updated
 
 
@@ -134,7 +134,7 @@ def test_hash_dir(
 ):
     from src.lib.fs_utils import hash_dir
 
-    baseline_inbox_hash = hash_dir(TEST_INBOX)
+    baseline_inbox_hash = hash_dir(TEST_DIRS.inbox)
     baseline_mill_hash = hash_dir(old_mill__multidisc_mp3.path)
     baseline_tower_hash = hash_dir(tower_treasure__flat_mp3.path)
 
@@ -145,7 +145,7 @@ def test_hash_dir(
             f.touch()
             break
 
-    assert hash_dir(TEST_INBOX) != baseline_inbox_hash
+    assert hash_dir(TEST_DIRS.inbox) != baseline_inbox_hash
     assert hash_dir(old_mill__multidisc_mp3.path) != baseline_mill_hash
     assert hash_dir(tower_treasure__flat_mp3.path) == baseline_tower_hash
 
@@ -156,7 +156,7 @@ def test_hash_dir_ignores_log_files(
 ):
     from src.lib.fs_utils import hash_dir
 
-    baseline_inbox_hash = hash_dir(TEST_INBOX, only_file_exts=[".mp3"])
+    baseline_inbox_hash = hash_dir(TEST_DIRS.inbox, only_file_exts=[".mp3"])
     baseline_mill_hash = hash_dir(old_mill__multidisc_mp3.path, only_file_exts=[".mp3"])
     baseline_tower_hash = hash_dir(
         tower_treasure__flat_mp3.path, only_file_exts=[".mp3"]
@@ -166,7 +166,7 @@ def test_hash_dir_ignores_log_files(
     for d in [old_mill__multidisc_mp3.path, tower_treasure__flat_mp3.path]:
         (d / "test-m4b-tool.log").touch()
 
-    assert hash_dir(TEST_INBOX, only_file_exts=[".mp3"]) == baseline_inbox_hash
+    assert hash_dir(TEST_DIRS.inbox, only_file_exts=[".mp3"]) == baseline_inbox_hash
     assert (
         hash_dir(old_mill__multidisc_mp3.path, only_file_exts=[".mp3"])
         == baseline_mill_hash
@@ -188,7 +188,7 @@ def test_hash_dir_respects_only_file_exts(
     from src.lib.fs_utils import hash_dir
 
     try:
-        baseline_inbox_hash = hash_dir(TEST_INBOX, only_file_exts=[".mp3"])
+        baseline_inbox_hash = hash_dir(TEST_DIRS.inbox, only_file_exts=[".mp3"])
         baseline_mill_hash = hash_dir(
             old_mill__multidisc_mp3.path, only_file_exts=[".mp3"]
         )
@@ -210,7 +210,7 @@ def test_hash_dir_respects_only_file_exts(
         for ext in [".txt", ".jpg", ".png", ".pdf"]:
             (tower_treasure__flat_mp3.path / f"non_mp3_file{ext}").touch()
 
-        assert hash_dir(TEST_INBOX, only_file_exts=[".mp3"]) != baseline_inbox_hash
+        assert hash_dir(TEST_DIRS.inbox, only_file_exts=[".mp3"]) != baseline_inbox_hash
         assert (
             hash_dir(old_mill__multidisc_mp3.path, only_file_exts=[".mp3"])
             != baseline_mill_hash

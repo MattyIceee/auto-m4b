@@ -1,6 +1,5 @@
 import functools
 from collections.abc import Callable
-from pathlib import Path
 from typing import Any, cast, Concatenate, Literal, ParamSpec, TypeVar
 
 import numpy as np
@@ -18,8 +17,8 @@ DurationFmt = Literal["seconds", "human"]
 DirName = Literal[
     "inbox", "converted", "archive", "fix", "backup", "build", "merge", "trash"
 ]
-FailedBooks = dict[Path, float]
-InboxHashes = dict[Path, str]
+FailedBooksDict = dict[str, float]
+BookHashesDict = dict[str, str]
 ExifWriter = Literal["exiftool", "eyed3"]
 TagSource = Literal[
     "title",
