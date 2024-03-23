@@ -104,3 +104,13 @@ class testutils:
     @classmethod
     def get_stdout(cls, capfd: CaptureFixture[str]) -> str:
         return cls.strip_ansi_codes(capfd.readouterr().out)
+
+    @classmethod
+    def make_tmp_files(cls, tmp_path: Path, file_rel_paths: list[str]):
+        """Creates a tmp list of files from a tmp_path, and returns the parent directory of the files"""
+        d = (tmp_path / file_rel_paths[0]).parent
+        d.mkdir(parents=True, exist_ok=True)
+        for file in file_rel_paths:
+            (tmp_path / file).touch()
+
+        return d

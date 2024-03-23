@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from src.lib.config import cfg
-from src.lib.misc import re_group
+from src.lib.misc import isorted, re_group
 from src.lib.term import print_debug
 
 author_pattern = r"^(?P<author>.*?)[\W\s]*[-_–—\(]"
@@ -23,12 +23,12 @@ roman_numeral_pattern = r"((?:^|(?<=[\W_]))[IVXLCDM]+(?:$|(?=[\W_])))"
 
 
 @dataclass
-class roman_numeral:
+class romans:
     ones = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX"]
     tens = ["X", "XX", "XXX", "XL", "L", "LX", "LXX", "LXXX", "XC"]
 
     @classmethod
-    def is_valid(cls, s: str) -> bool:
+    def is_roman_numeral(cls, s: str) -> bool:
         """Test input against all possible valid roman numerals from 1 to 99"""
         s = s.upper()
         for ten in cls.tens:
@@ -36,6 +36,29 @@ class roman_numeral:
                 if s == ten + one or s == ten or s == one:
                     return True
         return False
+
+    @classmethod
+    def check(cls, s: str) -> list[re.Match[str]]:
+        """Tests a string for possible valid roman numerals from 1 to 99 and returns matches, if found"""
+        possible_matches = re.findall(roman_numeral_pattern, s, re.I)
+        return [
+            p
+            for p in possible_matches
+            if p and cls.is_roman_numeral(re_group(p, 1, default=""))
+        ]
+
+    @classmethod
+    def find_all(cls, s: str) -> list[str]:
+        """Finds all possible valid roman numerals from 1 to 99 in a string"""
+        return [re_group(m, 1) for m in cls.check(s)]
+
+    @classmethod
+    def strip(cls, s: str) -> str:
+        """Strips roman numerals from a string"""
+
+        # split on word boundaries, and any boundary between lowercase/uppercase or letter/non-letter
+        split = re.split(r"(?<=\w)(?=\W)|(?<=\W)(?=\w)|(?<=[a-z])(?=[A-Z])", s)
+        return "".join([p for p in split if not cls.is_roman_numeral(p)])
 
 
 if TYPE_CHECKING:
@@ -173,11 +196,8 @@ def get_roman_numerals_dict(*ss: str) -> dict[str, int]:
         ss = ss[0]  # type: ignore
 
     for s in ss:
-        match = re_group(
-            re.search(roman_numeral_pattern, s, re.I), 1, default=""
-        ).upper()
-        if match and roman_numeral.is_valid(match):
-            found_roman_numerals[match] = found_roman_numerals.get(match, 0) + 1
+        for m in romans.find_all(s):
+            found_roman_numerals[m] = found_roman_numerals.get(m, 0) + 1
 
     return found_roman_numerals
 
@@ -199,6 +219,12 @@ def count_distinct_roman_numerals(d: Path) -> int:
     return len([n for n in find_roman_numerals(d).keys() if n != "I"])
 
 
+def strip_roman_numerals(d: Path) -> list[Path]:
+    """Strips roman numerals from the filenames in a directory and returns
+    a list of proposed paths, keeping the original file order"""
+    return [f.parent / romans.strip(f.name) for f in d.rglob("*") if f.is_file()]
+
+
 def roman_numerals_affect_file_order(d: Path) -> bool:
     """Compares the order of files in a directory, both with and without roman numerals.
 
@@ -208,11 +234,11 @@ def roman_numerals_affect_file_order(d: Path) -> bool:
     Returns:
         bool: True if the files are in the same order, False otherwise
     """
-    files = [f.stem for f in d.rglob("*") if f.is_file()]
-    files_no_roman = [re.sub(roman_numeral_pattern, "", f) for f in files]
-    sorted_no_roman = list(sorted(files_no_roman))
+    files = [f.stem for f in isorted(d.rglob("*")) if f.is_file()]
+    files_no_roman = [romans.strip(f) for f in files]
+    files_no_roman_sorted = list(isorted([f.stem for f in strip_roman_numerals(d)]))
 
-    return sorted_no_roman != files_no_roman
+    return files_no_roman_sorted != files_no_roman
 
 
 def get_year_from_date(date: str | None) -> str:

@@ -85,6 +85,10 @@ def re_group(
     return found if found is not None else default
 
 
+def isorted(iterable: Iterable[T], reverse: bool = False) -> list[T]:
+    return sorted(iterable, key=lambda x: str(x).lower(), reverse=reverse)
+
+
 def compare_trim(a: str, b: str) -> bool:
     return " ".join(a.split()) == " ".join(b.split())
 
@@ -179,11 +183,12 @@ def get_dir_name_from_path(p: Path) -> DirName | None:
         if k in p.parents:
             return cast(DirName, d.lower().replace("_folder", ""))
 
+
 def get_or_create_event_loop():
     try:
         loop = asyncio.get_event_loop()
     except RuntimeError as e:
-        if str(e).startswith('There is no current event loop in thread'):
+        if str(e).startswith("There is no current event loop in thread"):
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
         else:

@@ -299,7 +299,7 @@ def process_inbox(first_run: bool = False):
 
     waited_while_copying = 0
     while inbox_was_recently_modified():
-        if INBOX_HASH != hash_inbox() and not waited_while_copying:
+        if (INBOX_HASH != hash_inbox()) and not waited_while_copying:
             print_notice(
                 "The inbox folder was recently modified, waiting in case files are still being copied or moved...\n"
             )
