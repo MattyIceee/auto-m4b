@@ -73,6 +73,7 @@ from src.lib.typing import BookHashesDict, FailedBooksDict
 FAILED_BOOKS: FailedBooksDict = {}
 INBOX_HASH: str = ""
 INBOX_BOOK_HASHES: BookHashesDict = {}
+LAST_UPDATED: float = 0
 if os.getenv("FAILED_BOOKS"):
     FAILED_BOOKS = {
         k: float(v) for k, v in json.loads(os.getenv("FAILED_BOOKS", "{}")).items()
@@ -281,7 +282,7 @@ def unfail_book(book: Audiobook | str, updated_broken_books: list[str] = []):
 
 
 def process_inbox(first_run: bool = False):
-    global FAILED_BOOKS, INBOX_HASH, INBOX_BOOK_HASHES
+    global FAILED_BOOKS, INBOX_HASH, INBOX_BOOK_HASHES, LAST_UPDATED
 
     audiobooks_count = count_audio_files_in_inbox()
     # compare last_touched to inbox dir's mtime - if inbox dir has not been modified since last run, skip
@@ -303,13 +304,10 @@ def process_inbox(first_run: bool = False):
                 "The inbox folder was recently modified, waiting in case files are still being copied or moved...\n"
             )
         waited_while_copying += 1
+        time_ago = time.time() - inbox_last_updated_at()
         print_debug(
-            f"Waiting for inbox to be modified, touched:\n"
-            f"          last {friendly_date(inbox_last_updated_at(), ms=True)}\n"
-            f"          curr {friendly_date(time.time(), ms=True)}\n"
-            f"        hash:\n"
-            f"          last {INBOX_HASH}\n"
-            f"          curr {hash_inbox()}"
+            f"Waiting for inbox to be modified, touched {time_ago:.0f} s ago\n"
+            f"          hash: last {INBOX_HASH} / curr {hash_inbox()}"
         )
         time.sleep(0.5)
 
@@ -317,9 +315,11 @@ def process_inbox(first_run: bool = False):
         print_debug("Done waiting for inbox to be modified")
 
     if hash_inbox() == INBOX_HASH:
-        print_debug(
-            f"Skipping this loop, inbox hash is the same (was last touched {friendly_date(inbox_last_updated_at())})"
-        )
+        if inbox_last_updated_at() != LAST_UPDATED:
+            print_debug(
+                f"Skipping this loop, inbox hash is the same (was last touched {friendly_date(inbox_last_updated_at())})"
+            )
+            LAST_UPDATED = inbox_last_updated_at()
         return
 
     print_debug(f"Last updated: {friendly_date(inbox_last_updated_at(), ms=True)}")
