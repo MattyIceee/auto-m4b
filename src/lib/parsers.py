@@ -30,7 +30,7 @@ class romans:
     @classmethod
     def is_roman_numeral(cls, s: str) -> bool:
         """Test input against all possible valid roman numerals from 1 to 99"""
-        s = s.upper()
+        s = str(s).upper()
         for ten in cls.tens:
             for one in cls.ones:
                 if s == ten + one or s == ten or s == one:
@@ -38,19 +38,10 @@ class romans:
         return False
 
     @classmethod
-    def check(cls, s: str) -> list[re.Match[str]]:
-        """Tests a string for possible valid roman numerals from 1 to 99 and returns matches, if found"""
-        possible_matches = re.findall(roman_numeral_pattern, s, re.I)
-        return [
-            p
-            for p in possible_matches
-            if p and cls.is_roman_numeral(re_group(p, 1, default=""))
-        ]
-
-    @classmethod
     def find_all(cls, s: str) -> list[str]:
         """Finds all possible valid roman numerals from 1 to 99 in a string"""
-        return [re_group(m, 1) for m in cls.check(s)]
+        possible_matches: list[str] = re.findall(roman_numeral_pattern, s, re.I)
+        return [p for p in possible_matches if p and cls.is_roman_numeral(p)]
 
     @classmethod
     def strip(cls, s: str) -> str:

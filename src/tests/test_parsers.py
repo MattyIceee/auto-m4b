@@ -6,7 +6,7 @@ from src.lib.audiobook import Audiobook
 from src.lib.ffmpeg_utils import get_bitrate_py, is_variable_bitrate
 from src.lib.formatters import human_bitrate
 from src.lib.id3_utils import extract_id3_tag_py, write_id3_tags_eyed3
-from src.lib.parsers import extract_path_info
+from src.lib.parsers import extract_path_info, romans
 from src.lib.typing import BadFileError
 from src.tests.helpers.pytest_utils import testutils
 
@@ -220,3 +220,121 @@ def test_roman_numerals_affect_file_order(
     d = testutils.make_tmp_files(tmp_path, test_files)
 
     assert roman_numerals_affect_file_order(d) == expected
+
+
+class test_romans:
+
+    @pytest.mark.parametrize(
+        "test_case, expected",
+        [
+            ("A", False),
+            ("B", False),
+            ("8", False),
+            ("I", True),
+            ("II", True),
+            ("III", True),
+            ("IV", True),
+            ("V", True),
+            ("VI", True),
+            ("VII", True),
+            ("VIII", True),
+            ("IX", True),
+            ("X", True),
+            ("XI", True),
+            ("XII", True),
+            ("XIII", True),
+            ("XIV", True),
+            ("XV", True),
+            ("XVI", True),
+            ("XVII", True),
+            ("XVIII", True),
+            ("XIX", True),
+            ("XX", True),
+            ("XXI", True),
+            ("XXII", True),
+            ("XXIII", True),
+            ("XXIV", True),
+            ("XXV", True),
+            ("XXVI", True),
+            ("XXVII", True),
+            ("XXVIII", True),
+            ("XXIX", True),
+            ("XXX", True),
+            ("XXXI", True),
+            ("XXXII", True),
+            ("XXXIII", True),
+            ("XXXIV", True),
+            ("XXXV", True),
+            ("XXXVI", True),
+            ("XXXVII", True),
+            ("XXXVIII", True),
+            ("XXXIX", True),
+            ("XL", True),
+            ("XLI", True),
+            ("XLII", True),
+            ("XLIII", True),
+            ("XLIV", True),
+            ("XLV", True),
+            ("XLVI", True),
+            ("XLVII", True),
+            ("XLVIII", True),
+            ("XLIX", True),
+            ("L", True),
+            ("LI", True),
+            ("LII", True),
+            ("LIII", True),
+            ("LIV", True),
+            ("LV", True),
+            ("LVI", True),
+            ("LVII", True),
+            ("LVIII", True),
+            ("LIX", True),
+            ("LX", True),
+            ("LXI", True),
+            ("LXII", True),
+            ("LXIII", True),
+            ("LXIV", True),
+            ("LXV", True),
+            ("LXVI", True),
+            ("LXVII", True),
+            ("LXVIII", True),
+            ("LXIX", True),
+            ("LXX", True),
+        ],
+    )
+    def test_is_roman_numeral(self, test_case, expected):
+
+        assert romans.is_roman_numeral(test_case) == expected
+
+    @pytest.mark.parametrize(
+        "test_case, expected",
+        [
+            ("A", []),
+            ("B", []),
+            ("8", []),
+            ("I", ["I"]),
+            ("II", ["II"]),
+            ("Chapter III", ["III"]),
+            ("Chapter IV", ["IV"]),
+            ("Chapter V", ["V"]),
+            ("Chapter VI", ["VI"]),
+            ("Chapter VII", ["VII"]),
+            ("Chapter VIII", ["VIII"]),
+            ("Chapter IX", ["IX"]),
+            ("Chapter X", ["X"]),
+            ("Chapter XI", ["XI"]),
+            ("Chapter XII", ["XII"]),
+            ("Chapter XIII", ["XIII"]),
+            ("Star Wars Episode IV: A New Hope", ["IV"]),
+            ("Star Wars Episode V: The Empire Strikes Back", ["V"]),
+            ("Star Wars Episode VI: Return of the Jedi", ["VI"]),
+            ("Star Wars Episode VII: The Force Awakens", ["VII"]),
+            ("Star Wars Episode VIII: The Last Jedi", ["VIII"]),
+            ("Star Wars Episode IX: The Rise of Skywalker", ["IX"]),
+            ("Star Trek III: The Search for Spock", ["III"]),
+            ("Dune: Parts II & III - Muad'Dib & The Prophet", ["II", "III"]),
+        ],
+    )
+    def test_find_all(self, test_case, expected):
+
+        assert romans.find_all(test_case) == expected
