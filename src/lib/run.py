@@ -283,7 +283,6 @@ def unfail_book(book: Audiobook | str, updated_broken_books: list[str] = []):
 def process_inbox(first_run: bool = False):
     global FAILED_BOOKS, INBOX_HASH, INBOX_BOOK_HASHES
 
-    last_updated = inbox_last_updated_at()
     audiobooks_count = count_audio_files_in_inbox()
     # compare last_touched to inbox dir's mtime - if inbox dir has not been modified since last run, skip
     # recently_updated= find_recently_modified_files_and_dirs(cfg.inbox_dir, 10, only_file_exts=cfg.AUDIO_EXTS)
@@ -291,33 +290,39 @@ def process_inbox(first_run: bool = False):
         if first_run:
             banner()
         print_debug(
-            f"No audio files found in {cfg.inbox_dir}, last updated at {last_updated}, next check in {cfg.sleeptime_friendly}"
+            f"No audio files found in {cfg.inbox_dir}, last updated at {inbox_last_updated_at()}, next check in {cfg.sleeptime_friendly}"
         )
         return
 
     banner()
 
-    did_wait_for_copy = False
+    waited_while_copying = 0
     while inbox_was_recently_modified():
-        if not did_wait_for_copy:
+        if INBOX_HASH != hash_inbox() and not waited_while_copying:
             print_notice(
                 "The inbox folder was recently modified, waiting in case files are still being copied or moved...\n"
             )
-            did_wait_for_copy = True
+        waited_while_copying += 1
+        print_debug(
+            f"Waiting for inbox to be modified, touched:\n"
+            f"          last {friendly_date(inbox_last_updated_at(), ms=True)}\n"
+            f"          curr {friendly_date(time.time(), ms=True)}\n"
+            f"        hash:\n"
+            f"          last {INBOX_HASH}\n"
+            f"          curr {hash_inbox()}"
+        )
         time.sleep(0.5)
 
-    if did_wait_for_copy:
+    if waited_while_copying:
         print_debug("Done waiting for inbox to be modified")
-
-    last_updated = inbox_last_updated_at()
 
     if hash_inbox() == INBOX_HASH:
         print_debug(
-            f"Skipping this loop, inbox hash is the same (was last touched {friendly_date(last_updated)})"
+            f"Skipping this loop, inbox hash is the same (was last touched {friendly_date(inbox_last_updated_at())})"
         )
         return
 
-    print_debug(f"Last updated: {last_updated}")
+    print_debug(f"Last updated: {friendly_date(inbox_last_updated_at(), ms=True)}")
 
     standalone_count = count_standalone_books_in_inbox()
     if standalone_count:

@@ -71,11 +71,14 @@ class testutils:
             cls.print(f"'{book}' not in failed list")
 
     @classmethod
-    def set_match_name(cls, match_name: str, delay: int = 0):
+    def set_match_name(cls, match_name: str | None, delay: int = 0):
 
         time.sleep(delay)
         cls.print(f"Setting MATCH_NAME to {match_name}")
-        os.environ["MATCH_NAME"] = match_name
+        if match_name is None:
+            os.environ.pop("MATCH_NAME", None)
+        else:
+            os.environ["MATCH_NAME"] = match_name
         cfg.MATCH_NAME = match_name
 
     @classmethod

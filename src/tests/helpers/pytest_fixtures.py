@@ -2,15 +2,14 @@ import asyncio
 import os
 import shutil
 import sys
-import time
 from pathlib import Path
 
 import dotenv
 import pytest
 
-from src.lib.run import flush_inbox_hash
+from src.lib.run import FAILED_BOOKS, flush_inbox_hash
 from src.tests.conftest import FIXTURES_ROOT, GIT_ROOT, TEST_DIRS
-from src.tests.helpers.test_utils import testutils
+from src.tests.helpers.pytest_utils import testutils
 
 sys.path.append(str(Path(__file__).parent.parent))
 
@@ -163,11 +162,11 @@ def benedict_society__mp3():
     for i in range(1, 12):
         testutils.make_mock_file(_path(i))
 
-    os.environ["MATCH_NAME"] = "Benedict"
+    testutils.set_match_name("Benedict")
 
     yield Audiobook(dir_name)
 
-    os.environ.pop("MATCH_NAME", None)
+    testutils.set_match_name(None)
 
     shutil.rmtree(dir_name, ignore_errors=True)
 
@@ -184,11 +183,11 @@ def roman_numeral__mp3():
     ):
         testutils.make_mock_file(_path(i, n))
 
-    os.environ["MATCH_NAME"] = "Roman Numeral Book"
+    testutils.set_match_name("Roman Numeral Book")
 
     yield Audiobook(dir_name)
 
-    os.environ.pop("MATCH_NAME", None)
+    testutils.set_match_name(None)
 
     shutil.rmtree(dir_name, ignore_errors=True)
 
@@ -199,7 +198,7 @@ def blank_audiobook():
     book = TEST_DIRS.inbox / "blank_audiobook"
     book.mkdir(parents=True, exist_ok=True)
 
-    os.environ["MATCH_NAME"] = "blank_audiobook"
+    testutils.set_match_name("blank_audiobook")
 
     # write a completely valid audiofile that plays a tone A4 for 2 seconds
     with open(book / f"blank_audiobook.mp3", "wb") as f:
@@ -208,6 +207,7 @@ def blank_audiobook():
         )
 
     yield Audiobook(book)
+    testutils.set_match_name(None)
     shutil.rmtree(book, ignore_errors=True)
     shutil.rmtree(TEST_DIRS.working / "build" / "blank_audiobook", ignore_errors=True)
     shutil.rmtree(TEST_DIRS.working / "fix" / "blank_audiobook", ignore_errors=True)
@@ -218,13 +218,14 @@ def blank_audiobook():
 def corrupt_audiobook():
     """Create a fake mp3 audiobook with a corrupt file."""
     book = TEST_DIRS.inbox / "corrupt_audiobook"
-    os.environ["MATCH_NAME"] = "corrupt_audiobook"
+    testutils.set_match_name("corrupt_audiobook")
     book.mkdir(parents=True, exist_ok=True)
     with open(book / f"corrupt_audiobook.mp3", "wb") as f:
         f.write(b"\xff\xfb\xd6\x04")
         # write 20kb of random data, but the first 4 bytes are corrupt
         f.write(os.urandom(1024 * 20))
     yield Audiobook(book)
+    testutils.set_match_name(None)
     shutil.rmtree(book, ignore_errors=True)
     shutil.rmtree(TEST_DIRS.working / "build" / "corrupt_audiobook", ignore_errors=True)
     shutil.rmtree(TEST_DIRS.working / "fix" / "corrupt_audiobook", ignore_errors=True)
@@ -349,78 +350,17 @@ def global_test_log():
     test_log.unlink(missing_ok=True)
 
 
-def find_tmp_ray_session_dirs():
-    return sorted(
-        [d for d in Path("/tmp/ray").iterdir() if d.is_dir()], key=os.path.getctime
-    )
-
-
-async def get_tmp_ray_session_dir():
-    curr_time = time.time()
-
-    i = 0
-    while (
-        not [
-            p for p in find_tmp_ray_session_dirs() if curr_time - p.stat().st_ctime < 30
-        ]
-        and i < 20
-    ):
-        print("Waiting for Ray tmp session dir to be created")
-        await asyncio.sleep(0.25)
-        i += 1
-
-    new_ray_session_dirs = [
-        p for p in find_tmp_ray_session_dirs() if curr_time - p.stat().st_ctime < 30
-    ]
-    if not new_ray_session_dirs:
-        raise Exception(
-            "Could not find a Ray session dir that was created within the last 30"
-            " seconds, perhaps something went wrong? Here are the dirs I found:",
-            find_tmp_ray_session_dirs(),
-        )
-
-    if len(new_ray_session_dirs) > 1:
-        raise Exception(
-            "Found multiple Ray session dirs that were created within the last 30"
-            " seconds, you should clear out /tmp/ray (or this is a symptom of tests"
-            " running too close together)"
-        )
-
-    return new_ray_session_dirs[0]
-
-
-async def watch_for_log_file():
-    tmp_ray_session_dir = await get_tmp_ray_session_dir()
-    agent_log = tmp_ray_session_dir / "logs" / "runtime_env_agent.log"
-    max_attempts = 20
-    i = 0
-    while not agent_log.exists() and i < max_attempts:
-        print("Waiting for runtime_env_agent.log to be created")
-        time.sleep(0.25)
-        i += 1
-    assert agent_log.exists(), (
-        f"{agent_log} does not exist - either the test failed, the log file was"
-        " not created yet (try increasing the timeout), or the test completed too"
-        " quickly and the log file has already been cleaned up."
-    )
-    max_reads = 20
-    i = 0
-    text = ""
-    while agent_log.exists() and i < max_reads:
-        # print("Reading runtime_env_agent.log")
-        with open(agent_log, "r") as f:
-            text = f.read()
-        # await asyncio.sleep(0.1)
-        time.sleep(0.1)
-        i += 1
-    print("Returning runtime_env_agent.log text")
-    return text
+@pytest.fixture(scope="function", autouse=True)
+def flush_hashes_fixture():
+    # flush_inbox_hash()
+    yield
+    flush_inbox_hash()
 
 
 @pytest.fixture(scope="function", autouse=True)
-def flush_hashes_fixture():
-    flush_inbox_hash()
+def reset_failed():
     yield
+    FAILED_BOOKS.clear()
 
 
 @pytest.fixture(scope="function", autouse=True)

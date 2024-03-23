@@ -3,7 +3,7 @@ from pytest import CaptureFixture
 
 from src.auto_m4b import app
 from src.lib.audiobook import Audiobook
-from src.tests.helpers.test_utils import testutils
+from src.tests.helpers.pytest_utils import testutils
 
 
 def get_output(capfd: CaptureFixture[str]) -> str:

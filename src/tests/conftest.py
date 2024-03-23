@@ -24,4 +24,4 @@ class TEST_DIRS:
     working = TESTS_TMP_ROOT / "working"
 
 
-from src.tests.helpers.test_fixtures import *
+from src.tests.helpers.pytest_fixtures import *

@@ -1,7 +1,6 @@
 import asyncio
 import concurrent
 import concurrent.futures
-import json
 import os
 import shutil
 import time
@@ -16,14 +15,17 @@ from src.auto_m4b import app
 from src.lib.audiobook import Audiobook
 from src.lib.run import flush_inbox_hash
 from src.tests.conftest import TEST_DIRS
-from src.tests.helpers.test_utils import testutils
+from src.tests.helpers.pytest_utils import testutils
 
 
 async def run_app_for__failed_books_retry_when_fixed():
+    prev_sleep = os.environ.get("SLEEPTIME")
     os.environ["SLEEPTIME"] = "2"
     testutils.print("Starting app...")
     app(max_loops=4, no_fix=True, test=True)
     testutils.print("Finished app")
+    if prev_sleep:
+        os.environ["SLEEPTIME"] = prev_sleep
 
 
 @pytest.mark.slow
@@ -52,7 +54,7 @@ class test_unhappy_paths:
         self, tower_treasure__flat_mp3: Audiobook, capfd: CaptureFixture[str]
     ):
 
-        os.environ["MATCH_NAME"] = "test-do-not-match"
+        testutils.set_match_name("test-do-not-match")
         app(max_loops=4, no_fix=True, test=True)
         assert capfd.readouterr().out.count("but none match") == 1
 
@@ -64,7 +66,7 @@ class test_unhappy_paths:
         capfd: CaptureFixture[str],
     ):
 
-        os.environ["MATCH_NAME"] = "^(Roman|tower)"
+        testutils.set_match_name("^(Roman|tower)")
         app(max_loops=2, no_fix=True, test=True)
         out = testutils.get_stdout(capfd)
         assert out.count("2 books in the inbox") == 1
@@ -97,9 +99,7 @@ class test_unhappy_paths:
         out = testutils.get_stdout(capfd)
         assert out.count("2 books in the inbox") == 1
         assert out.count("named with roman numerals") == 1
-        os.environ["FAILED_BOOKS"] = json.dumps(
-            {"Roman Numeral Book": str(time.time() + 30)}
-        )
+        testutils.fail_book("Roman Numeral Book", from_now=30)
         TEST_DIRS.inbox.touch()
         testutils.set_match_name("^(Roman|tower|house)")
         # time.sleep(2)
@@ -211,3 +211,23 @@ class test_unhappy_paths:
         app(max_loops=2, no_fix=True, test=True)
         out = testutils.get_stdout(capfd)
         assert out.count("multi-disc") == 1
+
+    @pytest.mark.order(12)
+    def test_inbox_doesnt_update_if_book_fails(
+        self,
+        old_mill__multidisc_mp3: Audiobook,
+        capfd: CaptureFixture[str],
+    ):
+        wait_msg = "The inbox folder was recently modified, waiting"
+        time.sleep(2)
+        app(max_loops=1, no_fix=True, test=True)
+        out = testutils.get_stdout(capfd)
+        assert out.count(wait_msg) == 0
+        assert out.count("multi-disc") == 1
+        assert out.count("inbox hash is the same") == 0
+        time.sleep(1)
+        app(max_loops=1, no_fix=True, test=True)
+        out = testutils.get_stdout(capfd)
+        assert out.count("inbox hash is the same") == 1
+        assert out.count("multi-disc") == 0
+        assert out.count(wait_msg) == 0
