@@ -10,6 +10,9 @@ from src.lib.config import cfg
 from src.lib.misc import isorted, re_group
 from src.lib.term import print_debug
 
+# TODO: Author ignores like "GraphicAudio"
+# TODO: Add cleanup for html/url encodes like &amp; and &quot;
+# TODO: Add test coverage for narrator with /
 author_pattern = r"^(?P<author>.*?)[\W\s]*[-_–—\(]"
 book_title_pattern = r"(?<=[-_–—])[\W\s]*(?P<book_title>[\w\s]+?)\s*(?=\d{4}|\(|\[|$)"
 year_pattern = r"(?P<year>\d{4})"

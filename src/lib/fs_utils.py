@@ -9,6 +9,7 @@ from typing import Any, Literal, NamedTuple, overload, TYPE_CHECKING
 
 from src.lib.config import AUDIO_EXTS
 from src.lib.formatters import human_size
+from src.lib.misc import try_get_stat_mtime
 from src.lib.term import (
     print_debug,
     print_error,
@@ -716,7 +717,7 @@ def find_recently_modified_files_and_dirs(
 
     found_items = list(
         sorted(
-            [(f, f.stat().st_mtime) for f in filter_ignored(path.rglob("*"))],
+            [(f, try_get_stat_mtime(f)) for f in filter_ignored(path.rglob("*"))],
             key=lambda x: -x[1],
         )
     )
@@ -766,17 +767,13 @@ def was_recently_modified(
 
     within_seconds = max(within_seconds, 0)
 
-    this_m = time.time() - path.stat().st_mtime < within_seconds
+    this_m = time.time() - try_get_stat_mtime(path) < within_seconds
 
     if path.is_file():
         if only_file_exts and path.suffix not in only_file_exts:
             return False
         return this_m
 
-    # last_modified_time = path.stat().st_mtime
-    # now = time.time()
-    # time_since_lm = now - last_modified_time
-    # return time_since_lm < within_seconds
     recents = find_recently_modified_files_and_dirs(
         path, within_seconds, since=since, only_file_exts=only_file_exts
     )

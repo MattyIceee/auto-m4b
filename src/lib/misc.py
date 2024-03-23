@@ -104,6 +104,13 @@ def parse_bool(v: Any) -> bool:
     return str(v).lower() in ("true", "1", "t", "y", "yes")
 
 
+def try_get_stat_mtime(p: Path) -> float:
+    try:
+        return p.stat().st_mtime
+    except FileNotFoundError:
+        return 0.0
+
+
 def load_env(
     env_file: str | Path, clean_working_dirs: bool = False
 ) -> dict[str, str | None]:
