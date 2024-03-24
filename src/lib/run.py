@@ -455,7 +455,7 @@ def process_inbox(first_run: bool = False):
         if book_structure.startswith("multi") or book_structure == "mixed":
             needs_fixing = True
 
-            help_msg = f"Please organize the files in a single folder and rename them so they sort alphabetically in the correct order"
+            help_msg = f"Please organize the files in a single folder and rename them so they sort alphabetically\nin the correct order"
             match book_structure:
                 case "multi_disc":
                     if cfg.FLATTEN_MULTI_DISC_BOOKS:
@@ -478,7 +478,9 @@ def process_inbox(first_run: bool = False):
                             print_aqua(" ✓\n")
                     else:
                         print_error(f"{MULTI_ERR}, maybe this is a multi-disc book?")
-                        smart_print(f"{help_msg}\n")
+                        smart_print(
+                            f"{help_msg}, or set FLATTEN_MULTI_DISC_BOOKS=Y to have auto-m4b flatten\nmulti-disc books automatically\n"
+                        )
                         book.write_log(f"{MULTI_ERR} (multi-disc book) - {help_msg}")
                 case "multi_book":
                     print_error(f"{MULTI_ERR}, maybe this contains multiple books?")
