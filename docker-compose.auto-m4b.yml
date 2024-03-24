@@ -44,7 +44,7 @@ services:
       # - INBOX_FOLDER=/sandbox/inbox
       # - WORKING_FOLDER=/sandbox/working
       - OVERWRITE_EXISTING=Y
-      - FLATTEN_MULTI_DISC_BOOKS=N
+      - FLATTEN_MULTI_DISC_BOOKS=Y
       - MAKE_BACKUP=Y
       - SKIP_COVERS=N
       - NO_FIX=Y
