@@ -272,11 +272,22 @@ def mock_inbox(setup):
         for j in range(1, 4):
             testutils.make_mock_file(book / f"mock_book_{i} - part_{j}.mp3")
 
-    # make a book with a single nested folder
-    nested = TEST_DIRS.inbox / "mock_book_nested" / "inner_dir"
+    # make a book with a single flat nested folder
+    nested = TEST_DIRS.inbox / "mock_book_flat_nested" / "inner_dir"
     nested.mkdir(parents=True, exist_ok=True)
     for i in range(1, 4):
-        testutils.make_mock_file(nested / f"mock_book_nested - part_{i}.mp3")
+        testutils.make_mock_file(nested / f"mock_book_flat_nested - part_{i}.mp3")
+
+    # make a multi-series directory
+    multi_book = TEST_DIRS.inbox / "mock_book_multi_book"
+    multi_book.mkdir(parents=True, exist_ok=True)
+    names = ["Dawn", "High Noon", "Dusk"]
+    for s in ["1", "2", "3"]:
+        name = names[int(s) - 1]
+        series = multi_book / f"{name} - Book {s}"
+        series.mkdir(parents=True, exist_ok=True)
+        for i in range(1, 2 + int(s)):
+            testutils.make_mock_file(series / f"mock_book_multi_book - ch. {i}.mp3")
 
     # make a multi-disc book
     multi_disc = TEST_DIRS.inbox / "mock_book_multi_disc"
@@ -285,20 +296,40 @@ def mock_inbox(setup):
         disc = multi_disc / f"Disc {d} of 4"
         disc.mkdir(parents=True, exist_ok=True)
         for i in range(1, 3):
-            testutils.make_mock_file(disc / f"mock_book_multi_disc - part_{i}.mp3")
+            testutils.make_mock_file(
+                disc / f"mock_book_multi_disc{d} - part_{d+(d-i+1)}.mp3"
+            )
 
-    # make a multi-series directory
-    multi_series = TEST_DIRS.inbox / "mock_book_multi_series"
-    multi_series.mkdir(parents=True, exist_ok=True)
-    for s in ["A", "B", "C"]:
-        series = multi_series / f"Series {s}"
-        series.mkdir(parents=True, exist_ok=True)
-        for i in range(1, 3):
-            testutils.make_mock_file(series / f"mock_book_multi_series - part_{i}.mp3")
+    # make a multi-folder nested dir (not specifically multi-disc or book)
+    multi_nested = TEST_DIRS.inbox / "mock_book_multi_nested"
+    multi_nested.mkdir(parents=True, exist_ok=True)
+    for i in range(1, 3):
+        nested = multi_nested / f"nested_{i}"
+        nested.mkdir(parents=True, exist_ok=True)
+        for j in range(1, 3):
+            testutils.make_mock_file(nested / f"mock_book_multi_nested - {j:02}.mp3")
+
+    # make a mixed dir with some files in the root, and some in nested dirs
+    mixed = TEST_DIRS.inbox / "mock_book_mixed"
+    mixed.mkdir(parents=True, exist_ok=True)
+    for i in range(1, 3):
+        testutils.make_mock_file(mixed / f"mock_book_mixed - part_{i}.mp3")
+    nested = mixed / "nested"
+    nested.mkdir(parents=True, exist_ok=True)
+    for i in range(3, 5):
+        testutils.make_mock_file(nested / f"mock_book_mixed - part_{i}.mp3")
 
     # make 2 top-level mp3 files
     for t in ["a", "b"]:
         testutils.make_mock_file(TEST_DIRS.inbox / f"mock_book_standalone_file_{t}.mp3")
+
+    # make a single mp3 file in a nested dir
+    nested = TEST_DIRS.inbox / "mock_book_standalone_nested"
+    nested.mkdir(parents=True, exist_ok=True)
+    testutils.make_mock_file(nested / "mock_book_standalone_nested.mp3")
+
+    # make an empty dir
+    (TEST_DIRS.inbox / "mock_book_empty").mkdir(parents=True, exist_ok=True)
 
     yield TEST_DIRS.inbox
 

@@ -14,30 +14,7 @@ from src.lib.audiobook import Audiobook
 from src.lib.config import AUDIO_EXTS, cfg
 from src.lib.ffmpeg_utils import build_id3_tags_args
 from src.lib.formatters import friendly_date, human_elapsed_time, log_date, pluralize
-from src.lib.fs_utils import (
-    clean_dir,
-    count_audio_files_in_dir,
-    count_audio_files_in_inbox,
-    count_standalone_books_in_inbox,
-    cp_dir,
-    dir_is_empty,
-    find_base_dirs_with_audio_files,
-    find_book_dirs_in_inbox,
-    flatten_files_in_dir,
-    hash_dir_audio_files,
-    hash_inbox,
-    hash_inbox_books,
-    inbox_last_updated_at,
-    inbox_was_recently_modified,
-    is_ok_to_delete,
-    last_updated_at,
-    mv_dir_contents,
-    mv_file_to_dir,
-    mv_to_fix_dir,
-    name_matches,
-    rm_all_empty_dirs,
-    was_recently_modified,
-)
+from src.lib.fs_utils import *
 from src.lib.id3_utils import verify_and_update_id3_tags
 from src.lib.logger import log_global_results
 from src.lib.misc import BOOK_ASCII, dockerize_volume, re_group
@@ -45,6 +22,7 @@ from src.lib.parsers import (
     count_distinct_roman_numerals,
     roman_numerals_affect_file_order,
 )
+from src.lib.strings import MULTI_ERR, ROMAN_ERR
 from src.lib.term import (
     AMBER_COLOR,
     border,
@@ -421,9 +399,8 @@ def process_inbox(first_run: bool = False):
     for b, book_full_path in enumerate(audio_dirs):
         book = Audiobook(book_full_path)
         m4b_count = count_audio_files_in_dir(book.inbox_dir, only_file_exts=["m4b"])
-        root_only_audio_files_count = count_audio_files_in_dir(
-            book.inbox_dir, only_file_exts=AUDIO_EXTS, maxdepth=1
-        )
+
+        book_structure, _ = find_book_audio_files(book)
 
         border(len(book.basename))
         smart_print(
@@ -431,8 +408,6 @@ def process_inbox(first_run: bool = False):
         )
         border(len(book.basename))
 
-        nested_audio_dirs = find_base_dirs_with_audio_files(book.inbox_dir, mindepth=1)
-        nested_audio_dirs_count = len(nested_audio_dirs)
         roman_numerals_count = count_distinct_roman_numerals(book.inbox_dir)
 
         # check if the current dir was modified in the last 1m and skip if so
@@ -452,8 +427,8 @@ def process_inbox(first_run: bool = False):
         book.log_file.unlink(missing_ok=True)
 
         if not book.num_files("inbox"):
-            print_error(
-                f"Error: {book.inbox_dir} does not contain any known audio files, skipping"
+            print_notice(
+                f"{book.inbox_dir} does not contain any known audio files, skipping"
             )
             book.write_log("No audio files found in this folder")
             fail_book(book)
@@ -470,56 +445,75 @@ def process_inbox(first_run: bool = False):
         # Check if a copy of this book is in fix_dir and bail
         if (cfg.fix_dir / book.basename).exists():
             print_error(
-                "Error: A copy of this book is in the fix folder, please fix it and try again"
+                "A copy of this book is in the fix folder, please fix it and try again"
             )
             fail_book(book)
             continue
 
         needs_fixing = False
-        if nested_audio_dirs_count > 1 or (
-            nested_audio_dirs_count == 1 and root_only_audio_files_count > 0
-        ):
+
+        if book_structure.startswith("multi") or book_structure == "mixed":
             needs_fixing = True
-            print_error("Error: This book contains multiple folders with audio files")
-            smart_print(
-                "Maybe this is a multi-disc book, or maybe it is multiple books?"
-            )
-            smart_print(
-                "All files must be in a single folder, named alphabetically in the correct order\n"
-            )
-            book.write_log(
-                "This book contains multiple folders with audio files - maybe it is a multi-disc book,",
-                "or maybe it is multiple books? All files must be in a single folder,",
-                "named alphabetically in the correct order.",
-            )
+
+            help_msg = f"Please organize the files in a single folder and rename them so they sort alphabetically in the correct order"
+            match book_structure:
+                case "multi_disc":
+                    if cfg.FLATTEN_MULTI_DISC_BOOKS:
+                        smart_print(
+                            "\nThis folder appears to be a multi-disc book, attempting to flatten it...",
+                            end="",
+                        )
+                        if flattening_files_in_dir_affects_order(book.inbox_dir):
+                            print_error(
+                                "Flattening this book would affect the file order, cannot proceed"
+                            )
+                            smart_print(f"{help_msg}\n")
+                            book.write_log(
+                                "This book appears to be a multi-disc book, but flattening it would affect the file order - it will need to be fixed manually by renaming the files so they sort alphabetically in the correct order"
+                            )
+                        else:
+                            flatten_files_in_dir(book.inbox_dir)
+                            book = Audiobook(book.inbox_dir)
+                            needs_fixing = False
+                            print_aqua(" ✓\n")
+                    else:
+                        print_error(f"{MULTI_ERR}, maybe this is a multi-disc book?")
+                        smart_print(f"{help_msg}\n")
+                        book.write_log(f"{MULTI_ERR} (multi-disc book) - {help_msg}")
+                case "multi_book":
+                    print_error(f"{MULTI_ERR}, maybe this contains multiple books?")
+                    help_msg = "To convert these books, move each book folder to the root of the inbox"
+                    smart_print(f"{help_msg}\n")
+                    book.write_log(f"{MULTI_ERR} (multiple books found) - {help_msg}")
+                case _:
+                    print_error(f"{MULTI_ERR}, cannot determine book structure")
+                    smart_print(f"{help_msg}\n")
+                    book.write_log(f"{MULTI_ERR} (structure unknown) - {help_msg}")
 
         if roman_numerals_count > 1:
             if roman_numerals_affect_file_order(book.inbox_dir):
-                print_error(
-                    "Error: Some of this book's files appear to be named with roman numerals"
-                )
-                smart_print(
-                    "Roman numerals do not sort in alphabetical order; please make sure files are named alphabetically in the correct order.\n"
-                )
-                book.write_log(
-                    "Some of this book's files appear to be named with roman numerals. Roman numerals do not sort in alphabetical order; please make sure files are named alphabetically in the correct order."
-                )
+                print_error(ROMAN_ERR)
+                help_msg = "Roman numerals do not sort in alphabetical order; please rename them so they sort alphabetically in the correct order"
+                smart_print(f"{help_msg}\n")
+                book.write_log(f"{ROMAN_ERR} - {help_msg}")
                 needs_fixing = True
             else:
                 print_debug(
-                    f"Found {roman_numerals_count} roman numerals in {book.basename}, but they don't affect file order"
+                    f"Found {roman_numerals_count} roman numeral(s) in {book.basename}, but they don't affect file order"
                 )
 
         if needs_fixing:
             mv_to_fix_dir(book, fail_book)
             continue
 
-        if nested_audio_dirs_count == 1:
+        # if nested_audio_dirs_count == 1:
+        if book_structure == "flat_nested":
             smart_print(
-                f"Audio files for this book are a subfolder: {tint_path(f'./{nested_audio_dirs[0]}')}"
+                f"Audio files for this book are a subfolder, moving them to the book's root folder...",
+                end="",
             )
-            smart_print(f"Moving them to book's root → {tint_path(book.inbox_dir)}")
             flatten_files_in_dir(book.inbox_dir)
+            print_aqua(" ✓\n")
 
         smart_print("\nFile/folder info:")
 
@@ -535,7 +529,7 @@ def process_inbox(first_run: bool = False):
         # Copy files to backup destination
         if not cfg.MAKE_BACKUP:
             print_dark_grey("Not backing up (backups are disabled)")
-        elif dir_is_empty(book.inbox_dir):
+        elif dir_is_empty_ignoring_hidden_files(book.inbox_dir):
             print_dark_grey("Skipping backup (folder is empty)")
         else:
             smart_print(f"Making a backup copy → {tint_path(book.backup_dir)}")
@@ -640,28 +634,10 @@ def process_inbox(first_run: bool = False):
 
         if cfg.DEBUG:
             smart_print(stdout)
-        # if proc.returncode != 0 or proc.stderr:
-        # print_error(f"m4b-tool failed to convert {book}")
-        # raise RuntimeError(
-        #     f"{proc.stderr.decode()}"
-        #     if proc.stderr
-        #     else f"m4b-tool failed to convert {book}"
-        # )
-
-        # print_error "Error: [TEST] m4b-tool failed to convert \"$book\""
-        # print "     Moving \"$book\" to fix folder..."
-        # mv_dir "$mergefolder$book" "$fix_dir"
-        # cp "$logfile" "$fix_dir$book/m4b-tool.$book.log"
-        # log_results "$book_full_path" "FAILED" ""
-        # break
 
         endtime_log = log_date()
-        # endtime_friendly = friendly_date()
         elapsedtime = int(time.time() - starttime)
         elapsedtime_friendly = human_elapsed_time(elapsedtime)
-
-        # with open(book.log_file, "r") as f:
-        #     logfile = f.read()
 
         if re.search(r"error", stdout, re.I):
             # ignorable errors:
@@ -680,7 +656,6 @@ def process_inbox(first_run: bool = False):
 
             err_blocks = [r"an error occured[\s\S]*?Array[\s\S]*?\)"]
 
-            # ignorable errors:
             ignorable_errors = [
                 r"failed to save key",
                 r"implicit conversion from float",
@@ -731,12 +706,10 @@ def process_inbox(first_run: bool = False):
                 f"{endtime_log}  {book}  Converted in {elapsedtime_friendly}\n"
             )
 
-        # create converted dir
         book.converted_dir.mkdir(parents=True, exist_ok=True)
 
         # m4b_num_parts=1 # hardcode for now, until we know if we need to split parts
 
-        # Remove old description files from current dir, $buildfolder$book and $mergefolder$book
         did_remove_old_desc = False
         for d in [book.build_dir, book.merge_dir, book.converted_dir]:
             desc_files = list(Path(d).rglob(f"{book} [*kHz*].txt"))
@@ -857,20 +830,10 @@ def process_inbox(first_run: bool = False):
     clean_dir(cfg.build_dir)
     clean_dir(cfg.trash_dir)
 
-    # Delete all *-tmpfiles dirs inside $outputfolder
-    # Shouldn't be required if the clean_dir methods work
-    # for d in list(book.build_dir.rglob("*-tmpfiles")) + list(
-    #     book.converted_dir.rglob("*-tmpfiles")
-    # ):
-    #     if d.is_dir() and len(list(d.parents)) <= 2:
-    #         shutil.rmtree(d, ignore_errors=True)
-
     if books_count >= 1:
         print_grey(
             f"Finished converting all available books, waiting for more to be added to the inbox"
         )
-        # touch inbox so that we can check if it was modified since last run
-        # TOUCHED = last_updated_at(cfg.inbox_dir, only_file_exts=cfg.AUDIO_EXTS)
         if not cfg.NO_ASCII:
             print_dark_grey(BOOK_ASCII)
     else:

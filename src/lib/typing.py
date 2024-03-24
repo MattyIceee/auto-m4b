@@ -1,5 +1,6 @@
 import functools
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
+from pathlib import Path
 from typing import Any, cast, Concatenate, Literal, ParamSpec, TypeVar
 
 import numpy as np
@@ -20,6 +21,27 @@ DirName = Literal[
 FailedBooksDict = dict[str, float]
 BookHashesDict = dict[str, str]
 ExifWriter = Literal["exiftool", "eyed3"]
+BookDirStructure = Literal[
+    # "flat" - all audio files are in the root/top-level directory
+    "flat",
+    # "flat_nested" - all audio files are in a single subdirectory
+    "flat_nested",
+    # "multi_nested" - audio files are in multiple subdirectories, but can't determine if multi-series or multi-disc
+    "multi_disc",
+    # "multi_book" - audio files are in multiple subdirectories, appears to be multiple books
+    "multi_book",
+    # "mixed" - audio files are in the root/top-level directory and in nested subdirectories, no way to determine the book structure
+    "multi_nested",
+    # "multi_disc" - audio files are in multiple subdirectories, appears to be a multi-disc book
+    "mixed",
+    # "file" - a single audio file as the target path, vs. a directory
+    "file",
+    # "standalone" - a single audio file in the root/top-level directory or subdirectory
+    "standalone",
+    # "empty" - no audio files found
+    "empty",
+]
+BookDirMap = Sequence[tuple[Path]] | Sequence[tuple[Path, Sequence[Path]]]
 TagSource = Literal[
     "title",
     "album",

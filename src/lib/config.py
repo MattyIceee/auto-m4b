@@ -43,12 +43,10 @@ IGNORE_FILES = [
     ".Spotlight-V100",
     ".Trashes",
     "__MACOSX",
+    "Desktop.ini",
     "ehthumbs.db",
     "Thumbs.db",
     "@eaDir",
-    "*.sh",
-    "*.bat",
-    "*.exe",
 ]
 
 WORKING_DIRS = [
@@ -451,9 +449,9 @@ class Config:
     def MAKE_BACKUP(self):
         return parse_bool(os.getenv("MAKE_BACKUP", False))
 
-    # @cached_property
-    # def backup_arg(self):
-    #     return "--backup" if self.MAKE_BACKUP == "Y" else ""
+    @cached_property
+    def FLATTEN_MULTI_DISC_BOOKS(self):
+        return parse_bool(os.getenv("FLATTEN_MULTI_DISC_BOOKS", False))
 
     @cached_property
     def EXIF_WRITER(self) -> ExifWriter:

@@ -13,6 +13,7 @@ from src.lib.term import print_debug
 # TODO: Author ignores like "GraphicAudio"
 # TODO: Add cleanup for html/url encodes like &amp; and &quot;
 # TODO: Add test coverage for narrator with /
+# fmt: off
 author_pattern = r"^(?P<author>.*?)[\W\s]*[-_–—\(]"
 book_title_pattern = r"(?<=[-_–—])[\W\s]*(?P<book_title>[\w\s]+?)\s*(?=\d{4}|\(|\[|$)"
 year_pattern = r"(?P<year>\d{4})"
@@ -23,6 +24,9 @@ firstname_lastname_pattern = r"^(?P<firstname>.*?).*\s(?P<lastname>\S+)$"
 part_number_pattern = r",?[-_–—.\s]*?(?:part|ch(?:\.|apter))?[-_–—.\s]*?\W*(\d+)(?:$|[-_–—.\s]*?(?:of|-)[-_–—.\s]*?(\d+)\W*$)"
 part_number_ignore_pattern = r"(?:\bbook\b|\bvol(?:ume)?)\s*\d+$"
 roman_numeral_pattern = r"((?:^|(?<=[\W_]))[IVXLCDM]+(?:$|(?=[\W_])))"
+multi_disc_pattern = r"(?:^|(?<=[\W_-]))(dis[ck]|cd)(\b|\s|[_.-])*#?(\b|\s|[_.-])*(?:\b|[\W_-])*(\d+)"
+multi_book_pattern = r"(?:^|(?<=[\W_-]))(bo{0,2}k|pa?r?t|vol(?:ume)?|#)(?:\b|[\W_-])*(\d+)"
+# fmt: on
 
 
 @dataclass
@@ -51,7 +55,9 @@ class romans:
         """Strips roman numerals from a string"""
 
         # split on word boundaries, and any boundary between lowercase/uppercase or letter/non-letter
-        split = re.split(r"(?<=\w)(?=\W)|(?<=\W)(?=\w)|(?<=[a-z])(?=[A-Z])", s)
+        split = re.split(
+            r"(?<=\w)(?=[\W_.-])|(?<=[\W_.-])(?=\w)|(?<=[a-z])(?=[A-Z])", s
+        )
         return "".join([p for p in split if not cls.is_roman_numeral(p)])
 
 
@@ -216,7 +222,9 @@ def count_distinct_roman_numerals(d: Path) -> int:
 def strip_roman_numerals(d: Path) -> list[Path]:
     """Strips roman numerals from the filenames in a directory and returns
     a list of proposed paths, keeping the original file order"""
-    return [f.parent / romans.strip(f.name) for f in d.rglob("*") if f.is_file()]
+    return [
+        f.parent / romans.strip(f.name) for f in isorted(d.rglob("*")) if f.is_file()
+    ]
 
 
 def roman_numerals_affect_file_order(d: Path) -> bool:
@@ -241,3 +249,11 @@ def get_year_from_date(date: str | None) -> str:
 
 def parse_narrator(s: str) -> str:
     return re_group(re.search(narrator_pattern, s, re.I), "narrator").strip()
+
+
+def is_maybe_multi_book_or_series(s: str) -> bool:
+    return not is_maybe_multi_disc(s) and bool(re.search(multi_book_pattern, s, re.I))
+
+
+def is_maybe_multi_disc(s: str) -> bool:
+    return bool(re.search(multi_disc_pattern, s, re.I))

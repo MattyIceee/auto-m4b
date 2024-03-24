@@ -82,6 +82,22 @@ class testutils:
         cfg.MATCH_NAME = match_name
 
     @classmethod
+    def enable_autoflatten(cls, delay: int = 0):
+
+        time.sleep(delay)
+        cls.print("Enabling autoflatten")
+        os.environ["FLATTEN_MULTI_DISC_BOOKS"] = "Y"
+        cfg.FLATTEN_MULTI_DISC_BOOKS = True
+
+    @classmethod
+    def disable_autoflatten(cls, delay: int = 0):
+
+        time.sleep(delay)
+        cls.print("Disabling autoflatten")
+        os.environ["FLATTEN_MULTI_DISC_BOOKS"] = "N"
+        cfg.FLATTEN_MULTI_DISC_BOOKS = False
+
+    @classmethod
     def make_mock_file(cls, path: Path, size: int = 1024 * 5):
         if not path.is_absolute():
             path = TEST_DIRS.inbox / path

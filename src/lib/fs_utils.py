@@ -5,11 +5,12 @@ import shutil
 import time
 from collections.abc import Callable, Iterable
 from pathlib import Path
-from typing import Any, Literal, NamedTuple, overload, TYPE_CHECKING
+from typing import Any, cast, Literal, NamedTuple, overload, TYPE_CHECKING
 
 from src.lib.config import AUDIO_EXTS
 from src.lib.formatters import human_size
-from src.lib.misc import try_get_stat_mtime
+from src.lib.misc import isorted, try_get_stat_mtime
+from src.lib.parsers import is_maybe_multi_book_or_series, is_maybe_multi_disc
 from src.lib.term import (
     print_debug,
     print_error,
@@ -20,6 +21,8 @@ from src.lib.term import (
     tint_path,
 )
 from src.lib.typing import (
+    BookDirMap,
+    BookDirStructure,
     BookHashesDict,
     copy_kwargs_omit_first_arg,
     Operation,
@@ -37,7 +40,7 @@ if TYPE_CHECKING:
 def find_files_in_dir(
     d: Path,
     *,
-    absolute: Literal[False] = False,
+    resolve: Literal[False] = False,
     ignore_files: list[str] = [],
     only_file_exts: list[str] = [],
     mindepth: int | None = None,
@@ -49,7 +52,7 @@ def find_files_in_dir(
 def find_files_in_dir(
     d: Path,
     *,
-    absolute: Literal[True] = True,
+    resolve: Literal[True] = True,
     ignore_files: list[str] = [],
     only_file_exts: list[str] = [],
     mindepth: int | None = None,
@@ -60,7 +63,7 @@ def find_files_in_dir(
 def find_files_in_dir(  # type: ignore
     d: Path,
     *,
-    absolute: bool | None = None,
+    resolve: bool | None = None,
     ignore_files: list = [],
     only_file_exts: list[str] = [],
     mindepth: int | None = None,
@@ -71,7 +74,7 @@ def find_files_in_dir(  # type: ignore
 
     Parameters:
     d (Path): The base directory to start the search from.
-    absolute (bool, optional): Whether to return absolute paths. Defaults to False (only returns files relative to the base directory).
+    resolve (bool, optional): Whether to resolve to absolute paths. Defaults to False (only returns files relative to the base directory).
     ignore_files (list[str], optional): A list of file names to ignore. Defaults to [].
     only_file_exts (list[str], optional): A list of file extensions to include in the count. Defaults to AUDIO_EXTS.
     mindepth (int | None, optional): The minimum depth of directories to search. This is 0-based, so a mindepth of 0 includes files directly in the base directory. Defaults to None, which includes all depths.
@@ -88,8 +91,8 @@ def find_files_in_dir(  # type: ignore
         return len(p.parts) - len(d.parts)
 
     return [
-        f if absolute else str(f.relative_to(d))
-        for f in d.rglob("*")
+        f if resolve else str(f.relative_to(d))
+        for f in isorted(d.rglob("*"))
         if all(
             [
                 f.is_file(),
@@ -125,7 +128,7 @@ def count_audio_files_in_dir(
 
     audio_files = find_files_in_dir(
         d,
-        absolute=True,
+        resolve=True,
         only_file_exts=only_file_exts or AUDIO_EXTS,
         mindepth=mindepth,
         maxdepth=maxdepth,
@@ -525,23 +528,56 @@ def cp_file_to_dir(
         shutil.move(dst_dir / source_file.name, dst_file)
 
 
+def dir_is_empty_ignoring_hidden_files(d: Path) -> bool:
+    if not d.is_dir():
+        return True
+    return not any(filter_ignored(f for f in d.iterdir() if not f.name.startswith(".")))
+
+
 def flatten_files_in_dir(
     path: Path,
+    *,
+    preview: bool = False,
+    on_conflict: Literal["raise", "skip"] = "skip",
 ):
     """Given a directory, moves all files in any subdirectories to the root directory then removes the subdirectories."""
-    # if no path specified, assume current directory
     if not path.is_dir():
         raise NotADirectoryError(f"Error: {path} is not a directory")
 
     # if path is a dir, get all files in the dir and its subdirs
-    files = [f for f in path.rglob("*") if f.is_file()]
+    files = [f for f in filter_ignored(isorted(path.rglob("*"))) if f.is_file()]
+    new_files = []
     for f in files:
-        shutil.move(f, path / f.name)
+        new_files.append(path / f.name)
+        if not preview:
+            # if file would overwrite an existing file, raise or skip
+            if (path / f.name).exists():
+                if on_conflict == "raise":
+                    raise FileExistsError(
+                        f"Error: {path / f.name} already exists in the directory"
+                    )
+                elif on_conflict == "skip":
+                    continue
+            shutil.move(f, path / f.name)
 
     # remove the subdirs
-    for d in path.rglob("*"):
-        if d.is_dir():
-            shutil.rmtree(d, ignore_errors=True)
+    if not preview:
+        for d in path.rglob("*"):
+            if d.is_dir() and dir_is_empty_ignoring_hidden_files(d):
+                shutil.rmtree(d, ignore_errors=True)
+
+    return new_files
+
+
+def flattening_files_in_dir_affects_order(path: Path) -> bool:
+    """Compares the order of files in a directory, both before and after flattening, by checking if the file names are in the same order."""
+
+    files_flat = [
+        f.stem for f in filter_ignored(flatten_files_in_dir(path, preview=True))
+    ]
+    files_flat_sorted = list(isorted(files_flat))
+
+    return files_flat_sorted != files_flat
 
 
 def name_matches(name: Any, match_name: str | None = None) -> bool:
@@ -601,13 +637,101 @@ def find_base_dirs_with_audio_files(
         )
     )
 
-    return list(sorted(all_roots_with_audio_files))
+    return list(isorted(all_roots_with_audio_files))
 
 
 def find_book_dirs_in_inbox():
     from src.lib.config import cfg
 
     return find_base_dirs_with_audio_files(cfg.inbox_dir, mindepth=1)
+
+
+def find_book_audio_files(
+    book: "Audiobook | Path",
+) -> tuple[BookDirStructure, BookDirMap]:
+    """Given a book directory, returns a tuple of the book's directory structure type, and a map of the book's audio files."""
+    from src.lib.config import cfg
+
+    path = book if isinstance(book, Path) else book.inbox_dir
+
+    if path.is_file():
+        return ("file", [(path,)])
+
+    all_audio_files = find_files_in_dir(
+        path, resolve=True, only_file_exts=cfg.AUDIO_EXTS
+    )
+    root_audio_files = [f for f in all_audio_files if f.parent == path]
+
+    if not all_audio_files:
+        return ("empty", [])
+
+    if len(all_audio_files) == 1:
+        return ("standalone", [(all_audio_files[0],)])
+
+    root_audio_files_tuples: BookDirMap = [(f,) for f in root_audio_files]
+
+    if len(root_audio_files) == len(all_audio_files):
+        return ("flat", root_audio_files_tuples)
+
+    # generate a dictionary of nested audio files keyed by the directory they're in
+    nested_audio_files_dict = {
+        d: [f for f in all_audio_files if f.parent == d]
+        for d in [f.parent for f in all_audio_files]
+        if d != path and d.is_dir()
+    }
+
+    nested_audio_dirs = nested_audio_files_dict.keys()
+
+    if not root_audio_files and len(nested_audio_files_dict) == 1:
+        first_nested_dir = next(iter(nested_audio_dirs))
+        return (
+            "flat_nested",
+            [
+                (
+                    first_nested_dir,
+                    nested_audio_files_dict[first_nested_dir],
+                )
+            ],
+        )
+
+    # if audio files exist in more than one level, return the structure as "mixed"
+    number_of_different_levels = len(
+        set([len(f.relative_to(path).parts) for f in all_audio_files])
+    )
+    if number_of_different_levels > 1:
+        nested_dirs_tuples: BookDirMap = [
+            (d, nested_audio_files_dict[d]) for d in nested_audio_files_dict
+        ]
+        return (
+            "mixed",
+            cast(BookDirMap, root_audio_files_tuples + nested_dirs_tuples),
+        )
+
+    multi_disc = any(is_maybe_multi_disc(d.name) for d in nested_audio_dirs)
+    multi_book = any(is_maybe_multi_book_or_series(d.name) for d in nested_audio_dirs)
+
+    file_map = [
+        *[(f,) for f in root_audio_files],
+        *[
+            (d, find_files_in_dir(d, resolve=True, only_file_exts=cfg.AUDIO_EXTS))
+            for d in nested_audio_dirs
+        ],
+    ]
+
+    struc: BookDirStructure
+    if multi_disc:
+        struc = "multi_disc"
+    elif multi_book:
+        struc = "multi_book"
+    elif len(nested_audio_dirs) > 0 and number_of_different_levels == 1:
+        struc = "multi_nested"
+    else:
+        struc = "mixed"
+
+    return (
+        struc,
+        file_map,
+    )
 
 
 def clean_dir(dir_path: Path) -> None:
@@ -644,7 +768,7 @@ def find_first_audio_file(path: Path, throw: bool = True) -> Path | None:
     if path.is_file() and path.suffix in AUDIO_EXTS:
         return path
 
-    audio_files = find_files_in_dir(path, absolute=True, only_file_exts=AUDIO_EXTS)
+    audio_files = find_files_in_dir(path, resolve=True, only_file_exts=AUDIO_EXTS)
 
     if audio_file := next(iter(sorted(audio_files)), None):
         return audio_file
@@ -660,7 +784,7 @@ def find_next_audio_file(current_file: Path) -> Path | None:
 
     audio_files = find_files_in_dir(
         parent,
-        absolute=True,
+        resolve=True,
         ignore_files=[current_file.name],
         only_file_exts=AUDIO_EXTS,
     )
@@ -905,7 +1029,3 @@ def get_flat_list_of_files_in_dir(
         sorted_alphabetically=sorted_files_list,
         is_same_order=do_lists_order_match,
     )
-
-
-def dir_is_empty(path: Path) -> bool:
-    return not any(path.iterdir())

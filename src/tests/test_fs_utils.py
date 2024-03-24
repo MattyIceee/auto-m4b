@@ -8,30 +8,45 @@ from PIL import Image
 
 from src.lib.audiobook import Audiobook
 from src.lib.fs_utils import (
+    find_book_audio_files,
     find_cover_art_file,
     find_first_audio_file,
     find_next_audio_file,
 )
+from src.lib.misc import isorted
+from src.lib.typing import BookDirStructure
 from src.tests.conftest import TEST_DIRS
 
-expect_flat_dirs = [
-    TEST_DIRS.inbox / "mock_book_1",
-    TEST_DIRS.inbox / "mock_book_2",
-    TEST_DIRS.inbox / "mock_book_3",
-    TEST_DIRS.inbox / "mock_book_4",
-]
+flat_dir1 = TEST_DIRS.inbox / "mock_book_1"
+flat_dir2 = TEST_DIRS.inbox / "mock_book_2"
+flat_dir3 = TEST_DIRS.inbox / "mock_book_3"
+flat_dir4 = TEST_DIRS.inbox / "mock_book_4"
+expect_flat_dirs = [flat_dir1, flat_dir2, flat_dir3, flat_dir4]
 
+mixed_dir = TEST_DIRS.inbox / "mock_book_mixed"
+
+flat_nested_dir = TEST_DIRS.inbox / "mock_book_flat_nested"
+multi_book_dir = TEST_DIRS.inbox / "mock_book_multi_book"
+multi_disc_dir = TEST_DIRS.inbox / "mock_book_multi_disc"
+multi_nested_dir = TEST_DIRS.inbox / "mock_book_multi_nested"
+standalone_nested_dir = TEST_DIRS.inbox / "mock_book_standalone_nested"
 expect_deep_dirs = [
-    TEST_DIRS.inbox / "mock_book_multi_disc",
-    TEST_DIRS.inbox / "mock_book_multi_series",
-    TEST_DIRS.inbox / "mock_book_nested",
+    flat_nested_dir,
+    multi_book_dir,
+    multi_disc_dir,
+    multi_nested_dir,
 ]
 
-expect_all_dirs = expect_flat_dirs + expect_deep_dirs
+expect_all_dirs = isorted(
+    expect_flat_dirs + [mixed_dir] + expect_deep_dirs + [standalone_nested_dir]
+)
 
+standalone_file1 = TEST_DIRS.inbox / "mock_book_standalone_file_a.mp3"
+standalone_file2 = TEST_DIRS.inbox / "mock_book_standalone_file_b.mp3"
 expect_only_standalone_files = [
-    TEST_DIRS.inbox / "mock_book_standalone_file_a.mp3",
-    TEST_DIRS.inbox / "mock_book_standalone_file_b.mp3",
+    standalone_file1,
+    standalone_file2,
+    standalone_nested_dir,
 ]
 
 expect_all = expect_all_dirs + expect_only_standalone_files
@@ -40,22 +55,136 @@ expect_all = expect_all_dirs + expect_only_standalone_files
 @pytest.mark.parametrize(
     "path, mindepth, maxdepth, expected",
     [
+        # fmt: off
         (TEST_DIRS.inbox, None, None, expect_all_dirs),
         (TEST_DIRS.inbox, 0, None, expect_all_dirs),
         (TEST_DIRS.inbox, None, 0, []),
-        (TEST_DIRS.inbox, 0, 1, expect_flat_dirs),
-        (TEST_DIRS.inbox, 1, 1, expect_flat_dirs),
+        (TEST_DIRS.inbox, 0, 0, []),
+        (TEST_DIRS.inbox, 0, 1, expect_flat_dirs + [mixed_dir] + [standalone_nested_dir]),
+        (TEST_DIRS.inbox, 1, 1, expect_flat_dirs + [mixed_dir] + [standalone_nested_dir]),
         (TEST_DIRS.inbox, 1, 2, expect_all_dirs),
-        (TEST_DIRS.inbox, 2, 2, expect_deep_dirs),
+        (TEST_DIRS.inbox, 2, 2, [mixed_dir] + expect_deep_dirs),
+        # fmt: on
     ],
 )
-@pytest.mark.usefixtures("mock_inbox", "setup")
 def test_find_root_dirs_with_audio_files(
-    path: Path, mindepth: int, maxdepth: int, expected: list[Path]
+    path: Path, mindepth: int, maxdepth: int, expected: list[Path], mock_inbox, setup
 ):
     from src.lib.fs_utils import find_base_dirs_with_audio_files
 
-    assert find_base_dirs_with_audio_files(path, mindepth, maxdepth) == expected
+    assert find_base_dirs_with_audio_files(path, mindepth, maxdepth) == isorted(
+        expected
+    )
+
+
+@pytest.mark.parametrize(
+    "expected_structure, path",
+    [
+        *[("flat", d) for d in expect_flat_dirs],
+        ("flat_nested", flat_nested_dir),
+        (
+            "multi_book",
+            multi_book_dir,
+        ),
+        ("multi_disc", multi_disc_dir),
+        ("multi_nested", multi_nested_dir),
+        ("mixed", mixed_dir),
+        ("file", standalone_file1),
+        ("standalone", standalone_nested_dir),
+        ("empty", TEST_DIRS.inbox / "empty_dir"),
+    ],
+)
+def test_find_book_audio_files(
+    expected_structure: BookDirStructure,
+    path: Path,
+    mock_inbox,
+    setup,
+):
+    structure, _paths = find_book_audio_files(path)
+
+    assert structure == expected_structure
+
+
+@pytest.mark.parametrize(
+    "test_path, predicted, expected",
+    [
+        (
+            multi_book_dir,
+            [
+                "mock_book_multi_book - ch. 1.mp3",
+                "mock_book_multi_book - ch. 2.mp3",
+                "mock_book_multi_book - ch. 1.mp3",
+                "mock_book_multi_book - ch. 2.mp3",
+                "mock_book_multi_book - ch. 3.mp3",
+                "mock_book_multi_book - ch. 4.mp3",
+                "mock_book_multi_book - ch. 1.mp3",
+                "mock_book_multi_book - ch. 2.mp3",
+                "mock_book_multi_book - ch. 3.mp3",
+            ],
+            [
+                "mock_book_multi_book - ch. 1.mp3",
+                "mock_book_multi_book - ch. 2.mp3",
+                "mock_book_multi_book - ch. 3.mp3",
+                "mock_book_multi_book - ch. 4.mp3",
+            ],
+        ),
+        (
+            multi_disc_dir,
+            [
+                "mock_book_multi_disc1 - part_1.mp3",
+                "mock_book_multi_disc1 - part_2.mp3",
+                "mock_book_multi_disc2 - part_3.mp3",
+                "mock_book_multi_disc2 - part_4.mp3",
+                "mock_book_multi_disc3 - part_5.mp3",
+                "mock_book_multi_disc3 - part_6.mp3",
+                "mock_book_multi_disc4 - part_7.mp3",
+                "mock_book_multi_disc4 - part_8.mp3",
+            ],
+            [
+                "mock_book_multi_disc1 - part_1.mp3",
+                "mock_book_multi_disc1 - part_2.mp3",
+                "mock_book_multi_disc2 - part_3.mp3",
+                "mock_book_multi_disc2 - part_4.mp3",
+                "mock_book_multi_disc3 - part_5.mp3",
+                "mock_book_multi_disc3 - part_6.mp3",
+                "mock_book_multi_disc4 - part_7.mp3",
+                "mock_book_multi_disc4 - part_8.mp3",
+            ],
+        ),
+    ],
+)
+def test_flatten_files_in_dir(
+    test_path: Path,
+    expected: list[str],
+    predicted: list[str],
+    mock_inbox,
+):
+    from src.lib.fs_utils import flatten_files_in_dir
+
+    before_files = [f.name for f in flatten_files_in_dir(test_path, preview=True)]
+
+    flatten_files_in_dir(test_path, on_conflict="skip")
+
+    after_files = list(isorted([f.name for f in test_path.iterdir() if f.is_file()]))
+    assert before_files == predicted
+    assert after_files == expected
+
+
+@pytest.mark.parametrize(
+    "test_files, expected",
+    [
+        (multi_book_dir, True),
+        (multi_disc_dir, False),
+    ],
+)
+def test_flattening_files_affects_order(
+    test_files: Path,
+    expected: bool,
+    mock_inbox,
+):
+    from src.lib.fs_utils import flattening_files_in_dir_affects_order
+
+    assert flattening_files_in_dir_affects_order(test_files) == expected
 
 
 def test_find_first_audio_file(tower_treasure__flat_mp3: Audiobook):
