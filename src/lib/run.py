@@ -472,8 +472,6 @@ def process_inbox(first_run: bool = False):
         book = Audiobook(book_full_path)
         m4b_count = count_audio_files_in_dir(book.inbox_dir, only_file_exts=["m4b"])
 
-        book_structure, _ = find_book_audio_files(book)
-
         border(len(book.basename))
         smart_print(
             Tinta().dark_grey(vline).aqua(book.basename).dark_grey(vline).to_str()
@@ -524,11 +522,11 @@ def process_inbox(first_run: bool = False):
 
         needs_fixing = False
 
-        if book_structure.startswith("multi") or book_structure == "mixed":
+        if book.structure.startswith("multi") or book.structure == "mixed":
             needs_fixing = True
 
             help_msg = f"Please organize the files in a single folder and rename them so they sort alphabetically\nin the correct order"
-            match book_structure:
+            match book.structure:
                 case "multi_disc":
                     if cfg.FLATTEN_MULTI_DISC_BOOKS:
                         smart_print(
@@ -545,13 +543,14 @@ def process_inbox(first_run: bool = False):
                             )
                         else:
                             flatten_files_in_dir(book.inbox_dir)
-                            print_debug("New file structure:")
-                            print_debug(
-                                "\n".join([str(f) for f in book.inbox_dir.glob("*")])
-                            )
                             book = Audiobook(book.inbox_dir)
                             needs_fixing = False
                             print_aqua(" ✓\n")
+                            print_debug(
+                                "New file structure:\n".join(
+                                    [str(f) for f in book.inbox_dir.glob("*")]
+                                )
+                            )
                     else:
                         print_error(f"{MULTI_ERR}, maybe this is a multi-disc book?")
                         smart_print(
@@ -585,7 +584,7 @@ def process_inbox(first_run: bool = False):
             continue
 
         # if nested_audio_dirs_count == 1:
-        if book_structure == "flat_nested":
+        if book.structure == "flat_nested":
             smart_print(
                 f"Audio files for this book are a subfolder, moving them to the book's root folder...",
                 end="",

@@ -15,6 +15,7 @@ from src.lib.ffmpeg_utils import (
 from src.lib.formatters import human_bitrate
 from src.lib.fs_utils import (
     count_audio_files_in_dir,
+    find_book_audio_files,
     find_cover_art_file,
     find_first_audio_file,
     find_next_audio_file,
@@ -140,6 +141,11 @@ class Audiobook(BaseModel):
 
     def hash(self, for_dir: DirName = "inbox"):
         return hash_dir_audio_files(getattr(self, for_dir + "_dir"))
+
+    @property
+    def structure(self):
+        book_structure, _ = find_book_audio_files(self)
+        return book_structure
 
     @cached_property
     def orig_file_type(self):

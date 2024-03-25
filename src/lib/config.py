@@ -365,8 +365,11 @@ class Config:
     def _load_path_env(
         self, key: str, default: Path | None = None, allow_empty: bool = True
     ) -> Path | None:
-        env = os.getenv(key, self.ENV.get(key, None))
-        path = Path(env).expanduser() if env else default
+        v = os.getenv(key, self.ENV.get(key, None))
+        if self.ARGS.env:
+            env = load_env(self.ARGS.env)
+            v = env.get(key, v)
+        path = Path(v).expanduser() if v else default
         if not path and not allow_empty:
             raise EnvironmentError(
                 f"{key} is not set, please make sure to set it in a .env file or as an ENV var"
