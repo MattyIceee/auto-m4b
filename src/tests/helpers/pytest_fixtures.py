@@ -71,6 +71,11 @@ def bitrate_cbr__mp3():
 
 
 @pytest.fixture(scope="function")
+def bitrate_nonstandard__mp3():
+    return load_test_fixture("bitrate_nonstandard__mp3", exclusive=True)
+
+
+@pytest.fixture(scope="function")
 def tower_treasure__flat_mp3():
     return load_test_fixture("tower_treasure__flat_mp3", exclusive=True)
 

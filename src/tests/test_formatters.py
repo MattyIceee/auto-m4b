@@ -35,3 +35,67 @@ def test_human_elapsed_time(input: int, always_hours: bool, units: bool, expecte
     assert format_duration(
         input, "human", always_show_hours=always_hours, show_units=units
     ) == (expected if units else expected_no_units)
+
+
+@pytest.mark.parametrize(
+    "in_bitrate, expected",
+    [
+        (0, 24),
+        (1, 24),
+        (12, 24),
+        (16, 24),
+        (23, 24),
+        (24, 24),
+        (25, 32),
+        (31, 32),
+        (33, 40),
+        (39, 40),
+        (40, 40),
+        (41, 48),
+        (47, 48),
+        (48, 48),
+        (49, 56),
+        (55, 56),
+        (56, 56),
+        (57, 64),
+        (64, 64),
+        (65, 80),
+        (79, 80),
+        (80, 80),
+        (81, 96),
+        (95, 96),
+        (96, 96),
+        (97, 112),
+        (111, 112),
+        (112, 112),
+        (113, 128),
+        (127, 128),
+        (128, 128),
+        (129, 160),
+        (159, 160),
+        (160, 160),
+        (161, 192),
+        (191, 192),
+        (192, 192),
+        (193, 224),
+        (223, 224),
+        (224, 224),
+        (225, 256),
+        (255, 256),
+        (256, 256),
+        (257, 320),
+        (319, 320),
+        (320, 320),
+        (321, 320),
+        (383, 320),
+        (384, 320),
+        (896, 320),
+        (897, 320),
+    ],
+)
+def test_get_nearest_standard_bitrate(in_bitrate, expected):
+    from src.lib.formatters import get_nearest_standard_bitrate
+
+    assert get_nearest_standard_bitrate(in_bitrate) == expected
+    if in_bitrate:
+        assert get_nearest_standard_bitrate(in_bitrate * 1000) == expected * 1000

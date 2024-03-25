@@ -34,13 +34,23 @@ def friendly_date(d: datetime | float | None = None, ms: bool = False) -> str:
 def get_nearest_standard_bitrate(bitrate: int) -> int:
     min_bitrate = STANDARD_BITRATES[0]
 
-    bitrate_k = bitrate // 1000 if bitrate > 999 else bitrate
+    def kb_or_b(n: int) -> int:
+        if n > 1000 and bitrate > 1000:
+            return n
+        if n < 1000 and bitrate < 1000:
+            return n
+        return n * 1000
+
+    bitrate_k = bitrate // 1000 if bitrate >= 1000 else bitrate
 
     if bitrate_k in STANDARD_BITRATES:
-        return bitrate
+        return kb_or_b(bitrate)
 
     # get the lower and upper bitrates (inclusive) from the STANDARD_BITRATES array
-    lower_bitrate = STANDARD_BITRATES[STANDARD_BITRATES <= bitrate_k][-1]
+    try:
+        lower_bitrate = STANDARD_BITRATES[STANDARD_BITRATES <= bitrate_k][-1]
+    except IndexError:
+        lower_bitrate = min_bitrate
     upper_bitrate = (
         STANDARD_BITRATES[STANDARD_BITRATES >= bitrate_k][0]
         if any(STANDARD_BITRATES >= bitrate_k)
@@ -60,13 +70,7 @@ def get_nearest_standard_bitrate(bitrate: int) -> int:
             upper_bitrate if bitrate_k + diff >= bitrate_k else lower_bitrate
         )
 
-    closest_bitrate = int(closest_bitrate)
-
-    # if the closest bitrate is less than the minimum bitrate, use the minimum bitrate
-    if closest_bitrate < min_bitrate:
-        closest_bitrate = min_bitrate
-
-    return closest_bitrate * 1000
+    return kb_or_b(int(closest_bitrate))
 
 
 def human_bitrate(file: Path) -> str:

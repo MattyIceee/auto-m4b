@@ -40,6 +40,12 @@ class test_unhappy_paths:
         app(max_loops=1, no_fix=True, test=True)
         assert the_crusades_through_arab_eyes__flat_mp3.converted_dir.exists()
 
+    @pytest.mark.order(1)
+    def test_nonstandard_bitrate__mp3(self, bitrate_nonstandard__mp3: Audiobook):
+
+        app(max_loops=1, no_fix=True, test=True)
+        assert bitrate_nonstandard__mp3.converted_dir.exists()
+
     @pytest.mark.order(2)
     def test_roman_numerals_and_failed_books_only_print_once(
         self, roman_numeral__mp3: Audiobook, capfd: CaptureFixture[str]
