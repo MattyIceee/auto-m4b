@@ -30,12 +30,11 @@ services:
       - PUID=1000
       - PGID=1000
       - MAX_CHAPTER_LENGTH=15,30
-      - INBOX_FOLDER=/media/Downloads/#done/#books/#convert/inbox
-      - CONVERTED_FOLDER=/media/Downloads/#done/#books/#convert/converted
-      - CONVERTED_FOLDER=/media/Books/Audiobooks/_Updated plex copies
-      - ARCHIVE_FOLDER=/media/Downloads/#done/#books/#convert/processed
-      - FIX_FOLDER=/media/Downloads/#done/#books/#convert/fix
-      - BACKUP_FOLDER=/media/Downloads/#done/#books/#convert/backup
+      - INBOX_FOLDER=/media/Books/Audiobooks/#auto-m4b/inbox
+      - CONVERTED_FOLDER=/media/Books/Audiobooks/#auto-m4b/converted
+      - ARCHIVE_FOLDER=/media/Books/Audiobooks/#auto-m4b/archive
+      - FIX_FOLDER=/media/Books/Audiobooks/#auto-m4b/fix
+      - BACKUP_FOLDER=/media/Books/Audiobooks/#auto-m4b/backup
       - WORKING_FOLDER=/tmp/auto-m4b
       # - ARCHIVE_FOLDER=/sandbox/archive
       # - BACKUP_FOLDER=/sandbox/backup
