@@ -545,6 +545,10 @@ def process_inbox(first_run: bool = False):
                             )
                         else:
                             flatten_files_in_dir(book.inbox_dir)
+                            print_debug("New file structure:")
+                            print_debug(
+                                "\n".join([str(f) for f in book.inbox_dir.glob("*")])
+                            )
                             book = Audiobook(book.inbox_dir)
                             needs_fixing = False
                             print_aqua(" ✓\n")
