@@ -834,7 +834,7 @@ def find_recently_modified_files_and_dirs(
 ) -> list[tuple[Path, float, float]]:
     from src.lib.config import cfg
 
-    if within_seconds <= 0:
+    if within_seconds == 0:
         within_seconds = 2 if cfg.TEST else 15
     current_time = time.time()
     recent_items: list[tuple[Path, float, float]] = []
@@ -853,7 +853,7 @@ def find_recently_modified_files_and_dirs(
         if path.is_file() and only_file_exts and path.suffix in only_file_exts:
             continue
         age = (since or current_time) - last_modified
-        if age < within_seconds:
+        if age < within_seconds or within_seconds == -1:
             recent_items.append((path, age, last_modified))
 
     return recent_items
@@ -861,7 +861,7 @@ def find_recently_modified_files_and_dirs(
 
 def last_updated_at(path: Path, *, only_file_exts: list[str] = []) -> float:
     find_all_sorted_by_modified = find_recently_modified_files_and_dirs(
-        path, 60, since=0, only_file_exts=only_file_exts
+        path, -1, since=0, only_file_exts=only_file_exts
     )
     paths_m = [m for _1, _2, m in find_all_sorted_by_modified]
     return max(paths_m, default=0)
