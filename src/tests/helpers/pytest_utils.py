@@ -114,6 +114,22 @@ class testutils:
         cfg.MAKE_BACKUP = False
 
     @classmethod
+    def enable_debug(cls, delay: int = 0):
+
+        time.sleep(delay)
+        cls.print("Enabling debug")
+        os.environ["DEBUG"] = "Y"
+        cfg.DEBUG = True
+
+    @classmethod
+    def disable_debug(cls, delay: int = 0):
+
+        time.sleep(delay)
+        cls.print("Disabling debug")
+        os.environ["DEBUG"] = "N"
+        cfg.DEBUG = False
+
+    @classmethod
     def make_mock_file(cls, path: Path, size: int = 1024 * 5):
         if not path.is_absolute():
             path = TEST_DIRS.inbox / path

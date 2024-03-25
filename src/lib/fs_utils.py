@@ -958,9 +958,9 @@ def mv_to_fix_dir(book: "Audiobook", fail_book: Callable[["Audiobook"], None]):
 
     fail_book(book)
     # if cfg.NO_FIX:
-    book.write_log("This book needs to be fixed before it can be converted.")
+    book.write_log("[This book needs to be fixed before it can be converted]")
     book.set_active_dir("inbox")
-    if (build_log := book.build_dir / f"m4b-tool.{book}.log") and build_log.exists():
+    if (build_log := book.build_dir / book.log_filename) and build_log.exists():
         if book.log_file.exists():
             # update inbox log with build dir log, preceded by a \n
             with open(build_log, "r") as f:

@@ -193,7 +193,7 @@ def test_log_supports_vbr_mp3s(bitrate_vbr__mp3: Audiobook, global_test_log: Pat
 
 def test_logs_m4b_tool_failures(corrupt_audiobook: Audiobook, global_test_log: Path):
 
-    log_file = TEST_DIRS.inbox / "corrupt_audiobook" / "m4b-tool.corrupt_audiobook.log"
+    log_file = TEST_DIRS.inbox / "corrupt_audiobook" / corrupt_audiobook.log_filename
     log_file.unlink(missing_ok=True)
     app(max_loops=1, no_fix=True, test=True)
     assert global_test_log.exists()

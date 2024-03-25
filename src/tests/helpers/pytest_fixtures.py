@@ -185,6 +185,12 @@ def the_hobbit__multidisc_mp3():
 
 
 @pytest.fixture(scope="function", autouse=False)
+def the_shining__flat_mp3():
+    # Contains out of order roman numerals
+    return load_test_fixture("the_shining__flat_mp3", exclusive=True)
+
+
+@pytest.fixture(scope="function", autouse=False)
 def roman_numeral__mp3():
     dir_name = TEST_DIRS.inbox / "Roman Numeral Book"
 

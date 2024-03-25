@@ -22,7 +22,7 @@ from src.lib.parsers import (
     count_distinct_roman_numerals,
     roman_numerals_affect_file_order,
 )
-from src.lib.strings import MULTI_ERR, ROMAN_ERR
+from src.lib.strings import en
 from src.lib.term import (
     AMBER_COLOR,
     border,
@@ -548,27 +548,27 @@ def process_inbox(first_run: bool = False):
                                 )}"
                             )
                     else:
-                        print_error(f"{MULTI_ERR}, maybe this is a multi-disc book?")
+                        print_error(f"{en.MULTI_ERR}, maybe this is a multi-disc book?")
                         smart_print(
                             f"{help_msg}, or set FLATTEN_MULTI_DISC_BOOKS=Y to have auto-m4b flatten\nmulti-disc books automatically\n"
                         )
-                        book.write_log(f"{MULTI_ERR} (multi-disc book) - {help_msg}")
+                        book.write_log(f"{en.MULTI_ERR} (multi-disc book) - {help_msg}")
                 case "multi_book":
-                    print_error(f"{MULTI_ERR}, maybe this contains multiple books?")
+                    print_error(f"{en.MULTI_ERR}, maybe this contains multiple books?")
                     help_msg = "To convert these books, move each book folder to the root of the inbox"
                     smart_print(f"{help_msg}\n")
-                    book.write_log(f"{MULTI_ERR} (multiple books found) - {help_msg}")
+                    book.write_log(f"{en.MULTI_ERR} (multiple books found) - {help_msg}")
                 case _:
-                    print_error(f"{MULTI_ERR}, cannot determine book structure")
+                    print_error(f"{en.MULTI_ERR}, cannot determine book structure")
                     smart_print(f"{help_msg}\n")
-                    book.write_log(f"{MULTI_ERR} (structure unknown) - {help_msg}")
+                    book.write_log(f"{en.MULTI_ERR} (structure unknown) - {help_msg}")
 
         if roman_numerals_count > 1:
             if roman_numerals_affect_file_order(book.inbox_dir):
-                print_error(ROMAN_ERR)
+                print_error(en.ROMAN_ERR)
                 help_msg = "Roman numerals do not sort in alphabetical order; please rename them so they sort alphabetically in the correct order"
                 smart_print(f"{help_msg}\n")
-                book.write_log(f"{ROMAN_ERR} - {help_msg}")
+                book.write_log(f"{en.ROMAN_ERR} - {help_msg}")
                 needs_fixing = True
             else:
                 print_debug(
@@ -778,11 +778,10 @@ def process_inbox(first_run: bool = False):
             overwrite_mode="overwrite-silent",
         )
 
-        # Copy log file to output folder as $buildfolder$book/m4b-tool.$book.log
         mv_file_to_dir(
             book.log_file,
             book.converted_dir,
-            new_filename=f"m4b-tool.{book}.log",
+            new_filename=book.log_filename,
             overwrite_mode="overwrite-silent",
         )
         book.set_active_dir("converted")
@@ -862,7 +861,7 @@ def process_inbox(first_run: bool = False):
 
     if books_count >= 1:
         print_grey(
-            f"Finished converting all available books, waiting for more to be added to the inbox"
+            en.DONE_CONVERTING
         )
         if not cfg.NO_ASCII:
             print_dark_grey(BOOK_ASCII)

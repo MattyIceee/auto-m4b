@@ -185,8 +185,12 @@ class Audiobook(BaseModel):
         return get_samplerate_py(self.sample_audio1)
 
     @property
+    def log_filename(self):
+        return f"auto-m4b.{self}.log"
+
+    @property
     def log_file(self) -> Path:
-        log_file = self.active_dir / f"m4b-tool.{self}.log"
+        log_file = self.active_dir / self.log_filename
         log_file.touch(exist_ok=True)
         return log_file
 

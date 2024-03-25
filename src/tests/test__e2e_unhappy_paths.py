@@ -14,7 +14,7 @@ from pytest import CaptureFixture
 from src.auto_m4b import app
 from src.lib.audiobook import Audiobook
 from src.lib.run import flush_inbox_hash
-from src.lib.strings import MULTI_ERR, ROMAN_ERR
+from src.lib.strings import en
 from src.tests.conftest import TEST_DIRS
 from src.tests.helpers.pytest_utils import testutils
 
@@ -47,7 +47,7 @@ class test_unhappy_paths:
 
         app(max_loops=3, no_fix=True, test=True)
         # assert the message only appears once
-        assert capfd.readouterr().out.count(ROMAN_ERR) == 1
+        assert capfd.readouterr().out.count(en.ROMAN_ERR) == 1
 
     @pytest.mark.order(3)
     def test_match_name_has_no_matches(
@@ -119,6 +119,7 @@ class test_unhappy_paths:
     async def test_failed_books_retry_when_fixed(
         self, old_mill__multidisc_mp3: Audiobook, capfd: CaptureFixture[str]
     ):
+        testutils.disable_autoflatten()
         inbox_dir = old_mill__multidisc_mp3.inbox_dir
         converted_dir = old_mill__multidisc_mp3.converted_dir
         shutil.rmtree(converted_dir, ignore_errors=True)
@@ -178,7 +179,7 @@ class test_unhappy_paths:
         )
         stdout, _ = capfd.readouterr()
         assert romans_msg not in stdout
-        assert MULTI_ERR in stdout
+        assert en.MULTI_ERR in stdout
 
     @pytest.mark.order(10)
     def test_long_filename__mp3(self, conspiracy_theories__flat_mp3: Audiobook):
@@ -217,16 +218,21 @@ class test_unhappy_paths:
         old_mill__multidisc_mp3: Audiobook,
         capfd: CaptureFixture[str],
     ):
+        testutils.disable_autoflatten()
+        testutils.enable_debug()
         wait_msg = "The inbox folder was recently modified, waiting"
         time.sleep(2)
         app(max_loops=1, no_fix=True, test=True)
         out = testutils.get_stdout(capfd)
-        assert out.count(wait_msg) == 0
-        assert out.count("multi-disc") == 1
         assert out.count("inbox hash is the same") == 0
+        assert out.count(en.DONE_CONVERTING) == 1
+        assert out.count(en.MULTI_ERR) == 1
+        assert out.count(wait_msg) == 0
+
         time.sleep(1)
         app(max_loops=1, no_fix=True, test=True)
         out = testutils.get_stdout(capfd)
         assert out.count("inbox hash is the same") == 1
-        assert out.count("multi-disc") == 0
+        assert out.count(en.DONE_CONVERTING) == 0
+        assert out.count(en.MULTI_ERR) == 0
         assert out.count(wait_msg) == 0
