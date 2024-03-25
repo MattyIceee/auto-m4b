@@ -353,12 +353,8 @@ def process_inbox(first_run: bool = False):
             print_notice(
                 "The inbox folder was recently modified, waiting in case files are still being copied or moved...\n"
             )
+            print_debug(f"Hashes: last {INBOX_HASH} / curr {hash_inbox()}")
         waited_while_copying += 1
-        time_ago = time.time() - inbox_last_updated_at()
-        print_debug(
-            f"Waiting for inbox to be modified, touched {time_ago:.0f} s ago\n"
-            f"          hash: last {INBOX_HASH} / curr {hash_inbox()}"
-        )
         time.sleep(0.5)
 
     if waited_while_copying:
