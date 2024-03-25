@@ -17,7 +17,7 @@ from src.lib.term import print_debug
 author_pattern = r"^(?P<author>.*?)[\W\s]*[-_–—\(]"
 book_title_pattern = r"(?<=[-_–—])[\W\s]*(?P<book_title>[\w\s]+?)\s*(?=\d{4}|\(|\[|$)"
 year_pattern = r"(?P<year>\d{4})"
-narrator_pattern = r"(?:read.?by|narrated.?by|narrator)\W+(?P<narrator>(?:[\w'\.,-]+\s(?:(?!=\s)|$)){1,})"
+narrator_pattern = r"(?:read.?by|narrated.?by|narrator)\W+(?P<narrator>(?:[\w'\.-]+,?(?:[\s._-]|$)){1,}\w+(?=\W|$)).*?"
 narrator_slash_pattern = r"(?P<author>.+)\/(?P<narrator>.+)"
 lastname_firstname_pattern = r"^(?P<lastname>.*?), (?P<firstname>.*)$"
 firstname_lastname_pattern = r"^(?P<firstname>.*?).*\s(?P<lastname>\S+)$"

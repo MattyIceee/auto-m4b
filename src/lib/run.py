@@ -233,7 +233,7 @@ def banner(verb: str = "Checking"):
     print_grey(f"{verb} for new books in {{{{{cfg.inbox_dir}}}}} ꨄ︎")
 
     if not INBOX_HASH:
-        print_debug(f"First run, banner should say 'watching'")
+        # print_debug(f"First run, banner should say 'watching'")
         nl()
 
 
@@ -368,7 +368,7 @@ def process_inbox(first_run: bool = False):
             LAST_UPDATED = inbox_last_updated_at()
         return
 
-    print_debug(f"Last updated: {friendly_date(inbox_last_updated_at(), ms=True)}")
+    # print_debug(f"Last updated: {friendly_date(inbox_last_updated_at(), ms=True)}")
 
     standalone_count = count_standalone_books_in_inbox()
     if standalone_count:

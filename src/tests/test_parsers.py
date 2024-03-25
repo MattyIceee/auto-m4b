@@ -31,16 +31,26 @@ def test_id3_extract_fails_for_corrupt_file(corrupt_audiobook: Audiobook):
         extract_id3_tag_py(corrupt_audiobook.sample_audio1, "title", throw=True)
 
 
-def test_parse_id3_narrator(blank_audiobook: Audiobook):
-
-    test_str = "Mysterious Benedict Society#1    Read by Del Roy                           Unabridged  13 hrs 17 min           Listening Library/Random House Audio"
+@pytest.mark.parametrize(
+    "test_str, expected_narrator",
+    [
+        (
+            "Mysterious Benedict Society#1    Read by Del Roy                           Unabridged  13 hrs 17 min           Listening Library/Random House Audio",
+            "Del Roy",
+        ),
+        ("Read by Nicola Barber; Unabr", "Nicola Barber"),
+    ],
+)
+def test_parse_id3_narrator(
+    test_str: str, expected_narrator: str, blank_audiobook: Audiobook
+):
 
     write_id3_tags_eyed3(blank_audiobook.sample_audio1, {"comment": test_str})
     assert extract_id3_tag_py(blank_audiobook.sample_audio1, "comment") == test_str
 
     book = Audiobook(blank_audiobook.sample_audio1).extract_metadata()
     assert book.id3_comment == test_str
-    assert book.narrator == "Del Roy"
+    assert book.narrator == expected_narrator
 
 
 def test_bitrate_vbr(bitrate_vbr__mp3: Audiobook):
