@@ -63,12 +63,6 @@ def escape_special_chars(string: str) -> str:
     return re.sub(r"[\[\]\(\)*?|&]", r"\\\g<0>", string)
 
 
-def fix_smart_quotes(_string: str) -> str:
-    # takes a string and replaces smart quotes with regular quotes
-    trans = str.maketrans("‘’‚‛′′“”„‟″″", "''''''\"\"\"\"\"\"")
-    return _string.translate(trans)
-
-
 def get_numbers_in_string(s: str) -> str:
     """Returns a list of numbers found in a string, in order they are found."""
     return "".join(re.findall(r"\d", s))

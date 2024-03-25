@@ -10,7 +10,8 @@ from eyed3 import AudioFile
 from eyed3.id3 import Tag
 from tinta import Tinta
 
-from src.lib.misc import compare_trim, fix_smart_quotes, get_numbers_in_string, re_group
+from src.lib.cleaners import clean_string
+from src.lib.misc import compare_trim, get_numbers_in_string, re_group
 from src.lib.parsers import (
     find_greatest_common_string,
     get_year_from_date,
@@ -642,10 +643,10 @@ def extract_metadata(book: "Audiobook", quiet: bool = False) -> "Audiobook":
 
     if title_source == "title" and book.title_is_partno:
         book.title = strip_part_number(book.title)
-    book.title = fix_smart_quotes(book.title)
-    book.album = fix_smart_quotes(book.album)
-    book.albumartist = fix_smart_quotes(book.albumartist)
-    book.artist = fix_smart_quotes(book.artist)
+    book.title = clean_string(book.title)
+    book.album = clean_string(book.album)
+    book.albumartist = clean_string(book.albumartist)
+    book.artist = clean_string(book.artist)
 
     if not quiet:
         print_list(f"Title: {book.title}")

@@ -11,8 +11,6 @@ from src.lib.misc import isorted, re_group
 from src.lib.term import print_debug
 
 # TODO: Author ignores like "GraphicAudio"
-# TODO: Add cleanup for html/url encodes like &amp; and &quot; and &rsquo;
-# TODO: Strip html tags <...>
 # TODO: Add test coverage for narrator with /
 # fmt: off
 author_pattern = r"^(?P<author>.*?)[\W\s]*[-_–—\(]"
