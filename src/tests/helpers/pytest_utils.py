@@ -98,6 +98,22 @@ class testutils:
         cfg.FLATTEN_MULTI_DISC_BOOKS = False
 
     @classmethod
+    def enable_backups(cls, delay: int = 0):
+
+        time.sleep(delay)
+        cls.print("Enabling backups")
+        os.environ["MAKE_BACKUP"] = "Y"
+        cfg.MAKE_BACKUP = True
+
+    @classmethod
+    def disable_backups(cls, delay: int = 0):
+
+        time.sleep(delay)
+        cls.print("Disabling backups")
+        os.environ["MAKE_BACKUP"] = "N"
+        cfg.MAKE_BACKUP = False
+
+    @classmethod
     def make_mock_file(cls, path: Path, size: int = 1024 * 5):
         if not path.is_absolute():
             path = TEST_DIRS.inbox / path

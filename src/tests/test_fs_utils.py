@@ -1,4 +1,5 @@
 import random
+import re
 import shutil
 import time
 from pathlib import Path
@@ -8,12 +9,13 @@ from PIL import Image
 
 from src.lib.audiobook import Audiobook
 from src.lib.fs_utils import (
+    filter_ignored,
     find_book_audio_files,
     find_cover_art_file,
     find_first_audio_file,
     find_next_audio_file,
 )
-from src.lib.misc import isorted
+from src.lib.misc import isorted, re_group
 from src.lib.typing import BookDirStructure
 from src.tests.conftest import TEST_DIRS
 
@@ -105,6 +107,7 @@ def test_find_book_audio_files(
     assert structure == expected_structure
 
 
+@pytest.mark.usefixtures("the_hobbit__multidisc_mp3")
 @pytest.mark.parametrize(
     "test_path, predicted, expected",
     [
@@ -168,6 +171,63 @@ def test_flatten_files_in_dir(
     after_files = list(isorted([f.name for f in test_path.iterdir() if f.is_file()]))
     assert before_files == predicted
     assert after_files == expected
+
+
+hobbitses = [
+    "cover.jpg",
+    "J.R.R. Tolkien - The Hobbit [Full Cast] - Disc 01 - 01 - Mr Bilbo Baggins.mp3",
+    "J.R.R. Tolkien - The Hobbit [Full Cast] - Disc 01 - 12 - Elrond Interprets the Map.mp3",
+    "J.R.R. Tolkien - The Hobbit [Full Cast] - Disc 02 - 02 - The battle against the goblins.mp3",
+    "J.R.R. Tolkien - The Hobbit [Full Cast] - Disc 02 - 07 - The edge of the Land Beyond.mp3",
+    "J.R.R. Tolkien - The Hobbit [Full Cast] - Disc 03 - 01 - Straying from the Path.mp3",
+    "J.R.R. Tolkien - The Hobbit [Full Cast] - Disc 03 - 06 - The Gates of Lake-town.mp3",
+    "J.R.R. Tolkien - The Hobbit [Full Cast] - Disc 04 - 04 - The besiegers' terms.mp3",
+    "J.R.R. Tolkien - The Hobbit [Full Cast] - Disc 04 - 06 - Thorin's rage.mp3",
+    "J.R.R. Tolkien - The Hobbit [Full Cast] - Disc 04 - 10 - The return journey begins.mp3",
+    "J.R.R. Tolkien - The Hobbit [Full Cast] - Disc 05 - 01 - Opening and Bilbo's Theme.mp3",
+    "J.R.R. Tolkien - The Hobbit [Full Cast] - Disc 05 - 02 - Elves' Dances.mp3",
+    "J.R.R. Tolkien - The Hobbit [Full Cast] - Disc 05 - 03 - Bilbo's Lullaby.mp3",
+]
+
+
+@pytest.mark.parametrize(
+    "test_path, predicted, expected",
+    [
+        (
+            TEST_DIRS.inbox / "the_hobbit__multidisc_mp3",
+            hobbitses,
+            hobbitses,
+        ),
+    ],
+)
+def test_flatten_multidisc_fixture(
+    test_path: Path,
+    expected: list[str],
+    predicted: list[str],
+    the_hobbit__multidisc_mp3,
+):
+    from src.lib.fs_utils import flatten_files_in_dir
+
+    before_files = [f.name for f in flatten_files_in_dir(test_path, preview=True)]
+
+    flatten_files_in_dir(test_path, on_conflict="skip")
+
+    after_files = list(
+        isorted([f.name for f in filter_ignored(test_path.iterdir()) if f.is_file()])
+    )
+    assert before_files == predicted
+    assert after_files == expected
+
+    # reset the files
+    # put each file if it matches `Disc 0(?P<disc_number>\d)` into a dir (make if needed) J.R.R. Tolkien - The Hobbit - Disc <disc_number>
+    for f in test_path.iterdir():
+        if f.is_file() and "Disc" in f.name:
+            disc_number = re_group(
+                re.search(r"Disc 0(?P<disc_number>\d)", f.name), "disc_number"
+            )
+            disc_dir = test_path / f"J.R.R. Tolkien - The Hobbit - Disc {disc_number}"
+            disc_dir.mkdir(exist_ok=True)
+            f.rename(disc_dir / f.name)
 
 
 @pytest.mark.parametrize(

@@ -3,7 +3,7 @@ import os
 import re
 import shutil
 import time
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Generator, Iterable
 from pathlib import Path
 from typing import Any, cast, Literal, NamedTuple, overload, TYPE_CHECKING
 
@@ -815,8 +815,12 @@ def find_cover_art_file(path: Path) -> Path | None:
     return img
 
 
-def filter_ignored(paths: Iterable[Path]) -> list[Path]:
+def filter_ignored(
+    paths: Iterable[Path | None] | Generator[Path, Any, Any],
+) -> list[Path]:
     from src.lib.config import cfg
+
+    paths = [p for p in paths if p]
 
     return [
         p
@@ -1029,3 +1033,26 @@ def get_flat_list_of_files_in_dir(
         sorted_alphabetically=sorted_files_list,
         is_same_order=do_lists_order_match,
     )
+
+
+def compare_dirs_by_files(dir1: Path, dir2: Path) -> list[tuple[Path, int, Path, int]]:
+    """Finds files from one dir in another, and includes the file sizes of each"""
+    files1 = filter_ignored(dir1.glob("**/*"))
+    files2 = filter_ignored(dir2.glob("**/*"))
+
+    # make a list of files matched by name and size, e.g. [(left, left_size, right, right_size), ...]
+    files1 = [(f, f.stat().st_size) for f in files1 if f.is_file()]
+    files2 = [(f, f.stat().st_size) for f in files2 if f.is_file()]
+
+    mapped_files = []
+    for f1, s1 in files1:
+        found_in_right = False
+        for f2, s2 in files2:
+            if f1.name == f2.name and s1 == s2:
+                mapped_files.append((f1, s1, f2, s2))
+                found_in_right = True
+                break
+        if not found_in_right:
+            mapped_files.append((f1, s1, None, 0))
+
+    return mapped_files

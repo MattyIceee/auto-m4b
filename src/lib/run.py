@@ -259,6 +259,78 @@ def unfail_book(book: Audiobook | str, updated_broken_books: list[str] = []):
     return updated_broken_books
 
 
+def do_backup(book: Audiobook):
+    # Copy files to backup destination
+    if not cfg.MAKE_BACKUP:
+        print_dark_grey("Not backing up (backups are disabled)")
+    elif dir_is_empty_ignoring_hidden_files(book.inbox_dir):
+        print_dark_grey("Skipping backup (folder is empty)")
+    else:
+        smart_print(f"Making a backup copy → {tint_path(book.backup_dir)}")
+        cp_dir(book.inbox_dir, cfg.backup_dir, overwrite_mode="skip-silent")
+
+        # Check that files count and folder size match
+        orig_files_count = book.num_files("inbox")
+        orig_size_b = book.size("inbox", "bytes")
+        orig_size_human = book.size("inbox", "human")
+        orig_plural = pluralize(orig_files_count, "file")
+
+        backup_files_count = book.num_files("backup")
+        backup_size_b = book.size("backup", "bytes")
+        backup_size_human = book.size("backup", "human")
+        backup_plural = pluralize(backup_files_count, "file")
+
+        file_count_matches = orig_files_count == backup_files_count
+        size_matches = orig_size_b == backup_size_b
+        size_fuzzy_matches = abs(orig_size_b - backup_size_b) < 1000
+
+        expected = f"{orig_files_count} {orig_plural} ({orig_size_human})"
+        found = f"{backup_files_count} {backup_plural} ({backup_size_human})"
+
+        if file_count_matches and size_matches:
+            print_grey(
+                f"Backup successful - {backup_files_count} {orig_plural} ({backup_size_human})"
+            )
+        elif orig_files_count < backup_files_count or orig_size_b < backup_size_b:
+            print_grey(
+                f"Backup successful, but extra data found in backup dir - expected {expected}, found {found}"
+            )
+            print_grey("Assuming this is a previous backup and continuing")
+        elif file_count_matches and size_fuzzy_matches:
+            print_grey(
+                f"Backup successful, but sizes aren't exactly the same - expected {expected}, found {found}"
+            )
+            print_grey("Assuming this is a previous backup and continuing")
+        else:
+            # for each audio file in left, find it in right, and compare size of each.
+            # if the size is the same, remove it from the list of files to check.
+            left_right_files = compare_dirs_by_files(book.inbox_dir, book.backup_dir)
+            # if None in the 3rd column of left_right_files, a file is missing from the backup
+            missing_files = [f for f in left_right_files if f[2] is None]
+            if missing_files:
+                print_error(
+                    f"Backup failed - {len(missing_files)} {pluralize(len(missing_files), 'file')} missing from backup"
+                )
+                smart_print("Skipping this book\n")
+                return False
+            # compare the size of each file in the list of files to check
+            for left, l_size, _, r_size in left_right_files:
+                if l_size != r_size:
+                    l_human_size = human_size(l_size)
+                    r_human_size = human_size(r_size)
+                    print_error(
+                        f"Backup failed - size mismatch for {left} - original is {l_human_size}, but backup is {r_human_size}"
+                    )
+                    smart_print("Skipping this book\n")
+                    return False
+            if expected != found:
+                print_error(f"Backup failed - expected {expected}, found {found}")
+                smart_print("Skipping this book\n")
+                return False
+
+    return True
+
+
 def process_inbox(first_run: bool = False):
     global FAILED_BOOKS, INBOX_HASH, INBOX_BOOK_HASHES, LAST_UPDATED
 
@@ -528,51 +600,8 @@ def process_inbox(first_run: bool = False):
 
         nl()
 
-        # Copy files to backup destination
-        if not cfg.MAKE_BACKUP:
-            print_dark_grey("Not backing up (backups are disabled)")
-        elif dir_is_empty_ignoring_hidden_files(book.inbox_dir):
-            print_dark_grey("Skipping backup (folder is empty)")
-        else:
-            smart_print(f"Making a backup copy → {tint_path(book.backup_dir)}")
-            cp_dir(book.inbox_dir, cfg.backup_dir, overwrite_mode="skip-silent")
-
-            # Check that files count and folder size match
-            orig_files_count = book.num_files("inbox")
-            orig_size_b = book.size("inbox", "bytes")
-            orig_size_human = book.size("inbox", "human")
-            orig_plural = pluralize(orig_files_count, "file")
-
-            backup_files_count = book.num_files("backup")
-            backup_size_b = book.size("backup", "bytes")
-            backup_size_human = book.size("backup", "human")
-            backup_plural = pluralize(backup_files_count, "file")
-
-            file_count_matches = orig_files_count == backup_files_count
-            size_matches = orig_size_b == backup_size_b
-            size_fuzzy_matches = abs(orig_size_b - backup_size_b) < 1000
-
-            expected = f"{orig_files_count} {orig_plural} ({orig_size_human})"
-            found = f"{backup_files_count} {backup_plural} ({backup_size_human})"
-
-            if file_count_matches and size_matches:
-                print_grey(
-                    f"Backup successful - {backup_files_count} {orig_plural} ({backup_size_human})"
-                )
-            elif orig_files_count < backup_files_count or orig_size_b < backup_size_b:
-                print_grey(
-                    f"Backup successful, but extra data found in backup dir - expected {expected}, found {found}"
-                )
-                print_grey("Assuming this is a previous backup and continuing")
-            elif file_count_matches and size_fuzzy_matches:
-                print_grey(
-                    f"Backup successful, but sizes aren't exactly the same - expected {expected}, found {found}"
-                )
-                print_grey("Assuming this is a previous backup and continuing")
-            else:
-                print_error(f"Backup failed - expected {expected}, found {found}")
-                smart_print("Skipping this book\n")
-                continue
+        if do_backup(book) is False:
+            continue
 
         if book.converted_file.is_file():
             if cfg.OVERWRITE_MODE == "skip":

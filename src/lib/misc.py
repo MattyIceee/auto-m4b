@@ -3,7 +3,7 @@ import os
 import re
 import shutil
 import subprocess
-from collections.abc import Iterable
+from collections.abc import Generator, Iterable
 from pathlib import Path
 from typing import Any, cast, TypeVar
 
@@ -85,7 +85,9 @@ def re_group(
     return found if found is not None else default
 
 
-def isorted(iterable: Iterable[T], reverse: bool = False) -> list[T]:
+def isorted(
+    iterable: Iterable[T] | Generator[T, None, None], reverse: bool = False
+) -> list[T]:
     return sorted(iterable, key=lambda x: str(x).lower(), reverse=reverse)
 
 

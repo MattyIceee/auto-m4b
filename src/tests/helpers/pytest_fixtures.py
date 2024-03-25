@@ -172,6 +172,19 @@ def benedict_society__mp3():
 
 
 @pytest.fixture(scope="function", autouse=False)
+def the_hobbit__multidisc_mp3():
+
+    dirname = TEST_DIRS.inbox / "the_hobbit__multidisc_mp3"
+
+    # remove any mp3 files in the root of this dir
+    if dirname.exists():
+        for f in dirname.iterdir():
+            if f.is_file() and f.suffix == ".mp3":
+                f.unlink(missing_ok=True)
+    return load_test_fixture("the_hobbit__multidisc_mp3", exclusive=True)
+
+
+@pytest.fixture(scope="function", autouse=False)
 def roman_numeral__mp3():
     dir_name = TEST_DIRS.inbox / "Roman Numeral Book"
 
