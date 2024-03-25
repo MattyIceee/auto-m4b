@@ -240,20 +240,6 @@ class Config:
             else "skip"
         )
 
-    # @cached_property
-    # def overwrite_arg(self):
-    #     return "--overwrite" if self.OVERWRITE_EXISTING else "--no-overwrite"
-
-    # @cached_property
-    # def default_overwrite_mode(self) -> OverwriteMode:
-    #     return "overwrite" if self.OVERWRITE_EXISTING else "skip"
-
-    @cached_property
-    def NO_FIX(self) -> bool:
-        if self.ARGS.no_fix or self.ARGS.debug:
-            return True
-        return parse_bool(os.getenv("NO_FIX", False))
-
     @cached_property
     def NO_ASCII(self) -> bool:
         return parse_bool(os.getenv("NO_ASCII", False))
@@ -483,10 +469,6 @@ class Config:
         return self._load_path_env("ARCHIVE_FOLDER", allow_empty=False)
 
     @cached_property
-    def fix_dir(self):
-        return self._load_path_env("FIX_FOLDER", allow_empty=False)
-
-    @cached_property
     def backup_dir(self):
         return self._load_path_env("BACKUP_FOLDER", allow_empty=False)
 
@@ -543,7 +525,6 @@ class Config:
             self.inbox_dir,
             self.converted_dir,
             self.archive_dir,
-            self.fix_dir,
             self.backup_dir,
             self.working_dir,
             self.build_dir,

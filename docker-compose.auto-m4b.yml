@@ -33,13 +33,11 @@ services:
       - INBOX_FOLDER=/media/Books/Audiobooks/#auto-m4b/inbox
       - CONVERTED_FOLDER=/media/Books/Audiobooks/#auto-m4b/converted
       - ARCHIVE_FOLDER=/media/Books/Audiobooks/#auto-m4b/archive
-      - FIX_FOLDER=/media/Books/Audiobooks/#auto-m4b/fix
       - BACKUP_FOLDER=/media/Books/Audiobooks/#auto-m4b/backup
       - WORKING_FOLDER=/tmp/auto-m4b
       # - ARCHIVE_FOLDER=/sandbox/archive
       # - BACKUP_FOLDER=/sandbox/backup
       # - CONVERTED_FOLDER=/sandbox/converted
-      # - FIX_FOLDER=/sandbox/fix
       # - INBOX_FOLDER=/sandbox/inbox
       # - WORKING_FOLDER=/sandbox/working
       - OVERWRITE_EXISTING=Y

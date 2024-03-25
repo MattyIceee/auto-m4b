@@ -244,6 +244,20 @@ def fail_book(book: Audiobook):
         return
     FAILED_BOOKS[book.basename] = book.last_updated_at()
 
+    book.write_log("[This book needs to be fixed before it can be converted]")
+    book.set_active_dir("inbox")
+    if (build_log := book.build_dir / book.log_filename) and build_log.exists():
+        if book.log_file.exists():
+            # update inbox log with build dir log, preceded by a \n
+            with open(build_log, "r") as f:
+                log = f.read()
+            with open(book.log_file, "a") as f:
+                f.write(f"\n{log}")
+        else:
+            # move build dir log to inbox dir
+            shutil.move(build_log, book.log_file)
+    return FAILED_BOOKS
+
 
 def unfail_book(book: Audiobook | str, updated_broken_books: list[str] = []):
     """Removes the book's path from the failed books dict"""
@@ -365,12 +379,10 @@ def process_inbox(first_run: bool = False):
     if hash_inbox() == INBOX_HASH:
         if inbox_last_updated_at() != LAST_UPDATED:
             print_debug(
-                f"Skipping this loop, inbox hash is the same (was last touched {friendly_date(inbox_last_updated_at())})"
+                f"Skipping this loop, inbox hash is the same (was last touched {inbox_last_updated_at(friendly=True)})"
             )
             LAST_UPDATED = inbox_last_updated_at()
         return
-
-    # print_debug(f"Last updated: {friendly_date(inbox_last_updated_at(), ms=True)}")
 
     standalone_count = count_standalone_books_in_inbox()
     if standalone_count:
@@ -510,14 +522,6 @@ def process_inbox(first_run: bool = False):
             mv_dir_contents(book.inbox_dir, book.converted_dir)
             continue
 
-        # Check if a copy of this book is in fix_dir and bail
-        if (cfg.fix_dir / book.basename).exists():
-            print_error(
-                "A copy of this book is in the fix folder, please fix it and try again"
-            )
-            fail_book(book)
-            continue
-
         needs_fixing = False
 
         if book.structure.startswith("multi") or book.structure == "mixed":
@@ -578,7 +582,7 @@ def process_inbox(first_run: bool = False):
                 )
 
         if needs_fixing:
-            mv_to_fix_dir(book, fail_book)
+            fail_book(book)
             continue
 
         # if nested_audio_dirs_count == 1:
@@ -719,7 +723,7 @@ def process_inbox(first_run: bool = False):
                         )
             print_error(f"m4b-tool Error: {err}")
             smart_print(
-                f"See log file in {tint_light_grey(book.fix_dir)} for details\n"
+                f"See log file in {tint_light_grey(book.inbox_dir)} for details\n"
             )
         elif not book.build_file.exists():
             print_error(
@@ -730,7 +734,7 @@ def process_inbox(first_run: bool = False):
         if err:
             stderr = proc.stderr.decode() if proc.stderr else ""
             book.write_log(f"{err}\n{stderr}")
-            mv_to_fix_dir(book, fail_book)
+            fail_book(book)
             log_global_results(book, "FAILED", 0)
             continue
         else:
@@ -802,7 +806,7 @@ def process_inbox(first_run: bool = False):
             print_error(
                 f"Error: The output file does not exist, something went wrong during the conversion\n     Expected it to be at {book.converted_file}"
             )
-            mv_to_fix_dir(book, fail_book)
+            fail_book(book)
             continue
 
         # Remove description.txt from output folder if "$book [$desc_quality].txt" exists
