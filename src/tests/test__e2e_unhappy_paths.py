@@ -236,3 +236,26 @@ class test_unhappy_paths:
         assert out.count(en.DONE_CONVERTING) == 0
         assert out.count(en.MULTI_ERR) == 0
         assert out.count(wait_msg) == 0
+
+    @pytest.mark.order(13)
+    def test_debug_prints_dont_repeat_when_inbox_is_empty(
+        self,
+        capfd: CaptureFixture[str],
+    ):
+        inbox_hidden = TEST_DIRS.inbox.parent / "inbox-hidden"
+
+        # hide inbox
+        if not inbox_hidden.exists():
+            TEST_DIRS.inbox.rename(inbox_hidden)
+        elif list(TEST_DIRS.inbox.glob("*")):
+            pytest.fail(
+                "Inbox is not empty and inbox-hidden exists, cannot run this test. Please empty the inbox or delete inbox-hidden"
+            )
+
+        try:
+            app(max_loops=5, no_fix=True, test=True)
+            out = testutils.get_stdout(capfd)
+            assert out.count("No audio files found") == 1
+        finally:
+            # unhide inbox
+            inbox_hidden.rename(TEST_DIRS.inbox)

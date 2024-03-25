@@ -466,6 +466,11 @@ class Config:
         return self._USE_DOCKER
 
     @cached_property
+    def docker_path(self):
+        env_path = self._load_path_env("DOCKER_PATH", allow_empty=True)
+        return env_path or shutil.which("docker")
+
+    @cached_property
     def inbox_dir(self):
         return self._load_path_env("INBOX_FOLDER", allow_empty=False)
 
@@ -562,10 +567,11 @@ class Config:
             return True
 
         # docker images -q sandreas/m4b-tool:latest
-        has_docker = bool(shutil.which("docker"))
+        has_docker = bool(self.docker_path)
+        docker_exe = self.docker_path or "docker"
         docker_image_exists = has_docker and bool(
             subprocess.check_output(
-                ["docker", "images", "-q", "sandreas/m4b-tool:latest"]
+                [docker_exe, "images", "-q", "sandreas/m4b-tool:latest"]
             ).strip()
         )
         docker_ready = has_docker and docker_image_exists
@@ -582,7 +588,7 @@ class Config:
             self._m4b_tool = [
                 c
                 for c in [
-                    "docker",
+                    str(docker_exe),
                     "run",
                     "-it" if is_tty else "",
                     "--rm",
@@ -600,6 +606,10 @@ class Config:
 
         elif env_use_docker:
             if not has_docker:
+                if self.docker_path:
+                    raise RuntimeError(
+                        f"Could not find 'docker' executable at {self.docker_path}, please ensure Docker is in your PATH or set DOCKER_PATH to the correct path"
+                    )
                 raise RuntimeError(
                     f"Could not find 'docker' in PATH, please install Docker and try again, or set USE_DOCKER to N to use the native m4b-tool (if installed)"
                 )

@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, cast, Literal, NamedTuple, overload, TYPE_CHECKING
 
 from src.lib.config import AUDIO_EXTS
-from src.lib.formatters import human_size
+from src.lib.formatters import friendly_date, human_size
 from src.lib.misc import isorted, try_get_stat_mtime
 from src.lib.parsers import is_maybe_multi_book_or_series, is_maybe_multi_disc
 from src.lib.term import (
@@ -864,17 +864,18 @@ def last_updated_at(path: Path, *, only_file_exts: list[str] = []) -> float:
         path, -1, since=0, only_file_exts=only_file_exts
     )
     paths_m = [m for _1, _2, m in find_all_sorted_by_modified]
-    return max(paths_m, default=0)
+    return max(paths_m, default=try_get_stat_mtime(path))
 
 
 def last_updated_audio_files_at(path: Path) -> float:
     return last_updated_at(path, only_file_exts=AUDIO_EXTS)
 
 
-def inbox_last_updated_at() -> float:
+def inbox_last_updated_at(friendly: bool = False) -> float | str:
     from src.lib.config import cfg
 
-    return last_updated_at(cfg.inbox_dir, only_file_exts=cfg.AUDIO_EXTS)
+    last_update = last_updated_at(cfg.inbox_dir, only_file_exts=cfg.AUDIO_EXTS)
+    return friendly_date(last_update) if friendly else last_update
 
 
 def was_recently_modified(

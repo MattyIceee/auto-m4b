@@ -340,9 +340,11 @@ def process_inbox(first_run: bool = False):
     if audiobooks_count == 0:
         if first_run:
             banner()
-        print_debug(
-            f"No audio files found in {cfg.inbox_dir}, last updated at {inbox_last_updated_at()}, next check in {cfg.sleeptime_friendly}"
-        )
+        if INBOX_HASH != hash_inbox():
+            print_debug(
+                f"No audio files found in {cfg.inbox_dir}\n        Last updated at {inbox_last_updated_at(friendly=True)}, next check in {cfg.sleeptime_friendly}"
+            )
+            INBOX_HASH = hash_inbox()
         return
 
     banner()
