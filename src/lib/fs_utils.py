@@ -12,7 +12,6 @@ from src.lib.formatters import human_size
 from src.lib.misc import isorted, try_get_stat_mtime
 from src.lib.parsers import is_maybe_multi_book_or_series, is_maybe_multi_disc
 from src.lib.term import (
-    print_debug,
     print_error,
     print_grey,
     print_notice,
@@ -307,10 +306,9 @@ def _mv_or_cp_dir_contents(
     dst_dir.mkdir(parents=True, exist_ok=True)
 
     if operation == "move" and not src_and_dst_are_on_same_partition(src_dir, dst_dir):
-        if cfg.DEBUG:
-            print_debug(
-                f"Source and destination are not on the same partition, using copy instead of move\n src: {src_dir}\n dst: {dst_dir}"
-            )
+        # print_debug(
+        #     f"Source and destination are not on the same partition, using copy instead of move\n src: {src_dir}\n dst: {dst_dir}"
+        # )
         operation = "copy"
 
     # ignore if src ends in .bak
