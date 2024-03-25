@@ -172,9 +172,13 @@ def extract_path_info(book: "Audiobook", quiet: bool = False) -> "Audiobook":
     book.fs_narrator = meta["narrator"]
 
     def strip_garbage_chars(path: str) -> str:
-        return re.sub(
-            r"^[ \,.\)\}\]]*", "", re.sub(path, "", book.basename, flags=re.I)
-        )
+        try:
+            return re.sub(
+                r"^[ \,.\)\}\]]*", "", re.sub(path, "", book.basename, flags=re.I)
+            )
+        except re.error as e:
+            print_debug(f"Error calling strip_garbage_chars: {e}")
+            return path
 
     # everything else in the dir name after removing author, title, year, and narrator
     for f, d in zip(

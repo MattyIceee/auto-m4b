@@ -17,8 +17,6 @@ from src.lib.term import (
     print_grey,
     print_notice,
     print_warning,
-    smart_print,
-    tint_path,
 )
 from src.lib.typing import (
     BookDirMap,
@@ -957,32 +955,28 @@ def hash_inbox_books(dirs: list[Path]) -> BookHashesDict:
     return {p.name: hash_dir_audio_files(p) for p in dirs if p.exists()}
 
 
+# TODO: No need for fix dir anymore, move this functionality into fail_book and remove func
 def mv_to_fix_dir(book: "Audiobook", fail_book: Callable[["Audiobook"], None]):
-    from src.lib.config import cfg
 
     fail_book(book)
-    if cfg.NO_FIX:
-        book.write_log(
-            "(This book would have been moved to fix folder, but NO_FIX is enabled)"
-        )
-        book.set_active_dir("inbox")
-        if (
-            build_log := book.build_dir / f"m4b-tool.{book}.log"
-        ) and build_log.exists():
-            if book.log_file.exists():
-                # update inbox log with build dir log, preceded by a \n
-                with open(build_log, "r") as f:
-                    log = f.read()
-                with open(book.log_file, "a") as f:
-                    f.write(f"\n{log}")
-            else:
-                # move build dir log to inbox dir
-                shutil.move(build_log, book.log_file)
-        return
-    smart_print(f"Moving to fix folder → {tint_path(book.fix_dir)}")
-    mv_dir(book.inbox_dir, cfg.fix_dir)
-    cp_file_to_dir(book.log_file, book.fix_dir, new_filename=f"m4b-tool.{book}.log")
-    book.set_active_dir("fix")
+    # if cfg.NO_FIX:
+    book.write_log("This book needs to be fixed before it can be converted.")
+    book.set_active_dir("inbox")
+    if (build_log := book.build_dir / f"m4b-tool.{book}.log") and build_log.exists():
+        if book.log_file.exists():
+            # update inbox log with build dir log, preceded by a \n
+            with open(build_log, "r") as f:
+                log = f.read()
+            with open(book.log_file, "a") as f:
+                f.write(f"\n{log}")
+        else:
+            # move build dir log to inbox dir
+            shutil.move(build_log, book.log_file)
+    return
+    # smart_print(f"Moving to fix folder → {tint_path(book.fix_dir)}")
+    # mv_dir(book.inbox_dir, cfg.fix_dir)
+    # cp_file_to_dir(book.log_file, book.fix_dir, new_filename=f"m4b-tool.{book}.log")
+    # book.set_active_dir("fix")
 
 
 FlatListOfFilesInDir = NamedTuple(
