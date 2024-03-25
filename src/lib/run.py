@@ -543,9 +543,9 @@ def process_inbox(first_run: bool = False):
                             needs_fixing = False
                             print_aqua(" ✓\n")
                             print_debug(
-                                "New file structure:\n".join(
+                                f"New file structure:\n{'\n'.join(
                                     [str(f) for f in book.inbox_dir.glob("*")]
-                                )
+                                )}"
                             )
                     else:
                         print_error(f"{MULTI_ERR}, maybe this is a multi-disc book?")
