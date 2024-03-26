@@ -530,7 +530,7 @@ def process_inbox(first_run: bool = False):
                         )
                         if flattening_files_in_dir_affects_order(book.inbox_dir):
                             print_error(
-                                "Flattening this book would affect the file order, cannot proceed"
+                                "\nFlattening this book would affect the file order, cannot proceed"
                             )
                             smart_print(f"{help_msg}\n")
                             book.write_log(
