@@ -166,10 +166,9 @@ class test_unhappy_paths:
         time.sleep(1)
         asyncio.run(wrapper())
         app(max_loops=1, no_fix=True, test=True)
-        inbox_msg = "recently modified, waiting"
         book_msg = "Skipping this book, it was recently"
         stdout, _ = capfd.readouterr()
-        assert stdout.count(inbox_msg) == 1
+        assert stdout.count(en.INBOX_RECENTLY_MODIFIED) == 1
         assert stdout.count(book_msg) == 0
 
     @pytest.mark.order(9)
@@ -212,11 +211,13 @@ class test_unhappy_paths:
         capfd: CaptureFixture[str],
     ):
 
+        testutils.disable_autoflatten()
         shutil.rmtree(old_mill__multidisc_mp3.converted_dir, ignore_errors=True)
         time.sleep(2)
         app(max_loops=2, no_fix=True, test=True)
         out = testutils.get_stdout(capfd)
-        assert out.count("multi-disc") == 1
+        assert out.count(en.MULTI_ERR) == 1
+        assert not old_mill__multidisc_mp3.converted_dir.exists()
 
     @pytest.mark.order(12)
     def test_inbox_doesnt_update_if_book_fails(
@@ -226,14 +227,13 @@ class test_unhappy_paths:
     ):
         testutils.disable_autoflatten()
         testutils.enable_debug()
-        wait_msg = "The inbox folder was recently modified, waiting"
         time.sleep(2)
         app(max_loops=1, no_fix=True, test=True)
         out = testutils.get_stdout(capfd)
         assert out.count("inbox hash is the same") == 0
         assert out.count(en.DONE_CONVERTING) == 1
         assert out.count(en.MULTI_ERR) == 1
-        assert out.count(wait_msg) == 0
+        assert out.count(en.INBOX_RECENTLY_MODIFIED) == 0
 
         time.sleep(1)
         app(max_loops=1, no_fix=True, test=True)
@@ -241,7 +241,7 @@ class test_unhappy_paths:
         assert out.count("inbox hash is the same") == 1
         assert out.count(en.DONE_CONVERTING) == 0
         assert out.count(en.MULTI_ERR) == 0
-        assert out.count(wait_msg) == 0
+        assert out.count(en.INBOX_RECENTLY_MODIFIED) == 0
 
     @pytest.mark.order(13)
     def test_debug_prints_dont_repeat_when_inbox_is_empty(

@@ -214,15 +214,10 @@ class m4btool:
 # glasses 2: ᒡ◯ᴖ◯ᒢ
 
 
-def banner(verb: str = "Checking"):
+def banner():
     global INBOX_HASH
     if hash_inbox() == INBOX_HASH:
         return
-
-    if not INBOX_HASH:
-        verb = "Watching"
-    else:
-        verb = "Checking"
 
     current_local_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -230,7 +225,7 @@ def banner(verb: str = "Checking"):
 
     print_aqua(f"{dash}  ⌐◒-◒  auto-m4b • {current_local_time}  -{dash}")
 
-    print_grey(f"{verb} for new books in {{{{{cfg.inbox_dir}}}}} ꨄ︎")
+    print_grey(f"Watching for new books in {{{{{cfg.inbox_dir}}}}} ꨄ︎")
 
     if not INBOX_HASH:
         # print_debug(f"First run, banner should say 'watching'")
@@ -366,9 +361,7 @@ def process_inbox(first_run: bool = False):
     waited_while_copying = 0
     while inbox_was_recently_modified():
         if (INBOX_HASH != hash_inbox()) and not waited_while_copying:
-            print_notice(
-                "The inbox folder was recently modified, waiting in case files are still being copied or moved...\n"
-            )
+            print_notice(f"{en.INBOX_RECENTLY_MODIFIED}\n")
             print_debug(f"Hashes: last {INBOX_HASH} / curr {hash_inbox()}")
         waited_while_copying += 1
         time.sleep(0.5)
@@ -548,11 +541,10 @@ def process_inbox(first_run: bool = False):
                             book = Audiobook(book.inbox_dir)
                             needs_fixing = False
                             print_aqua(" ✓\n")
-                            print_debug(
-                                f"New file structure:\n{'\n'.join(
-                                    [str(f) for f in book.inbox_dir.glob("*")]
-                                )}"
+                            files = "\n".join(
+                                [str(f) for f in book.inbox_dir.glob("*")]
                             )
+                            print_debug(f"New file structure:\n{files}")
                     else:
                         print_error(f"{en.MULTI_ERR}, maybe this is a multi-disc book?")
                         smart_print(
@@ -563,7 +555,9 @@ def process_inbox(first_run: bool = False):
                     print_error(f"{en.MULTI_ERR}, maybe this contains multiple books?")
                     help_msg = "To convert these books, move each book folder to the root of the inbox"
                     smart_print(f"{help_msg}\n")
-                    book.write_log(f"{en.MULTI_ERR} (multiple books found) - {help_msg}")
+                    book.write_log(
+                        f"{en.MULTI_ERR} (multiple books found) - {help_msg}"
+                    )
                 case _:
                     print_error(f"{en.MULTI_ERR}, cannot determine book structure")
                     smart_print(f"{help_msg}\n")
@@ -596,6 +590,7 @@ def process_inbox(first_run: bool = False):
 
         smart_print("\nFile/folder info:")
 
+        print_list(f"Source folder: {book.inbox_dir}")
         print_list(f"Output folder: {book.converted_dir}")
         print_list(f"File type: {book.orig_file_type}")
         print_list(f"Audio files: {book.num_files('inbox')}")
@@ -866,9 +861,7 @@ def process_inbox(first_run: bool = False):
     clean_dir(cfg.trash_dir)
 
     if books_count >= 1:
-        print_grey(
-            en.DONE_CONVERTING
-        )
+        print_grey(en.DONE_CONVERTING)
         if not cfg.NO_ASCII:
             print_dark_grey(BOOK_ASCII)
     else:
