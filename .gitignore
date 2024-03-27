@@ -8,3 +8,4 @@ docker-compose.yml
 ._.*
 ._*
 sandbox/
+/m4b-tool
