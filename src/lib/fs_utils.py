@@ -7,7 +7,7 @@ from collections.abc import Generator, Iterable
 from pathlib import Path
 from typing import Any, cast, Literal, NamedTuple, overload, TYPE_CHECKING
 
-from src.lib.config import AUDIO_EXTS
+from src.lib.config import AUDIO_EXTS, cfg
 from src.lib.formatters import friendly_date, human_size
 from src.lib.misc import isorted, try_get_stat_mtime
 from src.lib.parsers import is_maybe_multi_book_or_series, is_maybe_multi_disc
@@ -642,6 +642,20 @@ def find_book_dirs_in_inbox():
     return find_base_dirs_with_audio_files(cfg.inbox_dir, mindepth=1)
 
 
+def find_standalone_books_in_inbox():
+    return [
+        file
+        for ext in AUDIO_EXTS
+        for file in cfg.inbox_dir.glob(f"*{ext}")
+        if len(file.parts) == 1
+    ]
+
+
+def find_books_in_inbox():
+
+    return isorted(find_book_dirs_in_inbox() + find_standalone_books_in_inbox())
+
+
 def find_book_audio_files(
     book: "Audiobook | Path",
 ) -> tuple[BookDirStructure, BookDirMap]:
@@ -919,12 +933,14 @@ def inbox_was_recently_modified() -> bool:
     return was_recently_modified(cfg.inbox_dir, only_file_exts=cfg.AUDIO_EXTS)
 
 
-def hash_dir(path: Path, *, only_file_exts: list[str] = [], debug: bool = True) -> str:
+def hash_path(
+    path: Path, *, only_file_exts: list[str] = [], debug: bool = False
+) -> str:
     """Makes a has of the dir's contents of filenames and file sizes in an array, sorted by filename
     then hashes the array"""
     import hashlib
 
-    def hash_file(f: Path) -> str:
+    def make_hashable(f: Path) -> str:
         if any(
             [
                 not f.is_file(),
@@ -935,24 +951,29 @@ def hash_dir(path: Path, *, only_file_exts: list[str] = [], debug: bool = True) 
             return ""
         return f"{f.relative_to(path)}|{f.stat().st_size}"
 
-    files = sorted(
-        filter(
-            None, [hash_file(f) for f in filter_ignored(path.rglob("*"))]
-        ),  # case insensitive sort
-        key=lambda f: f.lower(),
+    def hash_raw(*raw: str) -> str:
+        if len(raw) == 1:
+            return hashlib.md5(raw[0].encode()).hexdigest()
+        return hashlib.md5(":".join(raw).encode()).hexdigest()
+
+    if path.is_file():
+        return hash_raw(make_hashable(path))
+
+    files = isorted(
+        filter(None, [make_hashable(f) for f in filter_ignored(path.rglob("*"))])
     )
     if debug:
         return files  # type: ignore
-    return hashlib.md5(":".join(files).encode()).hexdigest()
+    return hash_raw(*files)
 
 
 def hash_dir_audio_files(path: Path, *, debug: bool = False) -> str:
     """Makes a hash of the dir's audio files' filenames and file sizes in an array, sorted by filename
     then hashes the array"""
-    return hash_dir(path, only_file_exts=AUDIO_EXTS, debug=debug)
+    return hash_path(path, only_file_exts=AUDIO_EXTS, debug=debug)
 
 
-def hash_inbox():
+def hash_entire_inbox():
     from src.lib.config import cfg
 
     return hash_dir_audio_files(cfg.inbox_dir)

@@ -7,7 +7,7 @@ from columnar import columnar
 
 from src.lib.audiobook import Audiobook
 from src.lib.config import cfg
-from src.lib.formatters import human_elapsed_time, log_date, pluralize
+from src.lib.formatters import log_date, log_format_elapsed_time, pluralize
 from src.lib.misc import re_group
 from src.lib.term import multiline_is_empty
 
@@ -44,7 +44,7 @@ def log_global_results(
 
     # get current log data and load it into columns - split by tabs or spaces >= 2
 
-    human_elapsed = human_elapsed_time(elapsed_s)
+    human_elapsed = log_format_elapsed_time(elapsed_s)
 
 
     if not log_file:

@@ -321,11 +321,11 @@ def test_hash_dir(
     old_mill__multidisc_mp3: Audiobook,
     tower_treasure__flat_mp3: Audiobook,
 ):
-    from src.lib.fs_utils import hash_dir
+    from src.lib.fs_utils import hash_path
 
-    baseline_inbox_hash = hash_dir(TEST_DIRS.inbox)
-    baseline_mill_hash = hash_dir(old_mill__multidisc_mp3.path)
-    baseline_tower_hash = hash_dir(tower_treasure__flat_mp3.path)
+    baseline_inbox_hash = hash_path(TEST_DIRS.inbox)
+    baseline_mill_hash = hash_path(old_mill__multidisc_mp3.path)
+    baseline_tower_hash = hash_path(tower_treasure__flat_mp3.path)
 
     # move a file in multi-disc book to its root
     for f in old_mill__multidisc_mp3.path.rglob("*"):
@@ -334,20 +334,22 @@ def test_hash_dir(
             f.touch()
             break
 
-    assert hash_dir(TEST_DIRS.inbox) != baseline_inbox_hash
-    assert hash_dir(old_mill__multidisc_mp3.path) != baseline_mill_hash
-    assert hash_dir(tower_treasure__flat_mp3.path) == baseline_tower_hash
+    assert hash_path(TEST_DIRS.inbox) != baseline_inbox_hash
+    assert hash_path(old_mill__multidisc_mp3.path) != baseline_mill_hash
+    assert hash_path(tower_treasure__flat_mp3.path) == baseline_tower_hash
 
 
 def test_hash_dir_ignores_log_files(
     old_mill__multidisc_mp3: Audiobook,
     tower_treasure__flat_mp3: Audiobook,
 ):
-    from src.lib.fs_utils import hash_dir
+    from src.lib.fs_utils import hash_path
 
-    baseline_inbox_hash = hash_dir(TEST_DIRS.inbox, only_file_exts=[".mp3"])
-    baseline_mill_hash = hash_dir(old_mill__multidisc_mp3.path, only_file_exts=[".mp3"])
-    baseline_tower_hash = hash_dir(
+    baseline_inbox_hash = hash_path(TEST_DIRS.inbox, only_file_exts=[".mp3"])
+    baseline_mill_hash = hash_path(
+        old_mill__multidisc_mp3.path, only_file_exts=[".mp3"]
+    )
+    baseline_tower_hash = hash_path(
         tower_treasure__flat_mp3.path, only_file_exts=[".mp3"]
     )
 
@@ -355,13 +357,13 @@ def test_hash_dir_ignores_log_files(
     for d in [old_mill__multidisc_mp3.path, tower_treasure__flat_mp3.path]:
         (d / "test-auto-m4b.log").touch()
 
-    assert hash_dir(TEST_DIRS.inbox, only_file_exts=[".mp3"]) == baseline_inbox_hash
+    assert hash_path(TEST_DIRS.inbox, only_file_exts=[".mp3"]) == baseline_inbox_hash
     assert (
-        hash_dir(old_mill__multidisc_mp3.path, only_file_exts=[".mp3"])
+        hash_path(old_mill__multidisc_mp3.path, only_file_exts=[".mp3"])
         == baseline_mill_hash
     )
     assert (
-        hash_dir(tower_treasure__flat_mp3.path, only_file_exts=[".mp3"])
+        hash_path(tower_treasure__flat_mp3.path, only_file_exts=[".mp3"])
         == baseline_tower_hash
     )
 
@@ -374,14 +376,14 @@ def test_hash_dir_respects_only_file_exts(
     old_mill__multidisc_mp3: Audiobook,
     tower_treasure__flat_mp3: Audiobook,
 ):
-    from src.lib.fs_utils import hash_dir
+    from src.lib.fs_utils import hash_path
 
     try:
-        baseline_inbox_hash = hash_dir(TEST_DIRS.inbox, only_file_exts=[".mp3"])
-        baseline_mill_hash = hash_dir(
+        baseline_inbox_hash = hash_path(TEST_DIRS.inbox, only_file_exts=[".mp3"])
+        baseline_mill_hash = hash_path(
             old_mill__multidisc_mp3.path, only_file_exts=[".mp3"]
         )
-        baseline_tower_hash = hash_dir(
+        baseline_tower_hash = hash_path(
             tower_treasure__flat_mp3.path, only_file_exts=[".mp3"]
         )
 
@@ -399,13 +401,15 @@ def test_hash_dir_respects_only_file_exts(
         for ext in [".txt", ".jpg", ".png", ".pdf"]:
             (tower_treasure__flat_mp3.path / f"non_mp3_file{ext}").touch()
 
-        assert hash_dir(TEST_DIRS.inbox, only_file_exts=[".mp3"]) != baseline_inbox_hash
         assert (
-            hash_dir(old_mill__multidisc_mp3.path, only_file_exts=[".mp3"])
+            hash_path(TEST_DIRS.inbox, only_file_exts=[".mp3"]) != baseline_inbox_hash
+        )
+        assert (
+            hash_path(old_mill__multidisc_mp3.path, only_file_exts=[".mp3"])
             != baseline_mill_hash
         )
         assert (
-            hash_dir(tower_treasure__flat_mp3.path, only_file_exts=[".mp3"])
+            hash_path(tower_treasure__flat_mp3.path, only_file_exts=[".mp3"])
             == baseline_tower_hash
         )
     finally:

@@ -24,17 +24,15 @@ def handle_err(e: Exception):
 def app(**kwargs):
     args = AutoM4bArgs(**kwargs)
     infinite_loop = args.max_loops == -1
-    first_time = True
     global LOOP_COUNT
     LOOP_COUNT = 0
     try:
         cfg.startup(args)
         while infinite_loop or LOOP_COUNT < args.max_loops:
             try:
-                run.process_inbox(first_run=first_time)
+                run.process_inbox(loop_count=LOOP_COUNT)
             finally:
                 LOOP_COUNT += 1
-                first_time = False
                 if infinite_loop or LOOP_COUNT < args.max_loops:
                     time.sleep(cfg.SLEEPTIME)
     except Exception as e:

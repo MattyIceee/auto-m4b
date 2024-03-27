@@ -12,7 +12,7 @@ from tinta import Tinta
 from src.lib.audiobook import Audiobook
 from src.lib.config import cfg
 from src.lib.fs_utils import flatten_files_in_dir, inbox_last_updated_at
-from src.lib.run import FAILED_BOOKS
+from src.lib.run import INBOX_STATE
 from src.lib.typing import ENV_DIRS
 from src.tests.conftest import TEST_DIRS
 
@@ -52,7 +52,7 @@ class testutils:
         k = book.basename if isinstance(book, Audiobook) else book
         current_failed_books.update({k: str(last_updated_at)})
         os.environ["FAILED_BOOKS"] = json.dumps(current_failed_books)
-        FAILED_BOOKS.update(current_failed_books)
+        INBOX_STATE._sync_env_failed_books({k: last_updated_at})
 
     @classmethod
     def unfail_book(cls, book: Audiobook | str, delay: int = 0):
@@ -63,9 +63,9 @@ class testutils:
         k = book.basename if isinstance(book, Audiobook) else book
         current_failed_books.pop(k, None)
         os.environ["FAILED_BOOKS"] = json.dumps(current_failed_books)
-        orig_failed_books = FAILED_BOOKS.copy()
-        FAILED_BOOKS.update(current_failed_books)
-        if orig_failed_books != FAILED_BOOKS:
+        orig_failed_books = INBOX_STATE.failed_books.copy()
+        INBOX_STATE._sync_env_failed_books(current_failed_books)
+        if orig_failed_books != INBOX_STATE.failed_books:
             cls.print(f"Removed '{book}' from failed list")
         else:
             cls.print(f"'{book}' not in failed list")
@@ -80,6 +80,44 @@ class testutils:
         else:
             os.environ["MATCH_NAME"] = match_name
         cfg.MATCH_NAME = match_name
+
+    @classmethod
+    def set_sleeptime(cls, sleeptime: int | str, delay: int = 0):
+
+        time.sleep(delay)
+        cls.print(f"Setting SLEEPTIME to {sleeptime}")
+        os.environ["SLEEPTIME"] = str(sleeptime)
+        cfg.SLEEPTIME = float(sleeptime)
+
+    @classmethod
+    def rename_files(
+        cls,
+        book: Audiobook,
+        *,
+        prepend: str = "",
+        append: str = "",
+        lstrip: str = "",
+        rstrip: str = "",
+        delay: int = 0,
+    ):
+
+        time.sleep(delay)
+        msg = f"Renaming files for {book}"
+        if prepend:
+            msg += f", prepending '{prepend}'"
+        if append:
+            msg += f", appending '{append}'"
+        if lstrip:
+            msg += f", left stripping '{lstrip}'"
+        if rstrip:
+            msg += f", right stripping '{rstrip}'"
+        cls.print(msg)
+        for f in book.inbox_dir.glob("*"):
+            if not f.suffix in cfg.AUDIO_EXTS:
+                continue
+            stripped = re.sub(rf"^{lstrip}|{rstrip}$", "", f.stem)
+            new_name = f"{prepend}{stripped}{append}{f.suffix}"
+            f.rename(f.with_name(new_name))
 
     @classmethod
     def enable_autoflatten(cls, delay: int = 0):

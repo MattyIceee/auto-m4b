@@ -7,7 +7,7 @@ from pathlib import Path
 import dotenv
 import pytest
 
-from src.lib.run import FAILED_BOOKS, flush_inbox_hash
+from src.lib.inbox_state import InboxState
 from src.tests.conftest import FIXTURES_ROOT, GIT_ROOT, TEST_DIRS
 from src.tests.helpers.pytest_utils import testutils
 
@@ -51,6 +51,12 @@ def load_test_fixture(
             dst_f.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy(f, dst_f)
 
+    # if any files in dst are not in src, delete them
+    for f in dst.glob("**/*"):
+        src_f = src / f.relative_to(dst)
+        if f.is_file() and not src_f.exists():
+            f.unlink()
+
     if exclusive:
         os.environ["MATCH_NAME"] = name
 
@@ -87,12 +93,13 @@ def house_on_the_cliff__flat_mp3():
 
 @pytest.fixture(scope="function")
 def old_mill__multidisc_mp3():
-    # delete any files in the root of this dir
-    book = load_test_fixture("old_mill__multidisc_mp3", exclusive=True)
-    for f in (TEST_DIRS.inbox / "old_mill__multidisc_mp3").iterdir():
-        if f.is_file():
-            f.unlink(missing_ok=True)
-    return book
+    return load_test_fixture("old_mill__multidisc_mp3", exclusive=True)
+
+
+@pytest.fixture(scope="function")
+def missing_chums__mixed_mp3():
+    shutil.rmtree(TEST_DIRS.inbox / "missing_chums__mixed_mp3", ignore_errors=True)
+    return load_test_fixture("missing_chums__mixed_mp3", exclusive=True)
 
 
 @pytest.fixture(scope="function")
@@ -260,12 +267,6 @@ def not_an_audio_file():
 
 
 @pytest.fixture(scope="function", autouse=False)
-def cleanup():
-    yield
-    testutils.purge_all()
-
-
-@pytest.fixture(scope="function", autouse=False)
 def mock_inbox(setup):
     """Populate INBOX_FOLDER with mocked sample audiobooks."""
 
@@ -394,16 +395,23 @@ def global_test_log():
 
 
 @pytest.fixture(scope="function", autouse=True)
-def flush_hashes_fixture():
-    # flush_inbox_hash()
+def reset_inbox_state():
+    from src.lib.run import INBOX_STATE
+
     yield
-    flush_inbox_hash()
+    INBOX_STATE = InboxState()
+    INBOX_STATE.flush_global_hash()
+    os.environ.pop("MATCH_NAME", None)
+    os.environ.pop("FAILED_BOOKS", None)
+    os.environ.pop("SLEEPTIME", None)
 
 
 @pytest.fixture(scope="function", autouse=True)
 def reset_failed():
+    from src.lib.run import INBOX_STATE
+
     yield
-    FAILED_BOOKS.clear()
+    INBOX_STATE.clear_failed()
 
 
 @pytest.fixture(scope="function", autouse=True)

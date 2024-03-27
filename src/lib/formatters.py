@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Literal, overload
 
@@ -141,8 +141,20 @@ def format_duration(
     return round(seconds)
 
 
-def human_elapsed_time(seconds: int | float) -> str:
+def log_format_elapsed_time(seconds: int | float) -> str:
     return format_duration(seconds, "human", always_show_hours=False, show_units=False)
+
+
+def human_elapsed_time(delta_or_time: datetime | float) -> str:
+    # if delta_or_time is a datetime, convert to seconds
+    if isinstance(delta_or_time, datetime):
+        delta = datetime.now() - delta_or_time
+    # if time is a very large float, assume it's a timestamp
+    elif delta_or_time > 1_000_000_000:
+        delta = datetime.now() - datetime.fromtimestamp(delta_or_time)
+    else:
+        delta = timedelta(seconds=delta_or_time)
+    return humanize.naturaltime(delta, future=delta.total_seconds() < 0)
 
 
 def pluralize(count: int, singular: str, plural: str | None = None) -> str:
