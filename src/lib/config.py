@@ -1,5 +1,6 @@
 import argparse
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -187,6 +188,7 @@ class Config:
     _ENV: dict[str, str | None] = {}
     _ENV_SRC: Any = None
     _USE_DOCKER = False
+    _last_debug_print: str = ""
 
     def __init__(self):
         """Do a first load of the environment variables in case we need them before the app runs."""
@@ -225,6 +227,7 @@ class Config:
         self.clear_cached_attrs()
         self.check_dirs()
         self.check_m4b_tool()
+        self.enable_console()
 
     @cached_property
     def on_complete(self):
@@ -394,6 +397,18 @@ class Config:
             return True
         return parse_bool(os.getenv("DEBUG", False))
 
+    @cached_property
+    def CONSOLE_ON(self):
+        return parse_bool(os.getenv("CONSOLE_ON", True))
+
+    def enable_console(self):
+        os.environ["CONSOLE_ON"] = "Y"
+        self.CONSOLE_ON = True
+
+    def disable_console(self):
+        os.environ["CONSOLE_ON"] = "N"
+        self.CONSOLE_ON = False
+
     # @cached_property
     # def debug_arg(self):
     #     return "--debug" if self.DEBUG == "Y" else "-q"
@@ -556,10 +571,35 @@ class Config:
             ).strip()
         )
         docker_ready = has_docker and docker_image_exists
+        current_version = (
+            (subprocess.check_output(["m4b-tool", "--version"]).decode().strip())
+            if not docker_ready
+            else (
+                subprocess.check_output(
+                    [
+                        docker_exe,
+                        "run",
+                        "--rm",
+                        "sandreas/m4b-tool:latest",
+                        "m4b-tool",
+                        "--version",
+                    ]
+                )
+                .decode()
+                .strip()
+            )
+        )
         env_use_docker = bool(
             os.getenv("USE_DOCKER", self.ENV.get("USE_DOCKER", False))
         )
-        if docker_ready and env_use_docker:
+        install_script = "./scripts/install-docker-m4b-tool.sh"
+
+        if not re.search(r"v0.5", current_version):
+            raise RuntimeError(
+                f"m4b-tool version {current_version} is not supported, please install v0.5-prerelease (if using Docker, run {install_script} to install the correct version)"
+            )
+
+        if docker_ready:
             uid = os.getuid()
             gid = os.getgid()
             is_tty = os.isatty(0)
@@ -596,11 +636,11 @@ class Config:
                 )
             elif not docker_image_exists:
                 raise RuntimeError(
-                    f"Could not find the image 'sandreas/m4b-tool:latest', run\n\n $ docker pull sandreas/m4b-tool:latest\n  # or\n $ ./install-m4b-tool.sh\n\nand try again, or set USE_DOCKER to N to use the native m4b-tool (if installed)"
+                    f"Could not find the image 'sandreas/m4b-tool:latest', run\n\n $ docker pull sandreas/m4b-tool:latest\n  # or\n $ {install_script}\n\nand try again, or set USE_DOCKER to N to use the native m4b-tool (if installed)"
                 )
         else:
             raise RuntimeError(
-                f"Could not find '{self.m4b_tool}' in PATH, please install it and try again (see https://github.com/sandreas/m4b-tool).\nIf you are using Docker, make sure the image 'sandreas/m4b-tool:latest' is available, and you've aliased m4b-tool to run the container.\nFor easy Docker setup, run:\n\n$ ./install-m4b-tool.sh"
+                f"Could not find '{self.m4b_tool}' in PATH, please install it and try again (see https://github.com/sandreas/m4b-tool).\nIf you are using Docker, make sure the image 'sandreas/m4b-tool:latest' is available, and you've aliased `m4b-tool` to run the container.\nFor easy Docker setup, run:\n\n$ {install_script}"
             )
 
     @contextmanager

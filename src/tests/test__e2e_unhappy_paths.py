@@ -14,6 +14,7 @@ from pytest import CaptureFixture
 
 from src.auto_m4b import app
 from src.lib.audiobook import Audiobook
+from src.lib.inbox_state import InboxState
 from src.lib.strings import en
 from src.tests.conftest import TEST_DIRS
 from src.tests.helpers.pytest_utils import testutils
@@ -24,21 +25,29 @@ ORDER = 1
 @pytest.mark.slow
 class test_unhappy_paths:
 
+    @pytest.fixture(scope="function", autouse=True)
+    def setup(self, reset_inbox_state):
+        yield
+
     @pytest.mark.order(ORDER)
-    def test_bad_bitrate__mp3(
-        self, the_crusades_through_arab_eyes__flat_mp3: Audiobook
+    def test_nonstandard_bitrates__mp3(
+        self,
+        bitrate_nonstandard__mp3: Audiobook,
+        the_crusades_through_arab_eyes__flat_mp3: Audiobook,
+        capfd: CaptureFixture[str],
     ):
 
+        testutils.set_match_filter("^(bitrate_nonstandard|the_crusades)")
         app(max_loops=1, no_fix=True, test=True)
-        assert the_crusades_through_arab_eyes__flat_mp3.converted_dir.exists()
-
-    ORDER += 1
-
-    @pytest.mark.order(ORDER)
-    def test_nonstandard_bitrate__mp3(self, bitrate_nonstandard__mp3: Audiobook):
-
-        app(max_loops=1, no_fix=True, test=True)
+        assert testutils.assert_only_processed_books(
+            capfd,
+            bitrate_nonstandard__mp3,
+            the_crusades_through_arab_eyes__flat_mp3,
+            found=(2, 1),
+            converted=2,
+        )
         assert bitrate_nonstandard__mp3.converted_dir.exists()
+        assert the_crusades_through_arab_eyes__flat_mp3.converted_dir.exists()
 
     ORDER += 1
 
@@ -58,7 +67,7 @@ class test_unhappy_paths:
         self, tower_treasure__flat_mp3: Audiobook, capfd: CaptureFixture[str]
     ):
 
-        testutils.set_match_name("test-do-not-match")
+        testutils.set_match_filter("test-do-not-match")
         app(max_loops=4, no_fix=True, test=True)
         assert capfd.readouterr().out.count("but none match") == 1
 
@@ -71,23 +80,39 @@ class test_unhappy_paths:
         tower_treasure__flat_mp3: Audiobook,
         capfd: CaptureFixture[str],
     ):
-        from src.lib.run import INBOX_STATE
+        inbox = InboxState()
 
-        testutils.set_match_name("^(Roman|tower)")
+        testutils.set_match_filter("^(Roman|tower)")
         app(max_loops=2, no_fix=True, test=True)
         out = testutils.get_stdout(capfd)
-        assert out.count("2 books in the inbox") == 1
+        # assert out.count("2 books in the inbox") == 1
+        # assert out.count("Converted tower_treasure__flat_mp3") == 1
+
+        assert testutils.assert_only_processed_books(
+            out,
+            tower_treasure__flat_mp3,
+            found=(2, 1),
+            converted=1,
+        )
         assert out.count("named with roman numerals") == 1
-        assert out.count("Converted tower_treasure__flat_mp3") == 1
+
         testutils.fail_book(roman_numeral__mp3, from_now=30)
-        INBOX_STATE.flush_global_hash()
-        time.sleep(2)
+        # inbox.flush_global_hash()
+        inbox.reset()
+        time.sleep(1)
         app(max_loops=4, no_fix=True, test=True)
         out = testutils.get_stdout(capfd)
-        assert out.count("2 books in the inbox") == 1
+
+        assert testutils.assert_only_processed_books(
+            out,
+            tower_treasure__flat_mp3,
+            found=(2, 1),
+            converted=1,
+        )
+        # assert out.count("2 books in the inbox") == 1
         assert out.count("named with roman numerals") == 0
         assert out.count("skipping 1 that previously failed") == 1
-        assert out.count("Converted tower_treasure__flat_mp3") == 1
+        # assert out.count("Converted tower_treasure__flat_mp3") == 1
 
     ORDER += 1
 
@@ -101,18 +126,19 @@ class test_unhappy_paths:
     ):
 
         from src.lib.config import cfg
-        from src.lib.run import INBOX_STATE
 
-        testutils.set_match_name("^(Roman|tower)")
+        inbox = InboxState()
+
+        testutils.set_match_filter("^(Roman|tower)")
         app(max_loops=1, no_fix=True, test=True)
         out = testutils.get_stdout(capfd)
         assert out.count("2 books in the inbox") == 1
         assert out.count("named with roman numerals") == 1
         testutils.fail_book("Roman Numeral Book", from_now=30)
         TEST_DIRS.inbox.touch()
-        testutils.set_match_name("^(Roman|tower|house)")
+        testutils.set_match_filter("^(Roman|tower|house)")
         # time.sleep(2)
-        INBOX_STATE.flush_global_hash()
+        inbox.flush_global_hash()
         app(max_loops=3, no_fix=True, test=True)
         out = testutils.get_stdout(capfd)
         assert out.count("skipping 1 that previously failed") == 1
@@ -129,7 +155,7 @@ class test_unhappy_paths:
         prev_sleep = os.environ.get("SLEEPTIME")
         testutils.set_sleeptime(2)
         testutils.print("Starting app...")
-        testutils.set_match_name("chums")
+        testutils.set_match_filter("chums")
         app(max_loops=4, no_fix=True, test=False)
         testutils.print("Finished app")
         if prev_sleep:
@@ -139,7 +165,7 @@ class test_unhappy_paths:
         self, *books: Audiobook, append: str = "", rstrip: str = ""
     ):
         time.sleep(3)
-        testutils.set_match_name("^(chums|tower)")
+        testutils.set_match_filter("^(chums|tower)")
         for book in books:
             testutils.rename_files(book, append=append, rstrip=rstrip)
         (TEST_DIRS.inbox / "missing_chums__mixed_mp3").touch()
@@ -224,7 +250,7 @@ class test_unhappy_paths:
     def test_header_only_prints_when_there_are_books_to_process(
         self, tower_treasure__flat_mp3: Audiobook, capfd: CaptureFixture[str]
     ):
-        testutils.set_match_name("test-do-not-match")
+        testutils.set_match_filter("test-do-not-match")
         app(max_loops=10, no_fix=True, test=True)
 
         msg = "auto-m4b • "
@@ -272,17 +298,17 @@ class test_unhappy_paths:
 
     @pytest.mark.order(ORDER)
     def test_long_filename__mp3(self, conspiracy_theories__flat_mp3: Audiobook):
-        from src.lib.run import INBOX_STATE
+        inbox = InboxState()
 
         conspiracy_theories__flat_mp3_copy = deepcopy(conspiracy_theories__flat_mp3)
         (TEST_DIRS.converted / "auto-m4b.log").unlink(
             missing_ok=True
         )  # remove the log file to force a conversion
-        testutils.set_match_name("Conspiracies")
+        testutils.set_match_filter("Conspiracies")
         app(max_loops=1, no_fix=True, test=True)
         assert conspiracy_theories__flat_mp3.converted_dir.exists()
         # do the conversion again to test the log file
-        INBOX_STATE.flush_global_hash()
+        inbox.flush_global_hash()
         shutil.rmtree(conspiracy_theories__flat_mp3.converted_dir, ignore_errors=True)
         TEST_DIRS.inbox.touch()
         time.sleep(1)

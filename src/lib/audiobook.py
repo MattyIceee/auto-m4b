@@ -25,7 +25,7 @@ from src.lib.fs_utils import (
 )
 from src.lib.id3_utils import extract_metadata
 from src.lib.misc import get_dir_name_from_path
-from src.lib.parsers import extract_path_info
+from src.lib.parsers import count_distinct_roman_numerals, extract_path_info
 from src.lib.typing import AudiobookFmt, DirName, SizeFmt
 
 
@@ -147,6 +147,10 @@ class Audiobook(BaseModel):
 
     def num_files(self, for_dir: DirName):
         return count_audio_files_in_dir(getattr(self, for_dir + "_dir"))
+
+    @property
+    def num_roman_numerals(self):
+        return count_distinct_roman_numerals(self.inbox_dir)
 
     @overload
     def size(self, for_dir: DirName, fmt: Literal["bytes"]) -> int: ...

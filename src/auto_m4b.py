@@ -4,6 +4,7 @@ import traceback
 
 from src.lib import run
 from src.lib.config import AutoM4bArgs, cfg
+from src.lib.inbox_state import InboxState
 from src.lib.term import print_error, print_red
 from src.lib.typing import copy_kwargs_omit_first_arg
 
@@ -33,6 +34,7 @@ def app(**kwargs):
                 run.process_inbox(loop_count=LOOP_COUNT)
             finally:
                 LOOP_COUNT += 1
+                InboxState().refresh_global_hash()
                 if infinite_loop or LOOP_COUNT < args.max_loops:
                     time.sleep(cfg.SLEEPTIME)
     except Exception as e:

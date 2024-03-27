@@ -12,7 +12,7 @@ from tinta import Tinta
 from src.lib.audiobook import Audiobook
 from src.lib.config import cfg
 from src.lib.fs_utils import flatten_files_in_dir, inbox_last_updated_at
-from src.lib.run import INBOX_STATE
+from src.lib.inbox_state import InboxState
 from src.lib.typing import ENV_DIRS
 from src.tests.conftest import TEST_DIRS
 
@@ -52,7 +52,7 @@ class testutils:
         k = book.basename if isinstance(book, Audiobook) else book
         current_failed_books.update({k: str(last_updated_at)})
         os.environ["FAILED_BOOKS"] = json.dumps(current_failed_books)
-        INBOX_STATE._sync_env_failed_books({k: last_updated_at})
+        InboxState()._sync_env_failed_books({k: last_updated_at})
 
     @classmethod
     def unfail_book(cls, book: Audiobook | str, delay: int = 0):
@@ -63,23 +63,20 @@ class testutils:
         k = book.basename if isinstance(book, Audiobook) else book
         current_failed_books.pop(k, None)
         os.environ["FAILED_BOOKS"] = json.dumps(current_failed_books)
-        orig_failed_books = INBOX_STATE.failed_books.copy()
-        INBOX_STATE._sync_env_failed_books(current_failed_books)
-        if orig_failed_books != INBOX_STATE.failed_books:
+        inbox = InboxState()
+        orig_failed_books = inbox.failed_books.copy()
+        inbox._sync_env_failed_books(current_failed_books)
+        if orig_failed_books != inbox.failed_books:
             cls.print(f"Removed '{book}' from failed list")
         else:
             cls.print(f"'{book}' not in failed list")
 
     @classmethod
-    def set_match_name(cls, match_name: str | None, delay: int = 0):
+    def set_match_filter(cls, match_name: str | None, delay: int = 0):
 
         time.sleep(delay)
         cls.print(f"Setting MATCH_NAME to {match_name}")
-        if match_name is None:
-            os.environ.pop("MATCH_NAME", None)
-        else:
-            os.environ["MATCH_NAME"] = match_name
-        cfg.MATCH_NAME = match_name
+        InboxState().set_match_filter(match_name)
 
     @classmethod
     def set_sleeptime(cls, sleeptime: int | str, delay: int = 0):
@@ -200,3 +197,53 @@ class testutils:
             (tmp_path / file).touch()
 
         return d
+
+    @classmethod
+    def get_all_processed_books(cls, s: str) -> list[str]:
+        return list(
+            set(
+                re.findall(
+                    rf"Source folder: {TEST_DIRS.inbox}/(?P<book_name>\w.*)(?!=\\n)", s
+                )
+            )
+        )
+
+    @classmethod
+    def assert_only_processed_books(
+        cls,
+        out: str | CaptureFixture[str],
+        *books: Audiobook,
+        found: tuple[int, int] | None = None,
+        converted: int | None = None,
+    ) -> bool:
+
+        if isinstance(out, CaptureFixture):
+            out = cls.get_stdout(out)
+
+        processed = cls.get_all_processed_books(out)
+        did_process_all = all([book.basename in processed for book in books])
+        ok = did_process_all and len(processed) == len(books)
+        assert (
+            ok
+        ), f"Expected ({len(books)}) {books} to be processed, but got ({len(processed)}) {processed}"
+        if found is not None:
+            try:
+                assert out.count(f"Found {found[0]} book") == found[1]
+            except AssertionError:
+                cls.print(out)
+                actual = re.findall(r"Found (\d+) books?", out)
+                expected = " × ".join(map(str, list(found)))
+                raise AssertionError(
+                    f"Found books count mismatch - should be {expected}, got {len(actual)} - {actual}"
+                )
+        if converted is not None:
+            try:
+                assert out.count("Converted") == converted
+            except AssertionError:
+                cls.print(out)
+                actual = re.findall(r"Converted.*(?<!\\n)", out)
+                raise AssertionError(
+                    f"'Converted' print count mismatch - should be {converted}, got {len(actual)} - {actual}"
+                )
+
+        return ok

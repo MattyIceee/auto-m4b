@@ -165,6 +165,12 @@ def smart_print(
     highlight_color: int | None = None,
     end: str = "\n",
 ):
+
+    from src.lib.config import cfg
+
+    if not cfg.CONSOLE_ON:
+        return
+
     text = str(text)
     # line = f"{text}{end}"
 
@@ -304,16 +310,29 @@ def print_pink(*args: Any, highlight_color: int | None = None):
     )
 
 
-def print_debug(*args: Any, highlight_color: int | None = AMBER_HIGHLIGHT_COLOR):
+def print_debug(
+    *args: Any,
+    highlight_color: int | None = AMBER_HIGHLIGHT_COLOR,
+    only_once: bool = False,
+):
     from src.lib.config import cfg
 
     if not cfg.DEBUG:
         return
+
+    s = "[DEBUG] " + " ".join(map(str, args))
+    if s == cfg._last_debug_print and only_once:
+        return
+
+    console_state = cfg.CONSOLE_ON
+    cfg.enable_console()
     smart_print(
-        "[DEBUG] " + " ".join(map(str, args)),
+        s,
         color=AMBER_COLOR,
         highlight_color=highlight_color,
     )
+    if not console_state:
+        cfg.disable_console()
 
 
 def print_list(*args: Any, highlight_color: int | None = None):

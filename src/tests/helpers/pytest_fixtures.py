@@ -28,10 +28,26 @@ def setup():
     load_env(GIT_ROOT / ".env.test", clean_working_dirs=True)
 
 
-@pytest.fixture(scope="function", autouse=True)
-def clear_match_name():
+@pytest.fixture(scope="function", autouse=False)
+def reset_failed():
+    InboxState().clear_failed()
+    os.environ.pop("FAILED_BOOKS", None)
     yield
-    os.environ.pop("MATCH_NAME", None)
+    InboxState().clear_failed()
+    os.environ.pop("FAILED_BOOKS", None)
+
+
+@pytest.fixture(scope="function", autouse=False)
+def reset_match_filter():
+    from src.lib.config import cfg
+
+    orig_env_match_filter = os.environ.get("MATCH_NAME", None)
+    orig_cfg_match_filter = cfg.MATCH_NAME
+    yield
+    if orig_env_match_filter is not None:
+        InboxState().set_match_filter(orig_env_match_filter)
+        return
+    InboxState().set_match_filter(orig_cfg_match_filter)
 
 
 def load_test_fixture(
@@ -162,11 +178,11 @@ def benedict_society__mp3():
     for i in range(1, 12):
         testutils.make_mock_file(_path(i))
 
-    testutils.set_match_name("Benedict")
+    testutils.set_match_filter("Benedict")
 
     yield Audiobook(dir_name)
 
-    testutils.set_match_name(None)
+    testutils.set_match_filter(None)
 
     shutil.rmtree(dir_name, ignore_errors=True)
 
@@ -202,11 +218,11 @@ def roman_numeral__mp3():
     ):
         testutils.make_mock_file(_path(i, n))
 
-    testutils.set_match_name("Roman Numeral Book")
+    testutils.set_match_filter("Roman Numeral Book")
 
     yield Audiobook(dir_name)
 
-    testutils.set_match_name(None)
+    testutils.set_match_filter(None)
 
     shutil.rmtree(dir_name, ignore_errors=True)
 
@@ -217,7 +233,7 @@ def blank_audiobook():
     book = TEST_DIRS.inbox / "blank_audiobook"
     book.mkdir(parents=True, exist_ok=True)
 
-    testutils.set_match_name("blank_audiobook")
+    testutils.set_match_filter("blank_audiobook")
 
     # write a completely valid audiofile that plays a tone A4 for 2 seconds
     with open(book / f"blank_audiobook.mp3", "wb") as f:
@@ -226,7 +242,7 @@ def blank_audiobook():
         )
 
     yield Audiobook(book)
-    testutils.set_match_name(None)
+    testutils.set_match_filter(None)
     shutil.rmtree(book, ignore_errors=True)
     shutil.rmtree(TEST_DIRS.working / "build" / "blank_audiobook", ignore_errors=True)
     shutil.rmtree(TEST_DIRS.working / "fix" / "blank_audiobook", ignore_errors=True)
@@ -237,14 +253,14 @@ def blank_audiobook():
 def corrupt_audiobook():
     """Create a fake mp3 audiobook with a corrupt file."""
     book = TEST_DIRS.inbox / "corrupt_audiobook"
-    testutils.set_match_name("corrupt_audiobook")
+    testutils.set_match_filter("corrupt_audiobook")
     book.mkdir(parents=True, exist_ok=True)
     with open(book / f"corrupt_audiobook.mp3", "wb") as f:
         f.write(b"\xff\xfb\xd6\x04")
         # write 20kb of random data, but the first 4 bytes are corrupt
         f.write(os.urandom(1024 * 20))
     yield Audiobook(book)
-    testutils.set_match_name(None)
+    testutils.set_match_filter(None)
     shutil.rmtree(book, ignore_errors=True)
     shutil.rmtree(TEST_DIRS.working / "build" / "corrupt_audiobook", ignore_errors=True)
     shutil.rmtree(TEST_DIRS.working / "fix" / "corrupt_audiobook", ignore_errors=True)
@@ -394,30 +410,29 @@ def global_test_log():
     test_log.unlink(missing_ok=True)
 
 
-@pytest.fixture(scope="function", autouse=True)
-def reset_inbox_state():
-    from src.lib.run import INBOX_STATE
+@pytest.fixture(scope="function", autouse=False)
+def reset_inbox_state(reset_match_filter, reset_failed):
+
+    shutil.rmtree(TEST_DIRS.converted, ignore_errors=True)
+    TEST_DIRS.converted.mkdir(parents=True, exist_ok=True)
 
     yield
-    INBOX_STATE = InboxState()
-    INBOX_STATE.flush_global_hash()
+    InboxState().reset()
     os.environ.pop("MATCH_NAME", None)
-    os.environ.pop("FAILED_BOOKS", None)
     os.environ.pop("SLEEPTIME", None)
-
-
-@pytest.fixture(scope="function", autouse=True)
-def reset_failed():
-    from src.lib.run import INBOX_STATE
-
-    yield
-    INBOX_STATE.clear_failed()
-
-
-@pytest.fixture(scope="function", autouse=True)
-def purge_test_converted():
     shutil.rmtree(TEST_DIRS.converted, ignore_errors=True)
     TEST_DIRS.converted.mkdir(parents=True, exist_ok=True)
+
+
+@pytest.fixture(scope="function", autouse=False)
+def enable_autoflatten():
+    testutils.enable_autoflatten()
     yield
-    shutil.rmtree(TEST_DIRS.converted, ignore_errors=True)
-    TEST_DIRS.converted.mkdir(parents=True, exist_ok=True)
+    testutils.disable_autoflatten()
+
+
+@pytest.fixture(scope="function", autouse=False)
+def enable_backups():
+    testutils.enable_backups()
+    yield
+    testutils.disable_backups()

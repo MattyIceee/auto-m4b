@@ -3,26 +3,24 @@ import subprocess
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any
 
 from tinta import Tinta
 
 from src.lib.audiobook import Audiobook
 from src.lib.config import cfg
-from src.lib.ffmpeg_utils import build_id3_tags_args
 from src.lib.formatters import (
-    friendly_date,
     log_date,
     log_format_elapsed_time,
     pluralize,
+    pluralize_with_count,
 )
 from src.lib.fs_utils import *
 from src.lib.id3_utils import verify_and_update_id3_tags
 from src.lib.inbox_state import InboxState
 from src.lib.logger import log_global_results
-from src.lib.misc import BOOK_ASCII, dockerize_volume, re_group
+from src.lib.m4btool import m4btool
+from src.lib.misc import BOOK_ASCII, re_group
 from src.lib.parsers import (
-    count_distinct_roman_numerals,
     roman_numerals_affect_file_order,
 )
 from src.lib.strings import en
@@ -44,15 +42,13 @@ from src.lib.term import (
     tint_light_grey,
     tint_path,
     tint_warning,
-    tinted_file,
-    tinted_m4b,
     vline,
 )
 
 # FAILED_BOOKS: FailedBooksDict = {}
 # INBOX_HASH: str = ""
 # INBOX_BOOK_HASHES: BookHashesDict = {}
-INBOX_STATE = InboxState()
+# INBOX = InboxState()
 LAST_UPDATED: float = 0
 # if os.getenv("FAILED_BOOKS"):
 #     FAILED_BOOKS = {
@@ -82,9 +78,10 @@ def print_launch_and_set_running():
 
 def process_standalone_files():
     """Move single audio files into their own folders"""
+    inbox = InboxState()
 
     # get all standalone audio files in inbox - i.e., audio files that are directl in the inbox not a subfolder
-    for audio_file in find_standalone_books_in_inbox():
+    for audio_file in inbox.all_books:
         # Extract base name without extension
         file_name = audio_file.name
         folder_name = audio_file.stem
@@ -121,90 +118,7 @@ def process_standalone_files():
             new_folder.mkdir(exist_ok=True)
             shutil.move(str(audio_file), str(new_folder))
 
-
-class m4btool:
-    _cmd: list[Any]
-
-    def __init__(self, book: Audiobook):
-        def _(*new_arg: str | tuple[str, Any]):
-            if isinstance(new_arg, tuple):
-                self._cmd.extend(new_arg)
-            else:
-                self._cmd.append(new_arg)
-
-        self.book = book
-        self._cmd = cfg._m4b_tool + [
-            "merge",
-            dockerize_volume(book.merge_dir),
-            "-n",
-        ]
-
-        _("--debug" if cfg.DEBUG == "Y" else "-q")
-
-        if self.should_copy:
-            _(("--audio-codec", "copy"))
-        else:
-            _((f"--audio-codec", "libfdk_aac"))
-            _((f"--audio-bitrate", book.bitrate_target))
-            _((f"--audio-samplerate", book.samplerate))
-
-        _(("--jobs", cfg.CPU_CORES))
-        _(("--output-file", dockerize_volume(book.build_file)))
-        _(("--logfile", dockerize_volume(book.log_file)))
-        _("--no-chapter-reindexing")
-
-        if cfg.SKIP_COVERS:
-            _("--no-cover-image")
-        elif not book.has_id3_cover and book.cover_art:
-            _(("--cover", dockerize_volume(book.cover_art)))
-
-        if cfg.USE_FILENAMES_AS_CHAPTERS:
-            _("--use-filenames-as-chapters")
-
-        if chapters_files := list(
-            dockerize_volume(self.book.merge_dir).glob("*chapters.txt")
-        ):
-            chapters_file = chapters_files[0]
-            _(f'--chapters-file="{chapters_file}"')
-            smart_print(
-                f"Found {len(chapters_files)} chapters {pluralize(len(chapters_files), 'file')}, setting chapters from {tinted_file(chapters_file.name)}"
-            )
-
-        _(*build_id3_tags_args(book.title, book.author, book.year, book.comment))
-
-    def cmd(self, quotify: bool = False) -> list[str]:
-        out = []
-        for arg in self._cmd:
-            if isinstance(arg, tuple):
-                k, v = arg
-                if quotify and " " in str(v):
-                    v = f'"{v}"'
-                out.append(f"{k}={v}")
-            else:
-                out.append(str(arg))
-        return out
-
-    def esc_cmd(self) -> str:
-        cmd = self.cmd(quotify=True)
-        if cfg.USE_DOCKER:
-            cmd.insert(2, "-it")
-        cmd = [c for c in cmd if c != "-q"]
-        return " ".join(cmd)
-
-    @property
-    def should_copy(self):
-        return self.book.orig_file_type in ["m4a", "m4b"]
-
-    def msg(self):
-        starttime_friendly = friendly_date()
-        if self.should_copy:
-            smart_print(
-                f"Starting merge/passthrough → {tinted_m4b()} at {tint_light_grey(starttime_friendly)}..."
-            )
-        else:
-            smart_print(
-                f"Starting {tinted_file(self.book.orig_file_type)} → {tinted_m4b()} conversion at {tint_light_grey(starttime_friendly)}..."
-            )
+        inbox.set_ok(folder_name)
 
 
 # glasses 1: ⌐◒-◒
@@ -212,8 +126,8 @@ class m4btool:
 
 
 def banner():
-    global INBOX_STATE
-    if not INBOX_STATE.did_change:
+    inbox = InboxState()
+    if not inbox.did_change:
         return
 
     current_local_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -224,17 +138,17 @@ def banner():
 
     print_grey(f"Watching for new books in {{{{{cfg.inbox_dir}}}}} ꨄ︎")
 
-    if INBOX_STATE.first_run:
+    if inbox.first_run:
         # print_debug(f"First run, banner should say 'watching'")
         nl()
 
 
 def fail_book(book: Audiobook, reason: str = "unknown"):
     """Adds the book's path to the failed books dict with a value of the last modified date of of the book"""
-    global INBOX_STATE
-    if book.basename in INBOX_STATE.failed_books:
+    inbox = InboxState()
+    if book.basename in inbox.failed_books:
         return
-    INBOX_STATE.set_failed(book.basename, reason)
+    inbox.set_failed(book.basename, reason)
     # FAILED_BOOKS[book.basename] = book.last_updated_at()
 
     book.write_log(reason)
@@ -324,10 +238,12 @@ def do_backup(book: Audiobook):
     return True
 
 
-def check_failed_books(audio_dirs: list[Path]):
-    global INBOX_STATE
-    print_debug(f"Found failed books: {[k for k in INBOX_STATE.failed_books.keys()]}")
-    for book_name, item in INBOX_STATE.failed_books.items():
+def check_failed_books(audio_dirs: list[Path] = []):
+    inbox = InboxState()
+    if not inbox.failed_books:
+        return
+    print_debug(f"Found failed books: {[k for k in inbox.failed_books.keys()]}")
+    for book_name, item in inbox.failed_books.items():
         # ensure last_modified is a float
         failed_book = Audiobook(cfg.inbox_dir / book_name)
         was_modified = (
@@ -349,125 +265,151 @@ def check_failed_books(audio_dirs: list[Path]):
             print_debug(
                 f"{book_name} hash changed since it failed last, removing it from failed books\n        was {last_book_hash}\n        now {curr_book_hash}"
             )
-            INBOX_STATE.set_needs_retry(book_name)
+            inbox.set_needs_retry(book_name)
         else:
             print_debug(f"Book hash is the same, keeping it in failed books")
-    audio_dirs = [d for d in audio_dirs if d.name not in INBOX_STATE.failed_books]
+    # audio_dirs = [d for d in audio_dirs if d.name not in INBOX.failed_books]
     # books_count = len(audio_dirs) # disabling for now, better to have the total count and display skip count
-    failed_books_count = len(INBOX_STATE.failed_books)
-    return audio_dirs, failed_books_count
+    # failed_books_count = len(INBOX.failed_books)
+    # return audio_dirs, failed_books_count
 
 
 def process_inbox(loop_count: int):
-    global INBOX_STATE, LAST_UPDATED
+    # global INBOX, LAST_UPDATED
 
-    audio_files_count = count_audio_files_in_inbox()
+    inbox = InboxState()
+
+    # audio_files_count = count_audio_files_in_inbox()
     # compare last_touched to inbox dir's mtime - if inbox dir has not been modified since last run, skip
     # recently_updated= find_recently_modified_files_and_dirs(cfg.inbox_dir, 10, only_file_exts=cfg.AUDIO_EXTS)
-    if audio_files_count == 0:
-        if loop_count == 0:
-            banner()
-        if INBOX_STATE.did_change:
-            print_debug(
-                f"No audio files found in {cfg.inbox_dir}\n        Last updated at {inbox_last_updated_at(friendly=True)}, next check in {cfg.sleeptime_friendly}"
-            )
-        INBOX_STATE.get_global_hash()
+
+    if inbox.num_audio_files_deep == 0:
+        banner()
+        cfg.disable_console()
+        # if INBOX_STATE.did_change:
+        print_debug(
+            f"No audio files found in {cfg.inbox_dir}\n        Last updated at {inbox_last_updated_at(friendly=True)}, next check in {cfg.sleeptime_friendly}",
+            only_once=True,
+        )
+        # INBOX_STATE.refresh_global_hash()
+        #
         return
 
-    banner()
-    INBOX_STATE.init()
+    if not inbox.did_change:
+        inbox.refresh_global_hash()
+        return
+    else:
+        cfg.enable_console()
+        banner()
 
-    waited_while_copying = 0
-    while inbox_was_recently_modified():
-        if (INBOX_STATE.did_change) and not waited_while_copying:
+    # if not INBOX_STATE.did_change:
+    #     cfg.disable_console()
+    #     if inbox_last_updated_at() != LAST_UPDATED:
+    #         print_debug(
+    #             f"Skipping this loop, inbox hash is the same (was last touched {inbox_last_updated_at(friendly=True)})",
+    #             only_once=True,
+    #         )
+    #         LAST_UPDATED = inbox_last_updated_at()
+    #     INBOX_STATE.refresh_global_hash()
+    #     return
+
+    inbox.init()
+    cfg.enable_console()
+
+    waited_count = 0
+    while inbox.time_since_last_change < 5 or not inbox.ready:
+        if inbox.ready:
             print_notice(f"{en.INBOX_RECENTLY_MODIFIED}\n")
             print_debug(
-                f"Inbox hash - last: {INBOX_STATE.global_hash or None} / curr: {hash_entire_inbox()}"
+                f"Inbox hash - last: {inbox.global_hash or None} / curr: {hash_entire_inbox()}",
+                only_once=True,
             )
-        waited_while_copying += 1
+            waited_count += 1
+            cfg.disable_console()
         time.sleep(0.5)
 
-    if waited_while_copying:
+    if waited_count:
+        cfg.enable_console()
         print_debug("Done waiting for inbox to be modified")
 
-    if not INBOX_STATE.did_change:
-        if inbox_last_updated_at() != LAST_UPDATED:
-            print_debug(
-                f"Skipping this loop, inbox hash is the same (was last touched {inbox_last_updated_at(friendly=True)})"
-            )
-            LAST_UPDATED = inbox_last_updated_at()
-        return
+    # INBOX_STATE.refresh_global_hash()
 
-    INBOX_STATE.get_global_hash()
-
-    standalone_count = count_standalone_books_in_inbox()
-    if standalone_count:
+    if inbox.num_standalone_files:
         process_standalone_files()
 
     # Find directories containing audio files, handling single quote if present
-    audio_dirs = find_book_dirs_in_inbox()
+    # audio_dirs = INBOX.dirs
 
-    total_books_count = len(audio_dirs)
-    failed_books_count = len(INBOX_STATE.failed_books)
-    filtered_books_count = 0
-    books_count = total_books_count
+    # total_books_count = INBOX.dirs_count
+    # failed_books_count = len(INBOX_STATE.failed_books)
+    # filtered_books_count = 0
+    # books_count = total_books_count
 
-    if cfg.MATCH_NAME:
-        audio_dirs = [
-            d
-            for d in audio_dirs
-            if name_matches(d.relative_to(cfg.inbox_dir), cfg.MATCH_NAME)
-        ]
-        books_count = len(audio_dirs)
-        filtered_books_count = total_books_count - books_count
+    # if cfg.MATCH_NAME:
+    #     audio_dirs = [
+    #         d
+    #         for d in audio_dirs
+    #         if name_matches(d.relative_to(cfg.inbox_dir), cfg.MATCH_NAME)
+    #     ]
+    #     books_count = len(audio_dirs)
+    #     filtered_books_count = total_books_count - books_count
 
-    if INBOX_STATE.failed_books:
-        audio_dirs, failed_books_count = check_failed_books(audio_dirs)
+    # if INBOX.failed_books:
+    check_failed_books()
+    # audio_dirs, failed_books_count = check_failed_books()
 
     # INBOX_HASH = hash_entire_inbox()
     # INBOX_BOOK_HASHES.update(hash_inbox_books(audio_dirs))
 
+    if inbox.did_change or not inbox.ready:
+        cfg.enable_console()
+
     # If no books to convert, print, sleep, and exit
-    if total_books_count == 0:  # replace 'books_count' with your variable
+    if inbox.num_books == 0:  # replace 'books_count' with your variable
         smart_print(f"No books to convert, next check in {cfg.sleeptime_friendly}\n")
-        return
-    elif books_count == 0:
-        if cfg.MATCH_NAME and filtered_books_count:
-            smart_print(
-                f"Found {filtered_books_count} {pluralize(filtered_books_count, 'book')} in the inbox, but none match [[{cfg.MATCH_NAME}]]",
-                highlight_color=AMBER_COLOR,
-            )
-        elif failed_books_count:
-            smart_print(
-                f"Found {failed_books_count} {pluralize(failed_books_count, 'book')} in the inbox that failed to convert - waiting for them to be fixed",
-                highlight_color=AMBER_COLOR,
-            )
+        cfg.disable_console()
         return
 
-    elif books_count != total_books_count:
-        skipping = (
-            f"skipping {failed_books_count} that previously failed"
-            if failed_books_count
-            else ""
+    if not inbox.num_matched:
+        smart_print(
+            f"Found {pluralize_with_count(inbox.num_books, 'book')} in the inbox, but none match [[{inbox.match_filter}]]",
+            highlight_color=AMBER_COLOR,
         )
-        if cfg.MATCH_NAME and filtered_books_count:
-            skipping = f", {skipping}" if skipping else ""
-            smart_print(
-                f"Found {books_count} {pluralize(books_count, 'book')} in the inbox matching [[{cfg.MATCH_NAME}]] ({total_books_count} total{skipping})\n",
-                highlight_color=AMBER_COLOR,
-            )
-        elif failed_books_count:
-            smart_print(
-                f"Found {books_count} {pluralize(books_count, 'book')} to convert ({skipping})\n",
-                highlight_color=AMBER_COLOR,
-            )
+        cfg.disable_console()
+        return
+
+    if not inbox.ok_books and inbox.num_failed:
+        smart_print(
+            f"Found {pluralize_with_count(inbox.num_failed, 'book')} in the inbox that failed to convert - waiting for them to be fixed",
+            highlight_color=AMBER_COLOR,
+        )
+        cfg.disable_console()
+        return
+
+    skipping = (
+        f"skipping {inbox.num_failed} that previously failed"
+        if inbox.num_failed
+        else ""
+    )
+
+    if inbox.matched_books:
+        skipping = f", {skipping}" if skipping else ""
+        smart_print(
+            f"Found {pluralize_with_count(inbox.num_matched, 'book')} in the inbox matching [[{inbox.match_filter}]] ({inbox.num_books} total{skipping})\n",
+            highlight_color=AMBER_COLOR,
+        )
+    elif inbox.failed_books:
+        smart_print(
+            f"Found {pluralize_with_count(inbox.num_ok, 'book')} to convert ({skipping})\n",
+            highlight_color=AMBER_COLOR,
+        )
     else:
         smart_print(
-            f"Found {books_count} {pluralize(books_count, 'book')} to convert\n"
+            f"Found {pluralize_with_count(inbox.num_matched, 'book')} to convert\n"
         )
 
-    for b, book_full_path in enumerate(audio_dirs):
-        book = Audiobook(book_full_path)
+    for b, item in enumerate(inbox.matched_books.values()):
+        book = Audiobook(item.path)
         m4b_count = count_audio_files_in_dir(book.inbox_dir, only_file_exts=["m4b"])
 
         border(len(book.basename))
@@ -476,7 +418,7 @@ def process_inbox(loop_count: int):
         )
         border(len(book.basename))
 
-        roman_numerals_count = count_distinct_roman_numerals(book.inbox_dir)
+        # roman_numerals_count = count_distinct_roman_numerals(book.inbox_dir)
 
         # check if the current dir was modified in the last 1m and skip if so
         if was_recently_modified(book.inbox_dir):
@@ -485,7 +427,7 @@ def process_inbox(loop_count: int):
             )
             continue
 
-        if book.basename in INBOX_STATE.fixed_books:
+        if inbox.should_retry(book):
             nl()
             smart_print(
                 f"This book previously failed, but it has been updated – trying again"
@@ -510,7 +452,6 @@ def process_inbox(loop_count: int):
             continue
 
         if book.structure.startswith("multi") or book.structure == "mixed":
-
             help_msg = f"Please organize the files in a single folder and rename them so they sort alphabetically\nin the correct order"
             match book.structure:
                 case "multi_disc":
@@ -538,7 +479,7 @@ def process_inbox(loop_count: int):
                                 [str(f) for f in book.inbox_dir.glob("*")]
                             )
                             print_debug(f"New file structure:\n{files}")
-                            INBOX_STATE.set_ok(book.basename)
+                            inbox.set_ok(book.basename)
                     else:
                         print_error(f"{en.MULTI_ERR}, maybe this is a multi-disc book?")
                         smart_print(
@@ -562,7 +503,7 @@ def process_inbox(loop_count: int):
                     fail_book(book, f"{en.MULTI_ERR} (structure unknown) - {help_msg}")
                     continue
 
-        if roman_numerals_count > 1:
+        if book.num_roman_numerals > 1:
             if roman_numerals_affect_file_order(book.inbox_dir):
                 print_error(en.ROMAN_ERR)
                 help_msg = "Roman numerals do not sort in alphabetical order; please rename them so they sort alphabetically in the correct order"
@@ -571,7 +512,7 @@ def process_inbox(loop_count: int):
                 continue
             else:
                 print_debug(
-                    f"Found {roman_numerals_count} roman numeral(s) in {book.basename}, but they don't affect file order"
+                    f"Found {book.num_roman_numerals} roman numeral(s) in {book.basename}, but they don't affect file order"
                 )
 
         # if nested_audio_dirs_count == 1:
@@ -763,7 +704,8 @@ def process_inbox(loop_count: int):
         nl()
 
         smart_print(
-            f"Moving to converted books folder → {tint_path(fmt_linebreak_path(book.converted_file, 80, 35))}"
+            f"Moving to converted books folder → {tint_path(fmt_linebreak_path(book.converted_file, 80, 35))}",
+            end="",
         )
 
         # Copy other jpg, png, and txt files from mergefolder to output folder
@@ -781,6 +723,7 @@ def process_inbox(loop_count: int):
             overwrite_mode="overwrite-silent",
         )
         book.set_active_dir("converted")
+        smart_print(" ✓\n")
 
         rm_all_empty_dirs(book.build_dir)
 
@@ -847,7 +790,7 @@ def process_inbox(loop_count: int):
         )
 
         divider("\n")
-        if b < books_count - 1:
+        if b < inbox.num_books - 1:
             nl()
 
     # clear the folders
@@ -855,7 +798,7 @@ def process_inbox(loop_count: int):
     clean_dir(cfg.build_dir)
     clean_dir(cfg.trash_dir)
 
-    if books_count >= 1:
+    if inbox.num_books >= 1:
         print_grey(en.DONE_CONVERTING)
         if not cfg.NO_ASCII:
             print_dark_grey(BOOK_ASCII)

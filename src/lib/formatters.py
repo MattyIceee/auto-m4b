@@ -165,3 +165,7 @@ def pluralize(count: int, singular: str, plural: str | None = None) -> str:
         return p.plural(singular) if plural is None else plural
     else:
         return f"{singular}(s)"
+
+
+def pluralize_with_count(count: int, singular: str, plural: str | None = None) -> str:
+    return f"{count} {pluralize(count, singular, plural)}"

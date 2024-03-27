@@ -32,6 +32,9 @@ from src.lib.typing import (
 if TYPE_CHECKING:
     from src.lib.audiobook import Audiobook
 
+TEST_MODIFIED_WAIT = 0.5
+REAL_MODIFIED_WAIT = 10
+
 
 @overload
 def find_files_in_dir(
@@ -849,7 +852,7 @@ def find_recently_modified_files_and_dirs(
     from src.lib.config import cfg
 
     if within_seconds == 0:
-        within_seconds = 2 if cfg.TEST else 15
+        within_seconds = TEST_MODIFIED_WAIT if cfg.TEST else REAL_MODIFIED_WAIT
     current_time = time.time()
     recent_items: list[tuple[Path, float, float]] = []
 
@@ -910,7 +913,7 @@ def was_recently_modified(
     from src.lib.config import cfg
 
     if within_seconds <= 0:
-        within_seconds = 2 if cfg.TEST else 15
+        within_seconds = TEST_MODIFIED_WAIT if cfg.TEST else REAL_MODIFIED_WAIT
 
     within_seconds = max(within_seconds, 0)
 
@@ -927,10 +930,12 @@ def was_recently_modified(
     return bool(this_m or recents)
 
 
-def inbox_was_recently_modified() -> bool:
+def inbox_was_recently_modified(within_seconds: float = 0) -> bool:
     from src.lib.config import cfg
 
-    return was_recently_modified(cfg.inbox_dir, only_file_exts=cfg.AUDIO_EXTS)
+    return was_recently_modified(
+        cfg.inbox_dir, within_seconds=within_seconds, only_file_exts=cfg.AUDIO_EXTS
+    )
 
 
 def hash_path(
