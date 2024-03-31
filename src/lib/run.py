@@ -145,7 +145,7 @@ def print_book_done(b: int, book: Audiobook, elapsedtime: int):
     smart_print(
         Tinta("\nConverted")
         .aqua(book.basename)
-        .clear(f"in {human_elapsed_time(elapsedtime)} 🐾✨🥞")
+        .clear(f"in {human_elapsed_time(elapsedtime, relative=False)} 🐾✨🥞")
         .to_str()
     )
 

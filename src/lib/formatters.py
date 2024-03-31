@@ -145,7 +145,7 @@ def log_format_elapsed_time(seconds: int | float) -> str:
     return format_duration(seconds, "human", always_show_hours=False, show_units=False)
 
 
-def human_elapsed_time(delta_or_time: datetime | float) -> str:
+def human_elapsed_time(delta_or_time: datetime | float, relative: bool = True) -> str:
     # if delta_or_time is a datetime, convert to seconds
     if isinstance(delta_or_time, datetime):
         delta = datetime.now() - delta_or_time
@@ -154,7 +154,9 @@ def human_elapsed_time(delta_or_time: datetime | float) -> str:
         delta = datetime.now() - datetime.fromtimestamp(delta_or_time)
     else:
         delta = timedelta(seconds=delta_or_time)
-    return humanize.naturaltime(delta, future=delta.total_seconds() < 0)
+    if relative:
+        return humanize.naturaltime(delta, future=delta.total_seconds() < 0)
+    return humanize.naturaldelta(delta)
 
 
 def pluralize(count: int, singular: str, plural: str | None = None) -> str:
