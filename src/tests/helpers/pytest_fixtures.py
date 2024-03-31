@@ -7,6 +7,7 @@ from pathlib import Path
 import dotenv
 import pytest
 
+from src.lib.fs_utils import clean_dirs
 from src.lib.inbox_state import InboxState
 from src.tests.conftest import FIXTURES_ROOT, GIT_ROOT, TEST_DIRS
 from src.tests.helpers.pytest_utils import testutils
@@ -417,8 +418,7 @@ def reset_inbox_state(reset_match_filter, reset_failed):
 
     inbox = InboxState()
     inbox.destroy()
-    shutil.rmtree(TEST_DIRS.converted, ignore_errors=True)
-    TEST_DIRS.converted.mkdir(parents=True, exist_ok=True)
+    clean_dirs([TEST_DIRS.archive, TEST_DIRS.converted, TEST_DIRS.working])
     os.environ["SLEEP_TIME"] = "0.1"
     os.environ["WAIT_TIME"] = "0.5"
     os.environ["TEST"] = "Y"
@@ -431,8 +431,7 @@ def reset_inbox_state(reset_match_filter, reset_failed):
     os.environ["WAIT_TIME"] = "0.5"
     os.environ["TEST"] = "Y"
 
-    shutil.rmtree(TEST_DIRS.converted, ignore_errors=True)
-    TEST_DIRS.converted.mkdir(parents=True, exist_ok=True)
+    clean_dirs([TEST_DIRS.archive, TEST_DIRS.converted, TEST_DIRS.working])
     inbox.destroy()
 
 

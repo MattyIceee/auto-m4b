@@ -10,7 +10,7 @@ from pytest import CaptureFixture
 from tinta import Tinta
 
 from src.lib.audiobook import Audiobook
-from src.lib.config import cfg
+from src.lib.config import cfg, OnComplete
 from src.lib.formatters import human_elapsed_time
 from src.lib.fs_utils import flatten_files_in_dir, inbox_last_updated_at
 from src.lib.inbox_state import InboxState
@@ -84,6 +84,30 @@ class testutils:
         yield
         cfg.WAIT_TIME = orig_wait_time
         os.environ["WAIT_TIME"] = str(orig_wait_time)
+
+    @classmethod
+    @contextmanager
+    def set_on_complete(cls, on_complete: OnComplete, delay: int = 0):
+        time.sleep(delay)
+        orig_on_complete = cfg.ON_COMPLETE
+        cls.print(f"Setting ON_COMPLETE to {on_complete}")
+        os.environ["ON_COMPLETE"] = on_complete
+        cfg.ON_COMPLETE = on_complete
+        yield
+        cfg.ON_COMPLETE = orig_on_complete
+        os.environ["ON_COMPLETE"] = orig_on_complete
+
+    @classmethod
+    @contextmanager
+    def set_backups(cls, enabled: bool, delay: int = 0):
+        time.sleep(delay)
+        orig_backups = cfg.MAKE_BACKUP
+        cls.print(f"Setting MAKE_BACKUP to {enabled}")
+        os.environ["MAKE_BACKUP"] = "Y" if enabled else "N"
+        cfg.MAKE_BACKUP = enabled
+        yield
+        cfg.MAKE_BACKUP = orig_backups
+        os.environ["MAKE_BACKUP"] = "Y" if orig_backups else "N"
 
     @classmethod
     def force_inbox_hash_change(cls, *, delay: int = 0, age: float = 0.5):

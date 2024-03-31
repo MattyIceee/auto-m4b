@@ -6,6 +6,7 @@ from pytest import CaptureFixture
 
 from src.auto_m4b import app
 from src.lib.audiobook import Audiobook
+from src.lib.config import OnComplete
 from src.lib.fs_utils import find_book_dirs_in_inbox
 from src.lib.inbox_state import InboxState
 from src.lib.misc import re_group
@@ -132,3 +133,35 @@ class test_happy_paths:
             capfd, the_hobbit__multidisc_mp3, found=(1, 1), converted=1
         )
         assert the_hobbit__multidisc_mp3.converted_dir.exists()
+
+    @pytest.mark.parametrize(
+        "on_complete, backup",
+        [
+            ("test_do_nothing", False),
+            ("move", False),
+            ("delete", False),
+            ("delete", True),
+        ],
+    )
+    def test_original_handled_on_complete(
+        self, on_complete: OnComplete, backup: bool, tower_treasure__flat_mp3: Audiobook
+    ):
+        shutil.rmtree(tower_treasure__flat_mp3.archive_dir, ignore_errors=True)
+        with testutils.set_on_complete(on_complete):
+            with testutils.set_backups(backup):
+                app(max_loops=1, no_fix=True, test=True)
+
+                assert tower_treasure__flat_mp3.converted_dir.exists()
+                match on_complete:
+                    case "test_do_nothing":
+                        assert tower_treasure__flat_mp3.inbox_dir.exists()
+                        assert not tower_treasure__flat_mp3.archive_dir.exists()
+                    case "move":
+                        assert not tower_treasure__flat_mp3.inbox_dir.exists()
+                        assert tower_treasure__flat_mp3.archive_dir.exists()
+                    case "delete":
+                        if backup:
+                            assert not tower_treasure__flat_mp3.inbox_dir.exists()
+                        else:
+                            assert tower_treasure__flat_mp3.inbox_dir.exists()
+                        assert not tower_treasure__flat_mp3.archive_dir.exists()

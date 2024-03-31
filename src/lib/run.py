@@ -209,7 +209,10 @@ def backup_ok(book: Audiobook):
     elif dir_is_empty_ignoring_hidden_files(book.inbox_dir):
         print_dark_grey("Skipping backup (folder is empty)")
     else:
-        smart_print(f"Making a backup copy → {tint_path(book.backup_dir)}")
+        ln = "Making a backup copy → "
+        smart_print(
+            f"{ln}{tint_path(fmt_linebreak_path(book.backup_dir, max_term_width(len(ln)), len(ln)))}"
+        )
         cp_dir(book.inbox_dir, cfg.backup_dir, overwrite_mode="skip-silent")
 
         # Check that files count and folder size match
@@ -616,8 +619,9 @@ def move_desc_file(book: Audiobook):
 
 
 def move_converted_book_and_extras(book: Audiobook):
+    ln = "Moving to converted books folder → "
     smart_print(
-        f"Moving to converted books folder → {tint_path(fmt_linebreak_path(book.converted_file, max_term_width(), 35))}"
+        f"{ln}{tint_path(fmt_linebreak_path(book.converted_file, max_term_width(len(ln)), len(ln)))}"
     )
 
     # Copy other jpg, png, and txt files from mergefolder to output folder
@@ -666,8 +670,8 @@ def move_converted_book_and_extras(book: Audiobook):
 
 
 def archive_inbox_copy(book: Audiobook):
-    if cfg.on_complete == "move":
-        smart_print("Archiving original from inbox...")
+    if cfg.ON_COMPLETE == "move":
+        smart_print("Archiving original from inbox...", end="")
         mv_dir_contents(
             book.inbox_dir,
             book.archive_dir,
@@ -681,16 +685,22 @@ def archive_inbox_copy(book: Audiobook):
             print_orange(
                 "     To prevent this book from being converted again, move it out of the inbox folder"
             )
+            return
+        print_aqua(" ✓")
 
-    elif cfg.on_complete == "delete":
-        smart_print("Deleting original from inbox...")
-        if is_ok_to_delete(book.inbox_dir):
+    elif cfg.ON_COMPLETE == "delete":
+        smart_print("Deleting original from inbox...", end="")
+        can_del = is_ok_to_delete(book.inbox_dir)
+        if can_del or cfg.MAKE_BACKUP:
             rm_dir(book.inbox_dir, ignore_errors=True, even_if_not_empty=True)
-        else:
+        elif not can_del and not cfg.MAKE_BACKUP:
             print_notice(
-                "Notice: The original folder is not empty, it will not be deleted"
+                "Notice: The original folder is not empty, it will not be deleted because backups are disabled"
             )
-    elif cfg.on_complete == "test_do_nothing":
+            return
+        print_aqua(" ✓")
+
+    elif cfg.ON_COMPLETE == "test_do_nothing":
         print_notice("Test mode: The original folder will not be moved or deleted")
 
 

@@ -205,11 +205,10 @@ class Config:
         self.check_dirs()
         self.check_m4b_tool()
 
-    @property
-    def on_complete(self):
-        if self.TEST:
-            return "test_do_nothing"
-        return cast(OnComplete, os.getenv("ON_COMPLETE", "move"))
+    @cached_property
+    def ON_COMPLETE(self):
+        default = "test_do_nothing" if self.TEST else "move"
+        return cast(OnComplete, os.getenv("ON_COMPLETE", default))
 
     @cached_property
     def OVERWRITE_MODE(self) -> OverwriteMode:
