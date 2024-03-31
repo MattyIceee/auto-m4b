@@ -101,13 +101,13 @@ class testutils:
     @contextmanager
     def set_backups(cls, enabled: bool, delay: int = 0):
         time.sleep(delay)
-        orig_backups = cfg.MAKE_BACKUP
-        cls.print(f"Setting MAKE_BACKUP to {enabled}")
-        os.environ["MAKE_BACKUP"] = "Y" if enabled else "N"
-        cfg.MAKE_BACKUP = enabled
+        orig_backups = cfg.BACKUP
+        cls.print(f"Setting BACKUP to {enabled}")
+        os.environ["BACKUP"] = "Y" if enabled else "N"
+        cfg.BACKUP = enabled
         yield
-        cfg.MAKE_BACKUP = orig_backups
-        os.environ["MAKE_BACKUP"] = "Y" if orig_backups else "N"
+        cfg.BACKUP = orig_backups
+        os.environ["BACKUP"] = "Y" if orig_backups else "N"
 
     @classmethod
     def force_inbox_hash_change(cls, *, delay: int = 0, age: float = 0.5):
@@ -165,16 +165,16 @@ class testutils:
 
         time.sleep(delay)
         cls.print("Enabling backups")
-        os.environ["MAKE_BACKUP"] = "Y"
-        cfg.MAKE_BACKUP = True
+        os.environ["BACKUP"] = "Y"
+        cfg.BACKUP = True
 
     @classmethod
     def disable_backups(cls, delay: int = 0):
 
         time.sleep(delay)
         cls.print("Disabling backups")
-        os.environ["MAKE_BACKUP"] = "N"
-        cfg.MAKE_BACKUP = False
+        os.environ["BACKUP"] = "N"
+        cfg.BACKUP = False
 
     @classmethod
     def enable_debug(cls, delay: int = 0):

@@ -113,6 +113,8 @@ def load_env(
         if is_boolish(v):
             os.environ[k] = "Y" if parse_bool(v) else "N"
         elif is_maybe_path(v):
+            if not k.endswith("_FOLDER"):
+                continue
             v = str(v)
             p = Path(v).expanduser()
             if not p.is_absolute():

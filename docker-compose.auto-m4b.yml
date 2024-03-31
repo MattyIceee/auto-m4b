@@ -42,7 +42,7 @@ services:
       # - WORKING_FOLDER=/sandbox/working
       - OVERWRITE_EXISTING=Y
       - FLATTEN_MULTI_DISC_BOOKS=Y
-      - MAKE_BACKUP=Y
+      - BACKUP=Y
       - SKIP_COVERS=N
       - NO_FIX=Y
       - DEBUG=Y

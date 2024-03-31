@@ -412,8 +412,8 @@ class Config:
         return IGNORE_FILES
 
     @cached_property
-    def MAKE_BACKUP(self):
-        return parse_bool(os.getenv("MAKE_BACKUP", False))
+    def BACKUP(self):
+        return parse_bool(os.getenv("BACKUP", False))
 
     @cached_property
     def FLATTEN_MULTI_DISC_BOOKS(self):

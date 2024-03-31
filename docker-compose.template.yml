@@ -15,7 +15,7 @@ services:
     environment:
       - PUID=1000
       - PGID=1000
-      - MAKE_BACKUP=Y
+      - BACKUP=Y
       - MAX_CHAPTER_LENGTH=15,30
       - SKIP_COVERS=N
       - OVERWRITE_EXISTING=Y

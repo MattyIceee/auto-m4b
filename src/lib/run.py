@@ -204,7 +204,7 @@ def fail_book(book: Audiobook, reason: str = "unknown"):
 
 def backup_ok(book: Audiobook):
     # Copy files to backup destination
-    if not cfg.MAKE_BACKUP:
+    if not cfg.BACKUP:
         print_dark_grey("Not backing up (backups are disabled)")
     elif dir_is_empty_ignoring_hidden_files(book.inbox_dir):
         print_dark_grey("Skipping backup (folder is empty)")
@@ -691,9 +691,9 @@ def archive_inbox_copy(book: Audiobook):
     elif cfg.ON_COMPLETE == "delete":
         smart_print("Deleting original from inbox...", end="")
         can_del = is_ok_to_delete(book.inbox_dir)
-        if can_del or cfg.MAKE_BACKUP:
+        if can_del or cfg.BACKUP:
             rm_dir(book.inbox_dir, ignore_errors=True, even_if_not_empty=True)
-        elif not can_del and not cfg.MAKE_BACKUP:
+        elif not can_del and not cfg.BACKUP:
             print_notice(
                 "Notice: The original folder is not empty, it will not be deleted because backups are disabled"
             )

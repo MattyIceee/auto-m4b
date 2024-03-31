@@ -8,8 +8,9 @@
       "name": "Debug auto-m4b",
       "type": "debugpy",
       "request": "launch",
+      "envFile": "${workspaceFolder}/.env",
       "module": "src",
-      "args": ["--env", "${workspaceFolder}/.env.local.stardust", "--no-fix", "--test", "--debug"]
+      "args": ["-l", "1", "--env", "${workspaceFolder}/.env.local.stardust", "--debug"]
     }
   ]
 }
