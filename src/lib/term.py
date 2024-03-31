@@ -491,6 +491,6 @@ def fmt_linebreak_path(path: Path, limit: int = 120, indent: int = 0) -> str:
 
 def max_term_width():
     try:
-        return int(os.popen("stty size", "r").read().split()[1])
+        return min(80, os.get_terminal_size().columns)
     except:
         return 80
