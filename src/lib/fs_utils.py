@@ -216,11 +216,8 @@ def is_ok_to_delete(
     else:
         files = [f for f in path.rglob("*") if f.is_file()]
 
-    if only_file_exts:
-        files = [f for f in files if f.suffix in only_file_exts]
-
     # ok to delete if no visible or un-ignored files or if size is less than 10kb
-    return len(files) == 0 or src_dir_size < max_size
+    return len(filter_ignored(files)) == 0 or src_dir_size < max_size
 
 
 def check_src_dst(
@@ -269,16 +266,19 @@ def src_and_dst_are_on_same_partition(src: Path, dst: Path) -> bool:
     return src.stat().st_dev == dst.stat().st_dev
 
 
-def rmdir_force(dir_path: Path):
+def rm_dir(
+    dir_path: Path, ignore_errors: bool = False, even_if_not_empty: bool = False
+):
     # Remove the directory and handle errors
     if not dir_path.is_dir():
         return
-    try:
-        shutil.rmtree(dir_path)
-    except OSError as e:
+    if not is_ok_to_delete(dir_path) and not even_if_not_empty:
+        if ignore_errors:
+            return
         raise OSError(
             f"Unable to delete {dir_path}, please delete it manually and try again"
-        ) from e
+        )
+    shutil.rmtree(dir_path, ignore_errors=True)
 
 
 def rm_all_empty_dirs(dir_path: Path):
@@ -289,7 +289,7 @@ def rm_all_empty_dirs(dir_path: Path):
             and not any(current_dir.iterdir())
             and is_ok_to_delete(current_dir)
         ):
-            rmdir_force(current_dir)
+            rm_dir(current_dir, ignore_errors=True)
 
 
 def _mv_or_cp_dir_contents(
@@ -413,7 +413,7 @@ def _mv_or_cp_dir_contents(
         and is_ok_to_delete(src_dir, only_file_exts=only_file_exts)
     ):
         try:
-            rmdir_force(src_dir)
+            rm_dir(src_dir)
         except OSError:
             print_warning(
                 f"Warning: {src_dir} was not deleted after {verbing} files because it is not empty"
@@ -759,7 +759,7 @@ def find_book_audio_files(
 def clean_dir(dir_path: Path) -> None:
     dir_path = dir_path.resolve()
 
-    rmdir_force(dir_path)
+    rm_dir(dir_path, ignore_errors=True, even_if_not_empty=True)
 
     # Recreate the directory
     dir_path.mkdir(parents=True, exist_ok=True)
@@ -771,10 +771,22 @@ def clean_dir(dir_path: Path) -> None:
         )
 
     # Check if the directory is empty
-    if any(dir_path.iterdir()):
+    if any(filter_ignored(dir_path.iterdir())):
         raise OSError(
             f"'{dir_path}' is not empty, please empty it manually and try again"
         )
+
+
+def clean_dirs(dirs: list[Path]) -> None:
+    for d in dirs:
+        clean_dir(d)
+
+
+def rm_dirs(
+    dirs: list[Path], ignore_errors: bool = False, even_if_not_empty: bool = True
+) -> None:
+    for d in dirs:
+        rm_dir(d, ignore_errors, even_if_not_empty)
 
 
 @overload

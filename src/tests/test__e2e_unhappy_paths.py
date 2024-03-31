@@ -329,7 +329,7 @@ class test_unhappy_paths:
         app(max_loops=1, no_fix=True, test=True)
         assert conspiracy_theories__flat_mp3.converted_dir.exists()
         # do the conversion again to test the log file
-        inbox.flush()
+        inbox.destroy()
         shutil.rmtree(conspiracy_theories__flat_mp3.converted_dir, ignore_errors=True)
         TEST_DIRS.inbox.touch()
         time.sleep(1)
@@ -357,7 +357,7 @@ class test_unhappy_paths:
     ORDER += 1
 
     @pytest.mark.order(ORDER)
-    def test_inbox_doesnt_update_if_book_fails(
+    def test_inbox_hash_doesnt_change_when_book_fails(
         self,
         old_mill__multidisc_mp3: Audiobook,
         capfd: CaptureFixture[str],

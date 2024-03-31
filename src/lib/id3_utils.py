@@ -20,6 +20,7 @@ from src.lib.parsers import (
     swap_firstname_lastname,
 )
 from src.lib.term import (
+    nl,
     PATH_COLOR,
     print_debug,
     print_error,
@@ -271,6 +272,8 @@ def verify_and_update_id3_tags(
     else:
         [update() for update in updates]
         smart_print(Tinta("Done").aqua("✓").to_str())
+
+    nl()
 
 
 def extract_id3_tag_py(file: Path | None, tag: str, *, throw=False) -> str:

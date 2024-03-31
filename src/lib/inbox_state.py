@@ -128,7 +128,7 @@ class Hasher:
 
         return self.time_since_last_change < cfg.WAIT_TIME
 
-    def wait_while_being_modified(self):
+    def changed_after_waiting(self):
         from lib.term import print_notice
 
         change_detected = False

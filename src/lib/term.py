@@ -1,3 +1,4 @@
+import os
 import re
 from pathlib import Path
 from typing import Any
@@ -30,6 +31,20 @@ ORANGE_HIGHLIGHT_COLOR = Tinta().inspect(name="orange_accent")
 RED_COLOR = Tinta().inspect(name="red")
 RED_HIGHLIGHT_COLOR = Tinta().inspect(name="red_accent")
 PINK_COLOR = Tinta().inspect(name="pink")
+
+
+BOOK_ASCII = """
+        .--.                    .---.
+ ___.---|░░|            .-.     |░░░|
+⎧===|‾‾‾|░░|_           |_|   __|---|‾‾|
+| A | B |‾‾| \\     .----! |  |__|   |--|
+| U | O |PY|𐋲𛲟\\    |====| |‾‾|==| M |‾‾|
+| D | O |__|\\  \\   |CATS| |▒▒|  | 4 |┌┐|
+| I | K |░░| \\  \\  | ꞈ ꞈ| |==|  | B |└┘|
+| O | S |░░|  \\𐋲𛲟\\ |⚞°⸞°|_|__|==|   |__|
+|===|___|░░|   \\𐋲𛲟\\|𛰱˛ ˛|=|--|¯¯|░░░|--|
+'---^---'--^    `-'`----^-^--^--^---'--'
+"""
 
 
 def ansi_strip(string: str) -> str:
@@ -472,3 +487,10 @@ def fmt_linebreak_path(path: Path, limit: int = 120, indent: int = 0) -> str:
                 output += "/"
 
     return output
+
+
+def max_term_width():
+    try:
+        return int(os.popen("stty size", "r").read().split()[1])
+    except:
+        return 80
