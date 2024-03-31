@@ -215,6 +215,8 @@ def backup_ok(book: Audiobook):
         )
         cp_dir(book.inbox_dir, cfg.backup_dir, overwrite_mode="skip-silent")
 
+        fuzzy = 1000
+
         # Check that files count and folder size match
         orig_files_count = book.num_files("inbox")
         orig_size_b = book.size("inbox", "bytes")
@@ -228,7 +230,7 @@ def backup_ok(book: Audiobook):
 
         file_count_matches = orig_files_count == backup_files_count
         size_matches = orig_size_b == backup_size_b
-        size_fuzzy_matches = abs(orig_size_b - backup_size_b) < 1000
+        size_fuzzy_matches = abs(orig_size_b - backup_size_b) < fuzzy
 
         expected = f"{orig_files_count} {orig_plural} ({orig_size_human})"
         found = f"{backup_files_count} {backup_plural} ({backup_size_human})"
@@ -247,6 +249,28 @@ def backup_ok(book: Audiobook):
                 f"Backup successful, but sizes aren't exactly the same - expected {expected}, found {found}"
             )
             print_grey("Assuming this is a previous backup and continuing")
+        elif file_count_matches and backup_size_b < orig_size_b - fuzzy:
+
+            if too_small_files := find_too_small_files(book.inbox_dir, book.backup_dir):
+                print_debug(
+                    f"Found {len(too_small_files)} files in backup that are smaller than the original, trying to re-copy them"
+                )
+
+                # re-copy the files that are too small
+                for f in too_small_files:
+                    cp_file_to_dir(
+                        f, book.backup_dir, overwrite_mode="overwrite-silent"
+                    )
+
+                # re-check the size of the backup
+                if too_small_files := find_too_small_files(
+                    book.inbox_dir, book.backup_dir
+                ):
+                    print_error(
+                        f"Backup failed - expected {orig_size_human}, but backup is only {backup_size_human} (found {len(too_small_files)} files that are smaller than the original)"
+                    )
+                    smart_print("Skipping this book\n")
+                    return False
         else:
             # for each audio file in left, find it in right, and compare size of each.
             # if the size is the same, remove it from the list of files to check.

@@ -756,6 +756,17 @@ def find_book_audio_files(
     )
 
 
+def find_too_small_files(a: Path, b: Path) -> list[Path]:
+    return [
+        a
+        for (a, b) in zip(
+            [f for f in a.glob("*") if f.is_file()],
+            [f for f in b.glob("*") if f.is_file()],
+        )
+        if a.stat().st_size > b.stat().st_size
+    ]
+
+
 def clean_dir(dir_path: Path) -> None:
     dir_path = dir_path.resolve()
 
