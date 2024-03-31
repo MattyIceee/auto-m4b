@@ -226,8 +226,14 @@ class Audiobook(BaseModel):
         return f"{round(khz, 1)} kHz"
 
     @cached_property
-    def cover_art(self):
+    def _orig_cover_art(self):
         return find_cover_art_file(self.path)
+
+    @property
+    def cover_art(self):
+        if not self._orig_cover_art:
+            return None
+        return self.active_dir / self._orig_cover_art.relative_to(self.inbox_dir)
 
     @property
     def basename(self):
