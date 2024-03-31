@@ -159,7 +159,7 @@ FROM m4b-tool as python
 # ENV PUID=""
 # ENV PGID=""
 # ENV CPU_CORES=""
-# ENV SLEEPTIME=""
+# ENV SLEEP_TIME=""
 
 RUN echo "---- ADD AUTOM4B USER/GROUP ----"
 # set up user account

@@ -1,3 +1,4 @@
+import re
 import shutil
 
 import pytest
@@ -5,6 +6,9 @@ from pytest import CaptureFixture
 
 from src.auto_m4b import app
 from src.lib.audiobook import Audiobook
+from src.lib.fs_utils import find_book_dirs_in_inbox
+from src.lib.inbox_state import InboxState
+from src.lib.misc import re_group
 from src.tests.helpers.pytest_utils import testutils
 
 
@@ -15,27 +19,28 @@ class test_happy_paths:
     def setup(self, reset_inbox_state):
         yield
 
-    def test_tower_treasure__flat_mp3(
-        self, tower_treasure__flat_mp3: Audiobook, capfd: CaptureFixture[str]
-    ):
+    book_fixure = [("book_fixture")]
 
+    @pytest.fixture(scope="function", params=book_fixure)
+    def book(self, request: pytest.FixtureRequest):
+        return request.getfixturevalue(request.param)
+
+    @pytest.mark.parametrize(
+        "book, capfd",
+        [
+            ("tower_treasure__flat_mp3", "capfd"),
+            ("house_on_the_cliff__flat_mp3", "capfd"),
+        ],
+        indirect=["book", "capfd"],
+    )
+    def test_basic_book_mp3(self, book: Audiobook, capfd: CaptureFixture[str]):
         app(max_loops=1, no_fix=True, test=True)
         assert testutils.assert_only_processed_books(
-            capfd, tower_treasure__flat_mp3, found=(1, 1), converted=1
+            capfd, book, found=(1, 1), converted=1
         )
-        assert tower_treasure__flat_mp3.converted_dir.exists()
+        assert book.converted_dir.exists()
 
-    def test_house_on_the_cliff__flat_mp3(
-        self, house_on_the_cliff__flat_mp3: Audiobook, capfd: CaptureFixture[str]
-    ):
-
-        app(max_loops=1, no_fix=True, test=True)
-        assert testutils.assert_only_processed_books(
-            capfd, house_on_the_cliff__flat_mp3, found=(1, 1), converted=1
-        )
-        assert house_on_the_cliff__flat_mp3.converted_dir.exists()
-
-    def test_hardy_boys__flat_mp3s(
+    def test_match_filter_multiple_mp3s(
         self,
         tower_treasure__flat_mp3: Audiobook,
         house_on_the_cliff__flat_mp3: Audiobook,
@@ -46,15 +51,24 @@ class test_happy_paths:
         app(max_loops=1, no_fix=True, test=True)
         assert tower_treasure__flat_mp3.converted_dir.exists()
         assert house_on_the_cliff__flat_mp3.converted_dir.exists()
+        out = testutils.get_stdout(capfd)
         assert testutils.assert_only_processed_books(
-            capfd,
+            out,
             tower_treasure__flat_mp3,
             house_on_the_cliff__flat_mp3,
             found=(2, 1),
             converted=2,
         )
+        inbox = InboxState()
+        found = int(re_group(re.search(r"Found (\d+) book", out), 1))
+        ignoring = int(re_group(re.search(r"\(ignoring (\d+)\)", out), 1))
+        assert found == len(inbox.matched_books)
+        assert ignoring == len(inbox.filtered_books)
+        assert (
+            found + ignoring == len(inbox.book_dirs) == len(find_book_dirs_in_inbox())
+        )
 
-    def test_autoflatten_old_mill__multidisc_mp3(
+    def test_autoflatten_multidisc_mp3(
         self,
         old_mill__multidisc_mp3: Audiobook,
         enable_autoflatten,
@@ -114,5 +128,7 @@ class test_happy_paths:
                 shutil.rmtree(the_hobbit__multidisc_mp3.backup_dir / d)
 
         app(max_loops=1, no_fix=True, test=True)
-        assert testutils.assert_only_processed_books(capfd, the_hobbit__multidisc_mp3)
+        assert testutils.assert_only_processed_books(
+            capfd, the_hobbit__multidisc_mp3, found=(1, 1), converted=1
+        )
         assert the_hobbit__multidisc_mp3.converted_dir.exists()

@@ -166,11 +166,6 @@ def smart_print(
     end: str = "\n",
 ):
 
-    from src.lib.config import cfg
-
-    if not cfg.CONSOLE_ON:
-        return
-
     text = str(text)
     # line = f"{text}{end}"
 
@@ -324,15 +319,13 @@ def print_debug(
     if s == cfg._last_debug_print and only_once:
         return
 
-    console_state = cfg.CONSOLE_ON
-    cfg.enable_console()
     smart_print(
         s,
         color=AMBER_COLOR,
         highlight_color=highlight_color,
     )
-    if not console_state:
-        cfg.disable_console()
+
+    cfg._last_debug_print = s
 
 
 def print_list(*args: Any, highlight_color: int | None = None):

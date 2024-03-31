@@ -2,12 +2,9 @@ import asyncio
 import concurrent
 import concurrent.futures
 import functools
-import os
 import shutil
 import time
-from collections.abc import Callable, Coroutine
 from copy import deepcopy
-from typing import Any
 
 import pytest
 from pytest import CaptureFixture
@@ -30,7 +27,7 @@ class test_unhappy_paths:
         yield
 
     @pytest.mark.order(ORDER)
-    def test_nonstandard_bitrates__mp3(
+    def test_nonstandard_bitrate_mp3s(
         self,
         bitrate_nonstandard__mp3: Audiobook,
         the_crusades_through_arab_eyes__flat_mp3: Audiobook,
@@ -52,13 +49,15 @@ class test_unhappy_paths:
     ORDER += 1
 
     @pytest.mark.order(ORDER)
-    def test_roman_numerals_and_failed_books_only_print_once(
+    def test_failed_books_only_print_once(
         self, roman_numeral__mp3: Audiobook, capfd: CaptureFixture[str]
     ):
-
         app(max_loops=3, no_fix=True, test=True)
         # assert the message only appears once
-        assert capfd.readouterr().out.count(en.ROMAN_ERR) == 1
+        out = testutils.get_stdout(capfd)
+        assert out.count(en.ROMAN_ERR) == 1
+        assert out.count("in the inbox, but none match") == 0
+        assert out.count("inbox matching") == 1
 
     ORDER += 1
 
@@ -82,7 +81,9 @@ class test_unhappy_paths:
     ):
         inbox = InboxState()
 
-        testutils.set_match_filter("^(Roman|tower)")
+        match_filter = "^(Roman|tower)"
+
+        testutils.set_match_filter(match_filter)
         app(max_loops=2, no_fix=True, test=True)
         out = testutils.get_stdout(capfd)
         # assert out.count("2 books in the inbox") == 1
@@ -96,10 +97,11 @@ class test_unhappy_paths:
         )
         assert out.count("named with roman numerals") == 1
 
-        testutils.fail_book(roman_numeral__mp3, from_now=30)
         # inbox.flush_global_hash()
-        inbox.reset()
+        testutils.fail_book(roman_numeral__mp3, from_now=30)
+        inbox.reset(match_filter)
         time.sleep(1)
+        testutils.force_inbox_hash_change(age=-2)
         app(max_loops=4, no_fix=True, test=True)
         out = testutils.get_stdout(capfd)
 
@@ -110,8 +112,8 @@ class test_unhappy_paths:
             converted=1,
         )
         # assert out.count("2 books in the inbox") == 1
-        assert out.count("named with roman numerals") == 0
         assert out.count("skipping 1 that previously failed") == 1
+        assert out.count("named with roman numerals") == 0
         # assert out.count("Converted tower_treasure__flat_mp3") == 1
 
     ORDER += 1
@@ -123,43 +125,45 @@ class test_unhappy_paths:
         tower_treasure__flat_mp3: Audiobook,
         house_on_the_cliff__flat_mp3: Audiobook,
         capfd: CaptureFixture[str],
+        caplog,
     ):
 
-        from src.lib.config import cfg
-
         inbox = InboxState()
+        with testutils.set_wait_time(2):
 
-        testutils.set_match_filter("^(Roman|tower)")
-        app(max_loops=1, no_fix=True, test=True)
-        out = testutils.get_stdout(capfd)
-        assert out.count("2 books in the inbox") == 1
-        assert out.count("named with roman numerals") == 1
-        testutils.fail_book("Roman Numeral Book", from_now=30)
-        TEST_DIRS.inbox.touch()
-        testutils.set_match_filter("^(Roman|tower|house)")
-        # time.sleep(2)
-        inbox.flush_global_hash()
-        app(max_loops=3, no_fix=True, test=True)
-        out = testutils.get_stdout(capfd)
-        assert out.count("skipping 1 that previously failed") == 1
-        (TEST_DIRS.inbox / "Roman Numeral Book").touch()
-        TEST_DIRS.inbox.touch()
-        cfg.DEBUG = True
-        app(max_loops=2, no_fix=True, test=True)
-        out = testutils.get_stdout(capfd)
-        assert out.count("Skipping this loop, inbox hash is the same") > 0
+            testutils.set_match_filter("^(Roman|tower)")
+            app(max_loops=1, no_fix=True, test=True)
+            out = testutils.get_stdout(capfd)
+            assert testutils.assert_only_processed_books(
+                out,
+                tower_treasure__flat_mp3,
+                found=(2, 1),
+                converted=1,
+            )
+            assert out.count("named with roman numerals") == 1
+            testutils.fail_book("Roman Numeral Book", from_now=30)
+            inbox.reset("^(Roman|tower|house)")
+            time.sleep(1)
+            testutils.force_inbox_hash_change(age=-2)
+            app(max_loops=3, no_fix=True, test=True)
+            out = testutils.get_stdout(capfd)
+            assert out.count("skipping 1 that previously failed") == 1
+            assert testutils.assert_only_processed_books(
+                out,
+                tower_treasure__flat_mp3,
+                house_on_the_cliff__flat_mp3,
+                found=(3, 1),
+                converted=2,
+            )
 
     ORDER += 1
 
     async def run_app_for__failed_books_skip_when_new_books_added(self):
-        prev_sleep = os.environ.get("SLEEPTIME")
-        testutils.set_sleeptime(2)
-        testutils.print("Starting app...")
-        testutils.set_match_filter("chums")
-        app(max_loops=4, no_fix=True, test=False)
-        testutils.print("Finished app")
-        if prev_sleep:
-            testutils.set_sleeptime(prev_sleep)
+        with testutils.set_wait_time(2):
+            testutils.print("Starting app...")
+            testutils.set_match_filter("chums")
+            app(max_loops=4, no_fix=True, test=False)
+            testutils.print("Finished app")
 
     def add_books__failed_books_skip_when_new_books_added(
         self, *books: Audiobook, append: str = "", rstrip: str = ""
@@ -205,27 +209,29 @@ class test_unhappy_paths:
             await asyncio.get_running_loop().run_in_executor(executor, rename2)
 
         await app_task
-        # assert converted_dir.exists()
+        assert tower_treasure__flat_mp3.converted_dir.exists()
+        out = testutils.get_stdout(capfd)
+        assert out.count(en.INBOX_RECENTLY_MODIFIED) == 1
+        assert out.count(en.MULTI_ERR) == 1
         # assert testutils.get_stdout(capfd).count("trying again") == 1
         # shutil.rmtree(inbox_dir, ignore_errors=True)
 
     ORDER += 1
 
     async def run_app_for__retries_failed_books_when_changed(self):
-        prev_sleep = os.environ.get("SLEEPTIME")
-        testutils.set_sleeptime(2)
-        testutils.print("Starting app...")
-        app(max_loops=4, no_fix=True, test=True)
-        testutils.print("Finished app")
-        if prev_sleep:
-            testutils.set_sleeptime(prev_sleep)
+        with testutils.set_wait_time(3):
+            testutils.print("Starting app...")
+            app(max_loops=4, no_fix=True, test=True)
+            testutils.print("Finished app")
 
     @pytest.mark.order(ORDER)
     @pytest.mark.asyncio
     async def test_retries_failed_books_when_changed(
-        self, old_mill__multidisc_mp3: Audiobook, capfd: CaptureFixture[str]
+        self,
+        old_mill__multidisc_mp3: Audiobook,
+        capfd: CaptureFixture[str],
+        disable_autoflatten,
     ):
-        testutils.disable_autoflatten()
         inbox_dir = old_mill__multidisc_mp3.inbox_dir
         converted_dir = old_mill__multidisc_mp3.converted_dir
         shutil.rmtree(converted_dir, ignore_errors=True)
@@ -258,24 +264,39 @@ class test_unhappy_paths:
 
     ORDER += 1
 
+    async def run_app_for__inbox_changes_not_detected(self):
+        with testutils.set_wait_time(2):
+            testutils.print("Starting app...")
+            testutils.set_match_filter("tower")
+            app(max_loops=1, no_fix=True, test=True)
+            testutils.print("Finished app")
+
+    @pytest.mark.asyncio
     @pytest.mark.order(ORDER)
-    def test_app_waits_while_inbox_updates_then_processes(
+    async def test_app_waits_for_recent_inbox_changes(
         self,
         tower_treasure__flat_mp3: Audiobook,
-        mock_inbox_being_copied_to: Callable[[int], Coroutine[Any, Any, None]],
+        mock_inbox_being_copied_to,
         capfd: CaptureFixture[str],
     ):
 
-        async def wrapper():
-            asyncio.create_task(mock_inbox_being_copied_to(5))
+        with testutils.set_wait_time(2):
+            # InboxState().flush()
 
-        time.sleep(1)
-        asyncio.run(wrapper())
-        app(max_loops=1, no_fix=True, test=True)
-        book_msg = "Skipping this book, it was recently"
-        stdout, _ = capfd.readouterr()
-        assert stdout.count(en.INBOX_RECENTLY_MODIFIED) == 1
-        assert stdout.count(book_msg) == 0
+            app_task = asyncio.create_task(
+                self.run_app_for__inbox_changes_not_detected()
+            )
+
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                await asyncio.get_running_loop().run_in_executor(
+                    executor, mock_inbox_being_copied_to, 5
+                )
+
+            await app_task
+
+            out = testutils.get_stdout(capfd)
+            assert out.count(en.INBOX_RECENTLY_MODIFIED) == 1
+            assert out.count("Skipping this book, it was recently") == 0
 
     ORDER += 1
 
@@ -308,7 +329,7 @@ class test_unhappy_paths:
         app(max_loops=1, no_fix=True, test=True)
         assert conspiracy_theories__flat_mp3.converted_dir.exists()
         # do the conversion again to test the log file
-        inbox.flush_global_hash()
+        inbox.flush()
         shutil.rmtree(conspiracy_theories__flat_mp3.converted_dir, ignore_errors=True)
         TEST_DIRS.inbox.touch()
         time.sleep(1)
@@ -346,7 +367,7 @@ class test_unhappy_paths:
         time.sleep(2)
         app(max_loops=1, no_fix=True, test=True)
         out = testutils.get_stdout(capfd)
-        assert out.count("inbox hash is the same") == 0
+        assert out.count("Inbox hash is the same") == 0
         assert out.count(en.DONE_CONVERTING) == 1
         assert out.count(en.MULTI_ERR) == 1
         assert out.count(en.INBOX_RECENTLY_MODIFIED) == 0
@@ -354,7 +375,7 @@ class test_unhappy_paths:
         time.sleep(1)
         app(max_loops=1, no_fix=True, test=True)
         out = testutils.get_stdout(capfd)
-        assert out.count("inbox hash is the same") == 1
+        assert out.count("Inbox hash is the same") == 1
         assert out.count(en.DONE_CONVERTING) == 0
         assert out.count(en.MULTI_ERR) == 0
         assert out.count(en.INBOX_RECENTLY_MODIFIED) == 0
@@ -362,7 +383,7 @@ class test_unhappy_paths:
     ORDER += 1
 
     @pytest.mark.order(ORDER)
-    def test_debug_prints_dont_repeat_when_inbox_is_empty(
+    def test_prints_dont_repeat_when_inbox_is_empty(
         self,
         capfd: CaptureFixture[str],
     ):
@@ -379,6 +400,7 @@ class test_unhappy_paths:
         try:
             app(max_loops=5, no_fix=True, test=True)
             out = testutils.get_stdout(capfd)
+            assert out.count("Watching for new books in") == 1
             assert out.count("No audio files found") == 1
         finally:
             # unhide inbox

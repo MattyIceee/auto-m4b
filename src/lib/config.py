@@ -3,6 +3,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 from contextlib import contextmanager
@@ -12,11 +13,12 @@ from multiprocessing import cpu_count
 from pathlib import Path
 from typing import Any, cast, Literal, overload, TypeVar
 
-from src.lib.misc import get_git_root, load_env, parse_bool, to_json
+from src.lib.misc import get_git_root, load_env, parse_bool, singleton, to_json
 from src.lib.term import nl, print_amber
 from src.lib.typing import ExifWriter, OverwriteMode
 
-DEFAULT_SLEEPTIME = 10  # Set this to your default sleep time
+DEFAULT_SLEEP_TIME = 10
+DEFAULT_WAIT_TIME = 5
 AUDIO_EXTS = [".mp3", ".m4a", ".m4b", ".wma"]
 OTHER_EXTS = [
     ".jpg",
@@ -160,29 +162,6 @@ def ensure_dir_exists_and_is_writable(path: Path, throw: bool = True) -> None:
             return
 
 
-C = TypeVar("C")
-
-
-def singleton(class_: type[C]) -> type[C]:
-    class class_w(class_):
-        _instance = None
-
-        def __new__(cls, *args, **kwargs):
-            if class_w._instance is None:
-                class_w._instance = super(class_w, cls).__new__(cls, *args, **kwargs)
-                class_w._instance._sealed = False
-            return class_w._instance
-
-        def __init__(self, *args, **kwargs):
-            if self._sealed:
-                return
-            super(class_w, self).__init__(*args, **kwargs)
-            self._sealed = True
-
-    class_w.__name__ = class_.__name__
-    return cast(type[C], class_w)
-
-
 @singleton
 class Config:
     _ENV: dict[str, str | None] = {}
@@ -197,11 +176,9 @@ class Config:
     def startup(self, args: AutoM4bArgs | None = None):
         from src.lib.term import print_aqua, print_dark_grey, print_grey
 
-        self._ARGS = args or AutoM4bArgs()
-
-        with self.load_env() as env_msg:
-            if self.SLEEPTIME and not self.TEST:
-                time.sleep(min(2, self.SLEEPTIME / 2))
+        with self.load_env(args) as env_msg:
+            if self.SLEEP_TIME and not self.TEST:
+                time.sleep(min(2, self.SLEEP_TIME / 2))
             if not self.PID_FILE.is_file():
                 self.PID_FILE.touch()
                 current_local_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -227,11 +204,10 @@ class Config:
         self.clear_cached_attrs()
         self.check_dirs()
         self.check_m4b_tool()
-        self.enable_console()
 
-    @cached_property
+    @property
     def on_complete(self):
-        if self.ARGS.test:
+        if self.TEST:
             return "test_do_nothing"
         return cast(OnComplete, os.getenv("ON_COMPLETE", "move"))
 
@@ -264,17 +240,22 @@ class Config:
         return int(os.getenv("CPU_CORES", cpu_count()))
 
     @cached_property
-    def SLEEPTIME(self):
-        return float(os.getenv("SLEEPTIME", DEFAULT_SLEEPTIME))
+    def SLEEP_TIME(self):
+        return float(os.getenv("SLEEP_TIME", DEFAULT_SLEEP_TIME))
+
+    @cached_property
+    def WAIT_TIME(self):
+        """Time to wait when a dir has been recently modified, in seconds. Default is 5s."""
+        return float(os.getenv("WAIT_TIME", DEFAULT_WAIT_TIME))
 
     @property
     def sleeptime_friendly(self):
         """If it can be represented as a whole number, do so as {number}s
         otherwise, show as a float rounded to 1 decimal place, e.g. 0.1s"""
         return (
-            f"{int(self.SLEEPTIME)}s"
-            if self.SLEEPTIME.is_integer()
-            else f"{self.SLEEPTIME:.1f}s"
+            f"{int(self.SLEEP_TIME)}s"
+            if self.SLEEP_TIME.is_integer()
+            else f"{self.SLEEP_TIME:.1f}s"
         )
 
     @cached_property
@@ -354,10 +335,8 @@ class Config:
     def _load_path_env(
         self, key: str, default: Path | None = None, allow_empty: bool = True
     ) -> Path | None:
-        v = os.getenv(key, self.ENV.get(key, None))
-        if self.ARGS.env:
-            env = load_env(self.ARGS.env)
-            v = env.get(key, v)
+        with self.load_env(quiet=True):
+            v = os.getenv(key, self.ENV.get(key, None))
         path = Path(v).expanduser() if v else default
         if not path and not allow_empty:
             raise EnvironmentError(
@@ -387,7 +366,7 @@ class Config:
 
     @cached_property
     def TEST(self):
-        if self.ARGS.test:
+        if self.ARGS.test or "pytest" in sys.modules:
             return True
         return parse_bool(os.getenv("TEST", False))
 
@@ -396,22 +375,6 @@ class Config:
         if self.ARGS.debug:
             return True
         return parse_bool(os.getenv("DEBUG", False))
-
-    @cached_property
-    def CONSOLE_ON(self):
-        return parse_bool(os.getenv("CONSOLE_ON", True))
-
-    def enable_console(self):
-        os.environ["CONSOLE_ON"] = "Y"
-        self.CONSOLE_ON = True
-
-    def disable_console(self):
-        os.environ["CONSOLE_ON"] = "N"
-        self.CONSOLE_ON = False
-
-    # @cached_property
-    # def debug_arg(self):
-    #     return "--debug" if self.DEBUG == "Y" else "-q"
 
     @property
     def MAX_LOOPS(self):
@@ -644,14 +607,15 @@ class Config:
             )
 
     @contextmanager
-    def load_env(self, quiet: bool = False):
+    def load_env(self, args: AutoM4bArgs | None = None, *, quiet: bool = False):
         msg = ""
+        self._ARGS = args or AutoM4bArgs()
         if self.ARGS.env:
             if self._ENV_SRC != self.ARGS.env:
                 msg = f"Loading ENV from {self.ARGS.env}"
             self._ENV_SRC = self.ARGS.env
             self._ENV = load_env(self.ARGS.env)
-        elif self.TEST:
+        elif self.TEST or "pytest" in sys.modules:
             env_file = get_git_root() / ".env.test"
             if self._ENV_SRC != env_file:
                 msg = f"Loading test ENV from {env_file}"

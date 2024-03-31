@@ -262,22 +262,23 @@ def test_find_next_audio_file(tower_treasure__flat_mp3: Audiobook):
     )
 
 
-def test_folder_recently_modified():
+def test_find_recently_modified_files_and_dirs():
+    from src.lib.config import cfg
     from src.lib.fs_utils import find_recently_modified_files_and_dirs
 
-    (TEST_DIRS.inbox / "recently_modified_file.txt").unlink(missing_ok=True)
+    (TEST_DIRS.inbox / "recently_modified_file.mp3").unlink(missing_ok=True)
     time.sleep(1)
     assert find_recently_modified_files_and_dirs(TEST_DIRS.inbox, 0.5) == []
 
     # create a file
     time.sleep(0.5)
-    (TEST_DIRS.inbox / "recently_modified_file.txt").touch()
-    assert (
-        find_recently_modified_files_and_dirs(TEST_DIRS.inbox, 5)[0][0]
-        == TEST_DIRS.inbox / "recently_modified_file.txt"
+    (TEST_DIRS.inbox / "recently_modified_file.mp3").touch()
+    recents = find_recently_modified_files_and_dirs(
+        TEST_DIRS.inbox, 5, only_file_exts=cfg.AUDIO_EXTS
     )
+    assert recents[0][0] == TEST_DIRS.inbox / "recently_modified_file.mp3"
     # remove the file
-    (TEST_DIRS.inbox / "recently_modified_file.txt").unlink()
+    (TEST_DIRS.inbox / "recently_modified_file.mp3").unlink()
 
 
 def test_was_recently_modified():
@@ -288,14 +289,14 @@ def test_was_recently_modified():
     nested_dir.mkdir(parents=True, exist_ok=True)
 
     time.sleep(1)
-    (nested_dir / "recently_modified_file.txt").unlink(missing_ok=True)
+    (nested_dir / "recently_modified_file.mp3").unlink(missing_ok=True)
     assert not was_recently_modified(TEST_DIRS.inbox, 1)
 
     # create a file
-    (nested_dir / "recently_modified_file.txt").touch()
+    (nested_dir / "recently_modified_file.mp3").touch()
     assert was_recently_modified(TEST_DIRS.inbox, 1)
     # remove the file
-    (nested_dir / "recently_modified_file.txt").unlink()
+    (nested_dir / "recently_modified_file.mp3").unlink()
 
 
 def test_last_updated_at(

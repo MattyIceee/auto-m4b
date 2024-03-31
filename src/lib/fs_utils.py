@@ -32,9 +32,6 @@ from src.lib.typing import (
 if TYPE_CHECKING:
     from src.lib.audiobook import Audiobook
 
-TEST_MODIFIED_WAIT = 0.5
-REAL_MODIFIED_WAIT = 10
-
 
 @overload
 def find_files_in_dir(
@@ -189,6 +186,18 @@ def get_size(
             if f.is_file() and file_ext_ok(f)
         )
     return human_size(size) if fmt == "human" else size
+
+
+@overload
+def get_audio_size(path: Path, fmt: Literal["bytes"] = "bytes") -> int: ...
+
+
+@overload
+def get_audio_size(path: Path, fmt: Literal["human"] = "human") -> str: ...
+
+
+def get_audio_size(path: Path, fmt: SizeFmt = "bytes"):
+    return get_size(path, fmt=fmt, only_file_exts=AUDIO_EXTS)
 
 
 def is_ok_to_delete(
@@ -842,6 +851,12 @@ def filter_ignored(
     ]
 
 
+def only_audio_files(path_or_paths: Path | Iterable[Path] | Iterable[str]):
+    # make iterable if not already
+    paths = [path_or_paths] if isinstance(path_or_paths, (str, Path)) else path_or_paths
+    return [p for p in map(Path, paths) if p.is_file() and p.suffix in AUDIO_EXTS]
+
+
 def find_recently_modified_files_and_dirs(
     path: Path,
     within_seconds: float = 0,
@@ -849,10 +864,12 @@ def find_recently_modified_files_and_dirs(
     since: float = 0,
     only_file_exts: list[str] = [],
 ) -> list[tuple[Path, float, float]]:
+    import threading
+
     from src.lib.config import cfg
 
     if within_seconds == 0:
-        within_seconds = TEST_MODIFIED_WAIT if cfg.TEST else REAL_MODIFIED_WAIT
+        within_seconds = cfg.SLEEP_TIME
     current_time = time.time()
     recent_items: list[tuple[Path, float, float]] = []
 
@@ -863,15 +880,17 @@ def find_recently_modified_files_and_dirs(
         )
     )
 
+    # Create a lock
+    lock = threading.Lock()
+
     for path, last_modified in found_items:
-        # check p against cfg.IGNORE_FILES - a list of glob patterns to ignore
-        if not path.exists():
-            continue  # protect against race conditions & async ops
-        if path.is_file() and only_file_exts and path.suffix in only_file_exts:
-            continue
-        age = (since or current_time) - last_modified
-        if age < within_seconds or within_seconds == -1:
-            recent_items.append((path, age, last_modified))
+        with lock:
+            # check p against cfg.IGNORE_FILES - a list of glob patterns to ignore
+            if path.is_file() and only_file_exts and not path.suffix in only_file_exts:
+                continue
+            age = (since or current_time) - last_modified
+            if age < within_seconds or within_seconds == -1:
+                recent_items.append((path, age, last_modified))
 
     return recent_items
 
@@ -913,21 +932,21 @@ def was_recently_modified(
     from src.lib.config import cfg
 
     if within_seconds <= 0:
-        within_seconds = TEST_MODIFIED_WAIT if cfg.TEST else REAL_MODIFIED_WAIT
+        within_seconds = cfg.WAIT_TIME
 
     within_seconds = max(within_seconds, 0)
 
-    this_m = time.time() - try_get_stat_mtime(path) < within_seconds
+    mtime = time.time() - try_get_stat_mtime(path) < within_seconds
 
     if path.is_file():
         if only_file_exts and path.suffix not in only_file_exts:
             return False
-        return this_m
+        return mtime
 
     recents = find_recently_modified_files_and_dirs(
         path, within_seconds, since=since, only_file_exts=only_file_exts
     )
-    return bool(this_m or recents)
+    return bool(mtime or recents)
 
 
 def inbox_was_recently_modified(within_seconds: float = 0) -> bool:
@@ -972,8 +991,8 @@ def hash_path(
     return hash_raw(*files)
 
 
-def hash_dir_audio_files(path: Path, *, debug: bool = False) -> str:
-    """Makes a hash of the dir's audio files' filenames and file sizes in an array, sorted by filename
+def hash_path_audio_files(path: Path, *, debug: bool = False) -> str:
+    """Makes a hash of the path's audio files' filenames and file sizes in an array, sorted by filename
     then hashes the array"""
     return hash_path(path, only_file_exts=AUDIO_EXTS, debug=debug)
 
@@ -981,11 +1000,11 @@ def hash_dir_audio_files(path: Path, *, debug: bool = False) -> str:
 def hash_entire_inbox():
     from src.lib.config import cfg
 
-    return hash_dir_audio_files(cfg.inbox_dir)
+    return hash_path_audio_files(cfg.inbox_dir)
 
 
 def hash_inbox_books(dirs: list[Path]) -> BookHashesDict:
-    return {p.name: hash_dir_audio_files(p) for p in dirs if p.exists()}
+    return {p.name: hash_path_audio_files(p) for p in dirs if p.exists()}
 
 
 FlatListOfFilesInDir = NamedTuple(

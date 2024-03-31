@@ -1,11 +1,12 @@
 import json
 import os
 import time
+from collections.abc import Callable
+from functools import wraps
 from pathlib import Path
-from typing import Literal
+from typing import Any, cast, Literal
 
 from src.lib.audiobook import Audiobook
-from src.lib.config import cfg, singleton
 from src.lib.formatters import human_elapsed_time, human_size
 from src.lib.fs_utils import (
     count_audio_files_in_inbox,
@@ -13,14 +14,14 @@ from src.lib.fs_utils import (
     find_book_dirs_in_inbox,
     find_books_in_inbox,
     find_standalone_books_in_inbox,
-    get_size,
-    hash_dir_audio_files,
-    hash_entire_inbox,
+    get_audio_size,
     hash_path,
-    inbox_was_recently_modified,
+    hash_path_audio_files,
     last_updated_audio_files_at,
     name_matches,
 )
+from src.lib.misc import singleton
+from src.lib.strings import en
 from src.lib.term import print_debug
 
 InboxItemStatus = Literal["new", "ok", "needs_retry", "failed", "gone"]
@@ -37,6 +38,8 @@ def get_key(path_or_book: "str | Path | Audiobook | InboxItem") -> str:
 
 
 def get_path(key_path_or_book: "str | Path | Audiobook | InboxItem") -> Path:
+    from src.lib.config import cfg
+
     if isinstance(key_path_or_book, str):
         path = Path(key_path_or_book)
         if not path.is_absolute():
@@ -50,6 +53,8 @@ def get_path(key_path_or_book: "str | Path | Audiobook | InboxItem") -> Path:
 
 
 def get_item(key_path_or_book: "str | Path | Audiobook | InboxItem") -> "InboxItem":
+    from src.lib.config import cfg
+
     if isinstance(key_path_or_book, str):
         return InboxItem(cfg.inbox_dir / key_path_or_book)
     if isinstance(key_path_or_book, Path):
@@ -59,21 +64,139 @@ def get_item(key_path_or_book: "str | Path | Audiobook | InboxItem") -> "InboxIt
     return key_path_or_book
 
 
+def scanner(func: Callable[..., Any]):
+    """A decorator that scans the path of a Hasher object after calling the decorated function."""
+
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        hasher = cast(Hasher, args[0])
+        result = func(*args, **kwargs)
+        hasher.scan()
+        return result
+
+    return wrapper
+
+
+class Hasher:
+    """Stores the current, and previous 5 hashes of a given path as a tuple. When a new hash is added, the oldest one is removed, and the rest are shifted down by one. If a hash is the same as the previous one, it is not added - only the timestamp on the current hash is updated. This is used to determine if a file has changed in the last 5 seconds."""
+
+    def __init__(self, path: Path, max_hashes: int = 10):
+        self.path = path
+        # self.last_updated = last_updated_audio_files_at(path)
+        self.max_hashes = max_hashes
+        self._hashes = []
+        self.flush()
+
+    def __repr__(self):
+        return f"{self.path} -- {self._hashes} -- {human_elapsed_time(time.time() - self.last_updated)}"
+
+    def __eq__(self, other):
+        return self.path == other.path
+
+    @property
+    def last_updated(self):
+        return last_updated_audio_files_at(self.path)
+
+    def scan(self):
+        new_hash = hash_path_audio_files(self.path)
+        if new_hash != self.current_hash:
+            self._hashes.insert(0, (new_hash, time.time()))
+            if len(self._hashes) > self.max_hashes:
+                self._hashes.pop()
+
+    @property
+    def hashes(self):
+        # returns self._hashes, but calculates time since on each hash
+        return [(h, time.time() - t) for h, t in self._hashes]
+
+    @property
+    @scanner
+    def did_change(self):
+        return hash_path_audio_files(self.path) != self.current_hash
+
+    @property
+    def time_since_last_change(self):
+        return time.time() - self.last_updated
+
+    @property
+    def time_since_hash_changed(self):
+        return time.time() - self._hashes[0][1]
+
+    @property
+    def dir_was_recently_modified(self):
+        from src.lib.config import cfg
+
+        return self.time_since_last_change < cfg.WAIT_TIME
+
+    def wait_while_being_modified(self):
+        from lib.term import print_notice
+
+        change_detected = False
+        printed_waiting = False
+        waited_count = 0
+        before_modified_hash = self.current_hash
+        while self.dir_was_recently_modified:
+            self.scan()
+            if self.current_hash != before_modified_hash:
+                print_debug(
+                    f"self hash - last: {self.previous_hash or None} / curr: {self.current_hash}",
+                    only_once=True,
+                )
+                change_detected = True
+                if not printed_waiting:
+                    print_notice(f"{en.INBOX_RECENTLY_MODIFIED}\n")
+                    printed_waiting = True
+            waited_count += 1
+            time.sleep(0.5)
+
+        if waited_count:
+            print_debug("Done waiting for inbox to be modified")
+
+        return change_detected
+
+    @property
+    def hash_was_recently_changed(self):
+        from src.lib.config import cfg
+
+        return self.time_since_hash_changed < cfg.WAIT_TIME + cfg.SLEEP_TIME
+
+    @property
+    def current_hash(self):
+        return self._hashes[0][0]
+
+    @property
+    def previous_hash(self):
+        return self._hashes[1][0] if len(self._hashes) > 1 else ""
+
+    def to_dict(self):
+        return {
+            "path": str(self.path),
+            "hashes": self._hashes,
+            "last_updated": self.last_updated,
+        }
+
+    def flush(self):
+        self._hashes = [(hash_path_audio_files(self.path), self.last_updated)]
+
+    def __hash__(self):
+        return hash(self.path)
+
+    def __str__(self):
+        return self.__repr__()
+
+
 class InboxItem:
 
     def __init__(self, book: str | Path | Audiobook):
-        from src.lib.config import cfg
 
         path = get_path(book)
 
         self._last_hash = None
         self._last_updated: float | None = None
-        self._curr_hash = hash_path(path, only_file_exts=cfg.AUDIO_EXTS)
+        self._curr_hash = hash_path_audio_files(path)
         self._hash_changed: float = 0
         self.key = path.name
-        self.size = (
-            get_size(path, only_file_exts=cfg.AUDIO_EXTS) if path.exists() else 0
-        )
+        self.size = get_audio_size(path) if path.exists() else 0
         self.status: InboxItemStatus = "new"
         self.failed_reason: str = ""
 
@@ -92,6 +215,8 @@ class InboxItem:
 
     @property
     def path(self) -> Path:
+        from src.lib.config import cfg
+
         return cfg.inbox_dir / self.key
 
     @property
@@ -99,7 +224,7 @@ class InboxItem:
         if self.is_gone:
             return ""
         new_hash = (
-            hash_dir_audio_files(self.path)
+            hash_path_audio_files(self.path)
             if self.path.is_dir()
             else hash_path(self.path)
         )
@@ -119,23 +244,32 @@ class InboxItem:
     def time_since_last_change(self):
         return time.time() - self._hash_changed
 
-    def set_failed(self, reason: str):
+    def _set(
+        self,
+        status: InboxItemStatus,
+        reason: str | None = None,
+        last_updated: float | None = None,
+    ):
         if self.is_gone:
             return
-        self.status = "failed"
-        self.failed_reason = reason
+        self.status = status
+        if reason:
+            self.failed_reason = reason
+        if last_updated:
+            self._last_updated = last_updated
+        self.hash
+
+    def set_failed(self, reason: str, last_updated: float | None = None):
+        self._set("failed", reason, last_updated)
 
     def set_needs_retry(self):
-        if self.is_gone:
-            return
-        self.status = "needs_retry"
-        self.hash
+        self._set("needs_retry")
 
     def set_ok(self):
-        if self.is_gone:
-            return
-        self.status = "ok"
-        self.hash
+        self._set("ok")
+
+    def set_gone(self):
+        self._set("gone")
 
     @property
     def is_gone(self):
@@ -146,12 +280,16 @@ class InboxItem:
 
     @property
     def is_filtered(self):
+        from src.lib.config import cfg
+
         return not name_matches(self.path.relative_to(cfg.inbox_dir), cfg.MATCH_NAME)
 
     @property
     def did_change(self) -> bool:
         return (
-            True if self.is_gone else hash_dir_audio_files(self.path) != self._curr_hash
+            True
+            if self.is_gone
+            else hash_path_audio_files(self.path) != self._curr_hash
         )
 
     @property
@@ -174,33 +312,15 @@ class InboxItem:
 
 
 @singleton
-class InboxState:
+class InboxState(Hasher):
 
     def __init__(self):
-        self._last_global_hash = ""
-        self._curr_global_hash = ""
-        self._global_hash_changed: float = 0
+        from src.lib.config import cfg
+
+        super().__init__(cfg.inbox_dir)
         self._items = {}
         self.ready = False
-        # cfg.MATCH_NAME = os.getenv("MATCH_NAME", None)
-
-    def init(self):
-        if not self._items:
-            self._items = {p.name: InboxItem(p) for p in find_books_in_inbox()}
-        self._items = {k: v for k, v in self._items.items() if not v.is_gone}
-
-        if not self.failed_books and os.getenv("FAILED_BOOKS"):
-            failed_books = {
-                k: float(v)
-                for k, v in json.loads(os.getenv("FAILED_BOOKS", "{}")).items()
-            }
-            [
-                self.set(InboxItem(k), status="failed", last_updated=lu)
-                for k, lu in failed_books.items()
-            ]
-        # self.set_match_filter()
-        self.refresh_global_hash()
-        self.ready = True
+        self.banner_printed = False
 
     def set(
         self,
@@ -236,16 +356,30 @@ class InboxState:
             return
         self._items.pop(key, None)
 
-    # def refresh(self):
-    #     for item in deepcopy(self._items).values():
-    #         # if path no longer exists, remove it
-    #         if item.is_gone:
-    #             self.rm(item.path)
-    #         else:
-    #             item.hash
+    def scan(self):
+        super().scan()
+        new_items = {p.name: InboxItem(p) for p in find_books_in_inbox()}
+        gone_keys = set(self._items.keys()) - set(new_items.keys())
+        for k, v in new_items.items():
+            if k not in self._items:
+                self._items[k] = v
+
+        # remove items that are no longer in the inbox
+        for k in gone_keys:
+            if item := self._items.get(k):
+                item.set_gone()
+
+        if not self.failed_books and os.getenv("FAILED_BOOKS"):
+            self._sync_failed_from_env()
+
+    def flush(self):
+        super().flush()
+        self._items = {}
 
     @property
     def match_filter(self):
+        from src.lib.config import cfg
+
         if not cfg.MATCH_NAME and (env := os.getenv("MATCH_NAME")):
             self.set_match_filter(env)
             print_debug(
@@ -254,8 +388,8 @@ class InboxState:
         return cfg.MATCH_NAME
 
     def set_match_filter(self, match_name: str | None):
-        if match_name != cfg.MATCH_NAME:
-            cfg.enable_console()
+        from src.lib.config import cfg
+
         if match_name is None:
             os.environ.pop("MATCH_NAME", None)
             # update all items where filtered was set to ok
@@ -268,35 +402,23 @@ class InboxState:
         os.environ["MATCH_NAME"] = match_name
         cfg.MATCH_NAME = match_name
 
-    def reset(self):
-        self._items = {}
+    def reset(self, new_match_filter: str | None = None):
+
         # self._items = {path.name: InboxItem(path) for path in find_books_in_inbox()}
-        self.flush_global_hash()
-        self.set_match_filter(None)
-        self._global_hash_changed = 0
+        # self.flush_global_hash()
+        self.set_match_filter(new_match_filter)
+        # self._items = {}
+        # self._global_hash_changed = inbox_last_updated_at()
+        self.flush()
         self.ready = False
+        # self.scan()
+        self._sync_failed_from_env()
         return self
 
     def clear_failed(self):
         for item in self.failed_books.values():
             item.set_ok()
-        self._sync_env_failed_books({})
-
-    @property
-    def global_hash(self):
-        if not self._curr_global_hash or self._curr_global_hash != (
-            new_hash := hash_entire_inbox()
-        ):
-            self._last_global_hash = self._curr_global_hash
-            self._curr_global_hash = new_hash
-            self._global_hash_changed = time.time()
-        return self._curr_global_hash
-
-    def flush_global_hash(self):
-        self._curr_global_hash = ""
-
-    def refresh_global_hash(self):
-        self._curr_global_hash = hash_entire_inbox()
+        self._sync_failed_to_env()
 
     def did_fail(self, key_path_or_book: str | Path | Audiobook):
         if item := self.get(key_path_or_book):
@@ -319,18 +441,6 @@ class InboxState:
         return False
 
     @property
-    def did_change(self):
-        return self._curr_global_hash != hash_entire_inbox()
-
-    @property
-    def time_since_last_change(self):
-        return time.time() - self._global_hash_changed
-
-    @property
-    def was_recently_modified(self):
-        return inbox_was_recently_modified(5)
-
-    @property
     def items(self):
         return self._items
 
@@ -347,12 +457,12 @@ class InboxState:
         return count_standalone_books_in_inbox()
 
     @property
-    def all_books(self):
+    def book_dirs(self):
         return find_book_dirs_in_inbox()
 
     @property
     def num_books(self):
-        return len(self.all_books)
+        return len(self.book_dirs)
 
     @property
     def filtered_books(self):
@@ -364,10 +474,14 @@ class InboxState:
 
     @property
     def matched_books(self):
+        return {k: v for k, v in self._items.items() if not v.is_filtered}
+
+    @property
+    def matched_ok_books(self):
         return {
             k: v
             for k, v in self._items.items()
-            if not v.is_filtered and v.status != "gone"
+            if not v.is_filtered and v.status in ["ok", "new", "needs_retry"]
         }
 
     @property
@@ -376,7 +490,11 @@ class InboxState:
 
     @property
     def ok_books(self):
-        return {k: v for k, v in self._items.items() if v.status in ["ok", "new"]}
+        return {
+            k: v
+            for k, v in self._items.items()
+            if v.status in ["ok", "new", "needs_retry"]
+        }
 
     @property
     def num_ok(self):
@@ -395,26 +513,30 @@ class InboxState:
         return len(self.failed_books)
 
     @property
-    def last_changed(self):
-        return self._global_hash_changed
-
-    @property
-    def first_run(self):
-        return not self._curr_global_hash
+    def all_books_failed(self):
+        haystack = (
+            self._items.values()
+            if not self.match_filter
+            else self.matched_books.values()
+        )
+        return all(v.status == "failed" for v in haystack)
 
     def to_dict(self, refresh_hashes=False):
         return {
             path: item.to_dict(refresh_hashes) for path, item in self._items.items()
         }
 
-    def _sync_env_failed_books(self, new_failed_books: dict[str, float] = {}):
-        current_failed_books = json.loads(os.getenv("FAILED_BOOKS", "{}"))
-        current_failed_books.update(
-            {item.key: item.last_updated for item in self.failed_books.values()}
+    def _sync_failed_to_env(self):
+        os.environ["FAILED_BOOKS"] = json.dumps(
+            {k: v.last_updated for k, v in self.failed_books.items()}
         )
-        if new_failed_books:
-            current_failed_books.update(new_failed_books)
-        os.environ["FAILED_BOOKS"] = json.dumps(current_failed_books)
+
+    def _sync_failed_from_env(self):
+        failed_books = {
+            k: float(v) for k, v in json.loads(os.getenv("FAILED_BOOKS", "{}")).items()
+        }
+        for k, lu in failed_books.items():
+            self.set_failed(k, "From ENV", lu)
 
     @property
     def fixed_books(self):
@@ -424,26 +546,42 @@ class InboxState:
             if v.status == "needs_retry" and v.failed_reason
         }
 
-    def set_failed(self, key_or_path: str | Path, reason: str):
-        if item := self.get(key_or_path):
+    def set_failed(
+        self,
+        key_path_or_book: str | Path | Audiobook,
+        reason: str,
+        last_updated: float | None = None,
+    ):
+        if not self.get(key_path_or_book):
+            self.set(key_path_or_book)
+
+        if item := self.get(key_path_or_book):
             item.set_failed(reason)
-            self._sync_env_failed_books()
+            if last_updated is not None:
+                item._last_updated = last_updated
+            self._sync_failed_to_env()
         else:
-            print_debug(f"Item {key_or_path} not found in inbox")
+            print_debug(f"Item {key_path_or_book} not found in inbox")
 
-    def set_needs_retry(self, key_or_path: str | Path):
-        if item := self.get(key_or_path):
+    def set_needs_retry(self, key_path_or_book: str | Path | Audiobook):
+        if not self.get(key_path_or_book):
+            self.set(key_path_or_book)
+
+        if item := self.get(key_path_or_book):
             item.set_needs_retry()
-            self._sync_env_failed_books()
+            self._sync_failed_to_env()
         else:
-            print_debug(f"Item {key_or_path} not found in inbox")
+            print_debug(f"Item {key_path_or_book} not found in inbox")
 
-    def set_ok(self, key_or_path: str | Path):
-        if item := self.get(key_or_path):
+    def set_ok(self, key_path_or_book: str | Path | Audiobook):
+        if not self.get(key_path_or_book):
+            self.set(key_path_or_book)
+
+        if item := self.get(key_path_or_book):
             item.set_ok()
-            self._sync_env_failed_books()
+            self._sync_failed_to_env()
         else:
-            print_debug(f"Item {key_or_path} not found in inbox")
+            print_debug(f"Item {key_path_or_book} not found in inbox")
 
     def __iter__(self):
         return iter(self._items.values())

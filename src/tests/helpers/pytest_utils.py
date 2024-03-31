@@ -1,8 +1,8 @@
-import json
 import os
 import re
 import shutil
 import time
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +11,7 @@ from tinta import Tinta
 
 from src.lib.audiobook import Audiobook
 from src.lib.config import cfg
+from src.lib.formatters import human_elapsed_time
 from src.lib.fs_utils import flatten_files_in_dir, inbox_last_updated_at
 from src.lib.inbox_state import InboxState
 from src.lib.typing import ENV_DIRS
@@ -31,7 +32,6 @@ class testutils:
 
     @classmethod
     def flatten_book(cls, book: Audiobook, delay: int = 0):
-
         time.sleep(delay)
         cls.print(f"About to flatten book {book}")
         cls.print(f"Inbox last updated at {inbox_last_updated_at()}")
@@ -41,50 +41,55 @@ class testutils:
 
     @classmethod
     def fail_book(cls, book: Audiobook | str, delay: int = 0, *, from_now: float = 0):
-
         time.sleep(delay)
         last_updated_at = time.time() + from_now
-        lm_string = "now" if from_now == 0 else f"{from_now}s from now"
+        rel_time = human_elapsed_time(-from_now)
         cls.print(
-            f"Adding '{book}' to failed list, setting last modified to {lm_string}"
+            f"Adding '{book}' to failed list, setting last modified to {rel_time}"
         )
-        current_failed_books = json.loads(os.environ.get("FAILED_BOOKS", "{}"))
-        k = book.basename if isinstance(book, Audiobook) else book
-        current_failed_books.update({k: str(last_updated_at)})
-        os.environ["FAILED_BOOKS"] = json.dumps(current_failed_books)
-        InboxState()._sync_env_failed_books({k: last_updated_at})
+        InboxState().set_failed(book, "Test", last_updated_at)
 
     @classmethod
     def unfail_book(cls, book: Audiobook | str, delay: int = 0):
-
         time.sleep(delay)
         cls.print(f"Removing '{book}' from failed list (if present)")
-        current_failed_books = json.loads(os.environ.get("FAILED_BOOKS", "{}"))
-        k = book.basename if isinstance(book, Audiobook) else book
-        current_failed_books.pop(k, None)
-        os.environ["FAILED_BOOKS"] = json.dumps(current_failed_books)
-        inbox = InboxState()
-        orig_failed_books = inbox.failed_books.copy()
-        inbox._sync_env_failed_books(current_failed_books)
-        if orig_failed_books != inbox.failed_books:
-            cls.print(f"Removed '{book}' from failed list")
-        else:
-            cls.print(f"'{book}' not in failed list")
+        InboxState().set_ok(book)
 
     @classmethod
     def set_match_filter(cls, match_name: str | None, delay: int = 0):
-
         time.sleep(delay)
         cls.print(f"Setting MATCH_NAME to {match_name}")
         InboxState().set_match_filter(match_name)
 
     @classmethod
-    def set_sleeptime(cls, sleeptime: int | str, delay: int = 0):
-
+    @contextmanager
+    def set_sleep_time(cls, sleep_time: int | str, delay: int = 0):
         time.sleep(delay)
-        cls.print(f"Setting SLEEPTIME to {sleeptime}")
-        os.environ["SLEEPTIME"] = str(sleeptime)
-        cfg.SLEEPTIME = float(sleeptime)
+        orig_sleep_time = cfg.SLEEP_TIME
+        cls.print(f"Setting SLEEP_TIME to {sleep_time}")
+        os.environ["SLEEP_TIME"] = str(sleep_time)
+        cfg.SLEEP_TIME = float(sleep_time)
+        yield
+        cfg.SLEEP_TIME = orig_sleep_time
+        os.environ["SLEEP_TIME"] = str(orig_sleep_time)
+
+    @classmethod
+    @contextmanager
+    def set_wait_time(cls, wait_time: int | str, delay: int = 0):
+        time.sleep(delay)
+        orig_wait_time = cfg.WAIT_TIME
+        cls.print(f"Setting WAIT_TIME to {wait_time}")
+        os.environ["WAIT_TIME"] = str(wait_time)
+        cfg.WAIT_TIME = float(wait_time)
+        yield
+        cfg.WAIT_TIME = orig_wait_time
+        os.environ["WAIT_TIME"] = str(orig_wait_time)
+
+    @classmethod
+    def force_inbox_hash_change(cls, *, delay: int = 0, age: float = 0.5):
+        time.sleep(delay)
+        cls.print(f"Forcing hash change for inbox")
+        InboxState()._hashes[0] = ("fake-hash", time.time() - age)
 
     @classmethod
     def rename_files(
@@ -97,7 +102,6 @@ class testutils:
         rstrip: str = "",
         delay: int = 0,
     ):
-
         time.sleep(delay)
         msg = f"Renaming files for {book}"
         if prepend:
@@ -230,7 +234,7 @@ class testutils:
             try:
                 assert out.count(f"Found {found[0]} book") == found[1]
             except AssertionError:
-                cls.print(out)
+                # cls.print(out)
                 actual = re.findall(r"Found (\d+) books?", out)
                 expected = " × ".join(map(str, list(found)))
                 raise AssertionError(
@@ -240,7 +244,7 @@ class testutils:
             try:
                 assert out.count("Converted") == converted
             except AssertionError:
-                cls.print(out)
+                # cls.print(out)
                 actual = re.findall(r"Converted.*(?<!\\n)", out)
                 raise AssertionError(
                     f"'Converted' print count mismatch - should be {converted}, got {len(actual)} - {actual}"

@@ -7,6 +7,7 @@ import ffmpeg
 
 from src.lib.config import AUDIO_EXTS
 from src.lib.formatters import format_duration, get_nearest_standard_bitrate
+from src.lib.fs_utils import only_audio_files
 from src.lib.term import print_error
 from src.lib.typing import DurationFmt, MEMO_TTL
 
@@ -46,13 +47,12 @@ def get_duration(path: Path, fmt: DurationFmt = "human") -> str | float:
         duration = get_file_duration_py(path)
 
     elif path.is_dir():
-        files = list(path.glob("**/*"))
-        audio_files = [file for file in files if file.suffix in AUDIO_EXTS]
-        if not audio_files:
+        files = only_audio_files(list(path.glob("**/*")))
+        if not files:
             raise ValueError(f"No audio files found in {path}")
 
         duration = 0
-        for file in audio_files:
+        for file in files:
             duration += get_file_duration_py(file)
 
     return format_duration(duration, fmt)

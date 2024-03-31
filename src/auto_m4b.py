@@ -4,7 +4,6 @@ import traceback
 
 from src.lib import run
 from src.lib.config import AutoM4bArgs, cfg
-from src.lib.inbox_state import InboxState
 from src.lib.term import print_error, print_red
 from src.lib.typing import copy_kwargs_omit_first_arg
 
@@ -18,7 +17,7 @@ def handle_err(e: Exception):
         print_red(f"\n{traceback.format_exc()}")
     else:
         print_error(f"Error: {e}")
-    time.sleep(cfg.SLEEPTIME)
+    time.sleep(cfg.SLEEP_TIME)
 
 
 @copy_kwargs_omit_first_arg(AutoM4bArgs.__init__)
@@ -31,12 +30,12 @@ def app(**kwargs):
         cfg.startup(args)
         while infinite_loop or LOOP_COUNT < args.max_loops:
             try:
-                run.process_inbox(loop_count=LOOP_COUNT)
+                run.process_inbox()
             finally:
                 LOOP_COUNT += 1
-                InboxState().refresh_global_hash()
+                # InboxState().flush()
                 if infinite_loop or LOOP_COUNT < args.max_loops:
-                    time.sleep(cfg.SLEEPTIME)
+                    time.sleep(cfg.SLEEP_TIME)
     except Exception as e:
         handle_err(e)
     finally:

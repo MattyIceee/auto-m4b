@@ -1,7 +1,7 @@
-import asyncio
 import os
 import shutil
 import sys
+import time
 from pathlib import Path
 
 import dotenv
@@ -19,8 +19,9 @@ from src.lib.misc import get_git_root, load_env
 
 @pytest.fixture(autouse=True, scope="session")
 def setup():
-    os.environ["TEST"] = "Y"
-    os.environ["SLEEPTIME"] = "0.1"
+    # os.environ["TEST"] = "Y"
+    # os.environ["SLEEP_TIME"] = "0.1"
+    # os.environ["WAIT_TIME"] = "0.5"
 
     for env in get_git_root().glob(".env.local*"):
         dotenv.load_dotenv(env)
@@ -382,13 +383,14 @@ def mock_inbox_being_copied_to():
     """Runs an async function that updates the inbox every second for `seconds` seconds by creating and deleting a test file."""
 
     # def wrapper(seconds: int = 5):
-    async def update_inbox(seconds: int = 5):
-        print("Mocking inbox being copied to...")
-        for i in range(seconds):
+    def update_inbox(files: int = 5):
+        testutils.print("Mocking inbox being copied to...")
+        for i in range(1, files + 1):
             testutils.make_mock_file(TEST_DIRS.inbox / f"mock_book_{i}.mp3")
-            await asyncio.sleep(1)
+            testutils.print(f"Mocked copy to inbox: {i}")
+            time.sleep(0.2)
             # testutils.rm(TEST_DIRS.inbox / f"mock_book_{i}.mp3")
-        print("Mocked copy to inbox complete")
+        testutils.print("Mocked copy to inbox complete")
 
         # loop = asyncio.get_event_loop()
         # loop.run_until_complete(update_inbox())
@@ -413,15 +415,25 @@ def global_test_log():
 @pytest.fixture(scope="function", autouse=False)
 def reset_inbox_state(reset_match_filter, reset_failed):
 
+    inbox = InboxState()
+    inbox.destroy()
     shutil.rmtree(TEST_DIRS.converted, ignore_errors=True)
     TEST_DIRS.converted.mkdir(parents=True, exist_ok=True)
+    os.environ["SLEEP_TIME"] = "0.1"
+    os.environ["WAIT_TIME"] = "0.5"
+    os.environ["TEST"] = "Y"
 
     yield
-    InboxState().reset()
+
+    inbox.reset()
     os.environ.pop("MATCH_NAME", None)
-    os.environ.pop("SLEEPTIME", None)
+    os.environ["SLEEP_TIME"] = "0.1"
+    os.environ["WAIT_TIME"] = "0.5"
+    os.environ["TEST"] = "Y"
+
     shutil.rmtree(TEST_DIRS.converted, ignore_errors=True)
     TEST_DIRS.converted.mkdir(parents=True, exist_ok=True)
+    inbox.destroy()
 
 
 @pytest.fixture(scope="function", autouse=False)
@@ -429,6 +441,13 @@ def enable_autoflatten():
     testutils.enable_autoflatten()
     yield
     testutils.disable_autoflatten()
+
+
+@pytest.fixture(scope="function", autouse=False)
+def disable_autoflatten():
+    testutils.disable_autoflatten()
+    yield
+    testutils.enable_autoflatten()
 
 
 @pytest.fixture(scope="function", autouse=False)
