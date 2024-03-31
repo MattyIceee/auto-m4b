@@ -303,11 +303,11 @@ def extract_id3_tag_py(file: Path | None, tag: str, *, throw=False) -> str:
     try:
         return probe_result["format"]["tags"].get(tag, "")
     except KeyError:
-
-        if cfg.DEBUG:
-            print_debug(
-                f"Could not read '{tag}' from {file}'s id3 tags, it probably doesn't exist"
-            )
+        ...
+        # if cfg.DEBUG:
+        #     print_debug(
+        #         f"Could not read '{tag}' from {file}'s id3 tags, it probably doesn't exist"
+        #     )
     return ""
 
 
