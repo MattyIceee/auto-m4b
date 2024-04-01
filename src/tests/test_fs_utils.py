@@ -30,12 +30,14 @@ mixed_dir = TEST_DIRS.inbox / "mock_book_mixed"
 flat_nested_dir = TEST_DIRS.inbox / "mock_book_flat_nested"
 multi_book_dir = TEST_DIRS.inbox / "mock_book_multi_book"
 multi_disc_dir = TEST_DIRS.inbox / "mock_book_multi_disc"
+multi_disc_dir_with_extras = TEST_DIRS.inbox / "mock_book_multi_disc_dir_with_extras"
 multi_nested_dir = TEST_DIRS.inbox / "mock_book_multi_nested"
 standalone_nested_dir = TEST_DIRS.inbox / "mock_book_standalone_nested"
 expect_deep_dirs = [
     flat_nested_dir,
     multi_book_dir,
     multi_disc_dir,
+    multi_disc_dir_with_extras,
     multi_nested_dir,
 ]
 
@@ -84,10 +86,7 @@ def test_find_root_dirs_with_audio_files(
     [
         *[("flat", d) for d in expect_flat_dirs],
         ("flat_nested", flat_nested_dir),
-        (
-            "multi_book",
-            multi_book_dir,
-        ),
+        ("multi_book", multi_book_dir),
         ("multi_disc", multi_disc_dir),
         ("multi_nested", multi_nested_dir),
         ("mixed", mixed_dir),
@@ -200,7 +199,7 @@ hobbitses = [
         ),
     ],
 )
-def test_flatten_multidisc_fixture(
+def test_flatten_multidisc_book(
     test_path: Path,
     expected: list[str],
     predicted: list[str],
@@ -235,6 +234,7 @@ def test_flatten_multidisc_fixture(
     [
         (multi_book_dir, True),
         (multi_disc_dir, False),
+        (multi_disc_dir_with_extras, False),
     ],
 )
 def test_flattening_files_affects_order(

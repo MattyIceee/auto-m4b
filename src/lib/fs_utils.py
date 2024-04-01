@@ -583,11 +583,13 @@ def flattening_files_in_dir_affects_order(path: Path) -> bool:
     """Compares the order of files in a directory, both before and after flattening, by checking if the file names are in the same order."""
 
     files_flat = [
-        f.stem for f in filter_ignored(flatten_files_in_dir(path, preview=True))
+        f.name for f in filter_ignored(flatten_files_in_dir(path, preview=True))
     ]
-    files_flat_sorted = list(isorted(files_flat))
+    files_flat_sorted = isorted(list(set(files_flat)))
+    if len(files_flat) != len(files_flat_sorted):
+        return True
 
-    return files_flat_sorted != files_flat
+    return only_audio_files(files_flat_sorted) != only_audio_files(files_flat)
 
 
 def name_matches(name: Any, match_name: str | None = None) -> bool:
@@ -879,7 +881,7 @@ def filter_ignored(
 def only_audio_files(path_or_paths: Path | Iterable[Path] | Iterable[str]):
     # make iterable if not already
     paths = [path_or_paths] if isinstance(path_or_paths, (str, Path)) else path_or_paths
-    return [p for p in map(Path, paths) if p.is_file() and p.suffix in AUDIO_EXTS]
+    return [p for p in map(Path, paths) if p.suffix in AUDIO_EXTS]
 
 
 def find_recently_modified_files_and_dirs(

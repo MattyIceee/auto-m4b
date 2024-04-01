@@ -331,6 +331,22 @@ def mock_inbox(setup):
                 disc / f"mock_book_multi_disc{d} - part_{d+(d-i+1)}.mp3"
             )
 
+    # make a multi-disc book with extras
+    # mock_book_multi_disc_dir_with_extras
+    multi_disc = TEST_DIRS.inbox / "mock_book_multi_disc_dir_with_extras"
+    multi_disc.mkdir(parents=True, exist_ok=True)
+    words = ["science", "principles", "observation", "acceleration"]
+    for d in range(1, 5):
+        disc = multi_disc / f"Disc {d} of 4"
+        disc.mkdir(parents=True, exist_ok=True)
+        for i in range(1, 3):
+            testutils.make_mock_file(
+                disc / f"mock_book_multi_disc_dir_with_extras - part_{d+(d-i+1)}.mp3"
+            )
+        testutils.make_mock_file(disc / f"{words[d-1]}.pdf")
+        testutils.make_mock_file(disc / f"notes-{d}.txt")
+        testutils.make_mock_file(disc / f"cover-{d}.jpg")
+
     # make a multi-folder nested dir (not specifically multi-disc or book)
     multi_nested = TEST_DIRS.inbox / "mock_book_multi_nested"
     multi_nested.mkdir(parents=True, exist_ok=True)
