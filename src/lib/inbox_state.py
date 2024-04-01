@@ -135,13 +135,15 @@ class Hasher:
         # printed_waiting = False
         waited_count = 0
         before_modified_hash = self.current_hash
+        rec_mod = self.dir_was_recently_modified
         while self.dir_was_recently_modified:
+            print_debug(f"Waiting for inbox to be modified: {waited_count + 1}")
             self.scan()
             self.ready = True
             if self.current_hash != before_modified_hash:
                 print_debug(
                     f"self hash - last: {self.previous_hash or None} / curr: {self.current_hash}",
-                    only_once=True,
+                    # only_once=True,
                 )
                 changed_after_waiting = True
                 print_banner()
@@ -152,9 +154,23 @@ class Hasher:
             time.sleep(0.5)
 
         needs_processing = changed_after_waiting or self.changed_since_last_run
+        # print_debug(f"----------------------------")
+        # print_debug(f"Recently modified: {rec_mod}")
+        # print_debug(f"Needs processing: {needs_processing}")
+        # print_debug(f"Changed after waiting: {changed_after_waiting}")
+        # print_debug(f"Changed since last run: {self.changed_since_last_run}")
+        # print_debug(f"Waited count: {waited_count}")
+        # print_debug(f"Ready: {self.ready}")
+        # print_debug(f"Next hash: {self.next_hash}")
+        # print_debug(f"Curr hash: {self.current_hash}")
+        # print_debug(f"Prev hash: {self.previous_hash}")
+        # print_debug(f"Last run hash: {self.last_run_hash}")
+
         if needs_processing:
             self.banner_printed = False
             print_banner()
+            self.scan()
+            self.ready = True
 
         if waited_count:
             print_debug("Done waiting for inbox to be modified")
@@ -173,10 +189,15 @@ class Hasher:
 
     @property
     def previous_hash(self):
-        return self._hashes[1][0] if len(self._hashes) else ""
+        return self._hashes[1][0] if len(self._hashes) > 1 else ""
+
+    @property
+    def next_hash(self):
+        return hash_path_audio_files(self.path)
 
     def done(self):
         if len(self._hashes):
+            self.scan()
             self._last_run = self._hashes[0]
 
     @property

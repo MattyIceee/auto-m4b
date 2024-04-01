@@ -67,6 +67,7 @@ STANDARD_BITRATES = np.array(
 )  # see https://superuser.com/a/465660/254022
 
 MEMO_TTL = 60 * 5  # 5 minutes
+SCAN_TTL = 10  # 10 seconds
 
 
 class BadFileError(Exception): ...

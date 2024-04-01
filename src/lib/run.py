@@ -4,6 +4,8 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+import cachetools
+import cachetools.func
 from tinta import Tinta
 
 from src.lib.audiobook import Audiobook
@@ -47,6 +49,7 @@ from src.lib.term import (
     tint_warning,
     vline,
 )
+from src.lib.typing import SCAN_TTL
 
 
 def print_launch():
@@ -173,6 +176,7 @@ def print_footer():
     nl()
 
 
+@cachetools.func.ttl_cache(maxsize=1, ttl=SCAN_TTL)
 def audio_files_found():
     inbox = InboxState()
     if inbox.num_audio_files_deep == 0:
@@ -360,7 +364,7 @@ def check_failed_books():
             )
             inbox.set_needs_retry(book_name)
         else:
-            print_debug(f"Book hash is the same, keeping it in failed books")
+            print_debug(f"{book_name} hash is the same, keeping it in failed books")
 
 
 def copy_to_working_dir(book: Audiobook):
@@ -749,10 +753,6 @@ def process_inbox():
     if not inbox.inbox_needs_processing() and inbox.ready:
         print_debug("Inbox hash is the same, skipping this loop", only_once=True)
         return
-
-    inbox.scan()
-    inbox.ready = True
-
     process_standalone_files()
 
     check_failed_books()
