@@ -15,6 +15,7 @@ from src.lib.ffmpeg_utils import (
 from src.lib.formatters import human_bitrate
 from src.lib.fs_utils import (
     count_audio_files_in_dir,
+    cp_file_to_dir,
     find_book_audio_files,
     find_cover_art_file,
     find_first_audio_file,
@@ -226,14 +227,17 @@ class Audiobook(BaseModel):
         return f"{round(khz, 1)} kHz"
 
     @cached_property
-    def _orig_cover_art(self):
+    def _src_cover_art(self):
         return find_cover_art_file(self.path)
 
     @property
     def cover_art(self):
-        if not self._orig_cover_art:
+        if not self._src_cover_art:
             return None
-        return self.active_dir / self._orig_cover_art.relative_to(self.inbox_dir)
+        merge_cover = self.merge_dir / self._src_cover_art.relative_to(self.inbox_dir)
+        if not merge_cover.exists():
+            cp_file_to_dir(self._src_cover_art, self.merge_dir)
+        return merge_cover
 
     @property
     def basename(self):

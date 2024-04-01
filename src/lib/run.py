@@ -117,7 +117,8 @@ def process_standalone_files():
 
 def print_banner():
     inbox = InboxState()
-    if inbox.ready and not inbox.hash_was_recently_changed:
+
+    if inbox.ready and any([not inbox.changed_since_last_run, inbox.banner_printed]):
         return
 
     current_local_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -128,8 +129,13 @@ def print_banner():
 
     print_grey(f"Watching for new books in {{{{{cfg.inbox_dir}}}}} ꨄ︎")
 
-    if not inbox.banner_printed:
+    if not inbox.ready:
         nl()
+
+    if inbox.dir_was_recently_modified:
+        print_notice(f"{en.INBOX_RECENTLY_MODIFIED}\n")
+
+    time.sleep(1 if not cfg.TEST else 0)
 
     inbox.banner_printed = True
 
@@ -361,7 +367,13 @@ def copy_to_working_dir(book: Audiobook):
     # Move from inbox to merge folder
     smart_print("\nCopying files to working folder...", end="")
     cp_dir(book.inbox_dir, cfg.merge_dir, overwrite_mode="overwrite-silent")
+    # copy book.cover_art to merge folder
+    if book.cover_art and not book.cover_art.exists():
+        cp_file_to_dir(
+            book.cover_art, book.merge_dir, overwrite_mode="overwrite-silent"
+        )
     print_aqua(" ✓\n")
+    book.set_active_dir("merge")
 
 
 def has_books_to_process():
@@ -734,9 +746,7 @@ def process_inbox():
     if not audio_files_found():
         return
 
-    print_banner()
-
-    if not inbox.changed_after_waiting() and inbox.ready:
+    if not inbox.inbox_needs_processing() and inbox.ready:
         print_debug("Inbox hash is the same, skipping this loop", only_once=True)
         return
 
@@ -754,6 +764,12 @@ def process_inbox():
 
         book = Audiobook(item.path)
         print_book_header(book)
+
+        if not item.path.exists():
+            print_notice(
+                f"This book was removed from the inbox or cannot be accessed, skipping"
+            )
+            continue
 
         # check if the current dir was modified in the last 1m and skip if so
         if was_recently_modified(book.inbox_dir):
@@ -828,3 +844,4 @@ def process_inbox():
 
     print_footer()
     clean_dirs([cfg.merge_dir, cfg.build_dir, cfg.trash_dir])
+    inbox.done()

@@ -15,13 +15,11 @@ from src.lib.fs_utils import (
     find_books_in_inbox,
     find_standalone_books_in_inbox,
     get_audio_size,
-    hash_path,
     hash_path_audio_files,
     last_updated_audio_files_at,
     name_matches,
 )
 from src.lib.misc import singleton
-from src.lib.strings import en
 from src.lib.term import print_debug
 
 InboxItemStatus = Literal["new", "ok", "needs_retry", "failed", "gone"]
@@ -85,6 +83,7 @@ class Hasher:
         # self.last_updated = last_updated_audio_files_at(path)
         self.max_hashes = max_hashes
         self._hashes = []
+        self._last_run = None
         self.flush()
 
     def __repr__(self):
@@ -111,8 +110,8 @@ class Hasher:
 
     @property
     @scanner
-    def did_change(self):
-        return hash_path_audio_files(self.path) != self.current_hash
+    def changed_since_last_run(self):
+        return hash_path_audio_files(self.path) != self.last_run_hash
 
     @property
     def time_since_last_change(self):
@@ -128,31 +127,39 @@ class Hasher:
 
         return self.time_since_last_change < cfg.WAIT_TIME
 
-    def changed_after_waiting(self):
-        from src.lib.term import print_notice
+    def inbox_needs_processing(self):
 
-        change_detected = False
-        printed_waiting = False
+        from src.lib.run import print_banner
+
+        changed_after_waiting = False
+        # printed_waiting = False
         waited_count = 0
         before_modified_hash = self.current_hash
         while self.dir_was_recently_modified:
             self.scan()
+            self.ready = True
             if self.current_hash != before_modified_hash:
                 print_debug(
                     f"self hash - last: {self.previous_hash or None} / curr: {self.current_hash}",
                     only_once=True,
                 )
-                change_detected = True
-                if not printed_waiting:
-                    print_notice(f"{en.INBOX_RECENTLY_MODIFIED}\n")
-                    printed_waiting = True
+                changed_after_waiting = True
+                print_banner()
+                # if not printed_waiting:
+
+                #     printed_waiting = True
             waited_count += 1
             time.sleep(0.5)
+
+        needs_processing = changed_after_waiting or self.changed_since_last_run
+        if needs_processing:
+            self.banner_printed = False
+            print_banner()
 
         if waited_count:
             print_debug("Done waiting for inbox to be modified")
 
-        return change_detected
+        return needs_processing
 
     @property
     def hash_was_recently_changed(self):
@@ -166,7 +173,19 @@ class Hasher:
 
     @property
     def previous_hash(self):
-        return self._hashes[1][0] if len(self._hashes) > 1 else ""
+        return self._hashes[1][0] if len(self._hashes) else ""
+
+    def done(self):
+        if len(self._hashes):
+            self._last_run = self._hashes[0]
+
+    @property
+    def last_run(self):
+        return self._last_run
+
+    @property
+    def last_run_hash(self):
+        return self.last_run[0] if self.last_run else ""
 
     def to_dict(self):
         return {
@@ -223,11 +242,7 @@ class InboxItem:
     def hash(self):
         if self.is_gone:
             return ""
-        new_hash = (
-            hash_path_audio_files(self.path)
-            if self.path.is_dir()
-            else hash_path(self.path)
-        )
+        new_hash = hash_path_audio_files(self.path)
         if new_hash != self._curr_hash:
             self._last_hash = self._curr_hash
             self._curr_hash = new_hash

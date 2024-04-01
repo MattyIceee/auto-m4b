@@ -517,7 +517,9 @@ def cp_file_to_dir(
     if not source_file.is_file():
         raise FileNotFoundError(f"Source file {source_file} does not exist")
     if not dst_dir.is_dir():
-        raise NotADirectoryError(f"Destination {dst_dir} is not a directory")
+        dst_dir.mkdir(parents=True, exist_ok=True)
+        if not dst_dir.is_dir():
+            raise NotADirectoryError(f"Destination {dst_dir} is not a directory")
 
     dst_file = dst_dir / new_filename if new_filename else dst_dir / source_file.name
 
