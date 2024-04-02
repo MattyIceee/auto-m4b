@@ -171,14 +171,14 @@ def print_book_done(b: int, book: Audiobook, elapsedtime: int):
         nl()
 
 
-def print_footer():
-    inbox = InboxState()
-    if inbox.num_books >= 1:
+def print_footer(b: int):
+    if b:
         print_grey(en.DONE_CONVERTING)
-        if not cfg.NO_ASCII:
-            print_dark_grey(BOOK_ASCII)
     else:
         print_dark_grey(f"Waiting for books to be added to the inbox...")
+
+    if not cfg.NO_ASCII:
+        print_dark_grey(BOOK_ASCII)
 
     divider()
     nl()
@@ -792,12 +792,12 @@ def process_book(b: int, item: InboxItem):
         print_notice(
             f"This book was removed from the inbox or cannot be accessed, skipping"
         )
-        return False
+        return b
 
     # check if the current dir was modified in the last 1m and skip if so
     if was_recently_modified(book.inbox_dir):
         print_notice(en.BOOK_RECENTLY_MODIFIED)
-        return False
+        return b
 
     if inbox.should_retry(book):
         nl()
@@ -807,28 +807,28 @@ def process_book(b: int, item: InboxItem):
     book.log_file.unlink(missing_ok=True)
 
     if is_already_m4b(book):
-        return False
+        return b
 
     if not has_audio_files(book):
-        return False
+        return b
 
     if not can_process_multi_dir(book):
-        return False
+        return b
 
     if book.is_series:
-        return
+        return b
 
     if not can_process_roman_numeral_book(book):
-        return False
+        return b
 
     flatten_nested_book(book)
     print_book_info(book)
 
     if not backup_ok(book):
-        return False
+        return b
 
     if not ok_to_overwrite(book):
-        return False
+        return b
 
     inbox.set_ok(book)
 
@@ -847,7 +847,7 @@ def process_book(b: int, item: InboxItem):
     book.write_description_txt()
 
     if (elapsedtime := convert_book(book)) is False:
-        return False
+        return b
 
     book.converted_dir.mkdir(parents=True, exist_ok=True)
 
@@ -860,7 +860,7 @@ def process_book(b: int, item: InboxItem):
     verify_and_update_id3_tags(book, "build")
 
     if not move_converted_book_and_extras(book):
-        return False
+        return b
 
     archive_inbox_copy(book)
     print_book_done(b, book, elapsedtime)
@@ -868,6 +868,7 @@ def process_book(b: int, item: InboxItem):
         [book.build_dir, book.merge_dir], ignore_errors=True, even_if_not_empty=True
     )
     b += 1
+    return b
 
 
 def process_inbox():
@@ -890,8 +891,8 @@ def process_inbox():
 
     b = 0
     for item in inbox.items_to_process.values():
-        process_book(b, item)
+        b = process_book(b, item)
 
-    print_footer()
+    print_footer(b)
     clean_dirs([cfg.merge_dir, cfg.build_dir, cfg.trash_dir])
     inbox.done()
