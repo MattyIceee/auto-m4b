@@ -461,18 +461,6 @@ def test_is_maybe_multi_disc(test_case, expected):
 @pytest.mark.parametrize(
     "test_case, expected",
     [
-        ("Bk1", True),
-        ("Bk-1", True),
-        ("Book1", True),
-        ("Book-1", True),
-        ("Book.1", True),
-        ("Book_1", True),
-        ("Book 1", True),
-        ("Book 1 - The Fellowship of the Ring", True),
-        ("The Fellowship of the Ring - Bk 1", True),
-        ("Book", False),
-        ("The Fellowship of the Ring", False),
-        ("The Fellowship of the Ring - Bk", False),
         ("Pt1", True),
         ("part1", True),
         ("part_1", True),
@@ -488,6 +476,34 @@ def test_is_maybe_multi_disc(test_case, expected):
         ("Part", False),
         ("Quest for the Spark", False),
         ("Quest for the Spark - Pt", False),
+    ],
+)
+def test_is_maybe_multi_part(test_case, expected):
+
+    from src.lib.parsers import is_maybe_multi_part
+
+    assert is_maybe_multi_part(test_case) == expected
+    assert is_maybe_multi_part(test_case.lower()) == expected
+    assert is_maybe_multi_part(test_case.title()) == expected
+    assert is_maybe_multi_part(test_case.capitalize()) == expected
+    assert is_maybe_multi_part(test_case.upper()) == expected
+
+
+@pytest.mark.parametrize(
+    "test_case, expected",
+    [
+        ("Bk1", True),
+        ("Bk-1", True),
+        ("Book1", True),
+        ("Book-1", True),
+        ("Book.1", True),
+        ("Book_1", True),
+        ("Book 1", True),
+        ("Book 1 - The Fellowship of the Ring", True),
+        ("The Fellowship of the Ring - Bk 1", True),
+        ("Book", False),
+        ("The Fellowship of the Ring", False),
+        ("The Fellowship of the Ring - Bk", False),
         ("#1", True),
         ("#-1", True),
         ("#1", True),

@@ -2,7 +2,7 @@ import json
 import os
 import time
 from collections.abc import Callable
-from functools import wraps
+from functools import cached_property, wraps
 from pathlib import Path
 from typing import Any, cast, Literal
 
@@ -11,6 +11,7 @@ from src.lib.formatters import human_elapsed_time, human_size
 from src.lib.fs_utils import (
     count_audio_files_in_inbox,
     count_standalone_books_in_inbox,
+    find_base_dirs_with_audio_files,
     find_book_dirs_in_inbox,
     find_books_in_inbox,
     find_standalone_books_in_inbox,
@@ -20,6 +21,7 @@ from src.lib.fs_utils import (
     name_matches,
 )
 from src.lib.misc import singleton
+from src.lib.parsers import is_maybe_multi_book_or_series
 from src.lib.term import print_debug
 
 InboxItemStatus = Literal["new", "ok", "needs_retry", "failed", "gone"]
@@ -30,8 +32,8 @@ def get_key(path_or_book: "str | Path | Audiobook | InboxItem") -> str:
         return path_or_book
     if isinstance(path_or_book, Path):
         return path_or_book.name
-    if isinstance(path_or_book, Audiobook):
-        return path_or_book.basename
+    # if isinstance(path_or_book, Audiobook):
+    #     return path_or_book.key
     return path_or_book.key
 
 
@@ -60,6 +62,10 @@ def get_item(key_path_or_book: "str | Path | Audiobook | InboxItem") -> "InboxIt
     if isinstance(key_path_or_book, Audiobook):
         return InboxItem(key_path_or_book)
     return key_path_or_book
+
+
+def filter_series_parents(d: dict[str, "InboxItem"]):
+    return {k: v for k, v in d.items() if not v.is_maybe_series_parent}
 
 
 def scanner(func: Callable[..., Any]):
@@ -135,6 +141,7 @@ class Hasher:
         # printed_waiting = False
         waited_count = 0
         before_modified_hash = self.current_hash
+        banner_printed = False
         rec_mod = self.dir_was_recently_modified
         while self.dir_was_recently_modified:
             print_debug(f"Waiting for inbox to be modified: {waited_count + 1}")
@@ -145,8 +152,12 @@ class Hasher:
                     f"self hash - last: {self.previous_hash or None} / curr: {self.current_hash}",
                     # only_once=True,
                 )
-                changed_after_waiting = True
-                print_banner()
+                if not banner_printed:
+                    self.banner_printed = False
+                    changed_after_waiting = True
+                    self.waited_for_changes = True
+                    print_banner()
+                    banner_printed = True
                 # if not printed_waiting:
 
                 #     printed_waiting = True
@@ -154,26 +165,29 @@ class Hasher:
             time.sleep(0.5)
 
         needs_processing = changed_after_waiting or self.changed_since_last_run
-        # print_debug(f"----------------------------")
-        # print_debug(f"Recently modified: {rec_mod}")
-        # print_debug(f"Needs processing: {needs_processing}")
-        # print_debug(f"Changed after waiting: {changed_after_waiting}")
-        # print_debug(f"Changed since last run: {self.changed_since_last_run}")
-        # print_debug(f"Waited count: {waited_count}")
-        # print_debug(f"Ready: {self.ready}")
-        # print_debug(f"Next hash: {self.next_hash}")
-        # print_debug(f"Curr hash: {self.current_hash}")
-        # print_debug(f"Prev hash: {self.previous_hash}")
-        # print_debug(f"Last run hash: {self.last_run_hash}")
-
-        if needs_processing:
-            self.banner_printed = False
-            print_banner()
-            self.scan()
-            self.ready = True
+        # print_debug(
+        #     f"----------------------------\n"
+        #     f"        Recently modified: {rec_mod}\n"
+        #     f"        Last run hash: {self.last_run_hash}\n"
+        #     f"        Prev hash: {self.previous_hash}\n"
+        #     f"        Curr hash: {self.current_hash}\n"
+        #     f"        Next hash: {self.next_hash}\n"
+        #     f"        Changed after waiting: {changed_after_waiting}\n"
+        #     f"        Changed since last run: {self.changed_since_last_run}\n"
+        #     f"        Needs processing: {needs_processing}\n"
+        #     f"        Waited count: {waited_count}\n"
+        #     f"        Ready: {self.ready}\n"
+        # )
 
         if waited_count:
             print_debug("Done waiting for inbox to be modified")
+            self.banner_printed = True
+
+        if needs_processing:
+            self.banner_printed = banner_printed
+            print_banner()
+            self.scan()
+            self.ready = True
 
         return needs_processing
 
@@ -228,6 +242,7 @@ class Hasher:
 class InboxItem:
 
     def __init__(self, book: str | Path | Audiobook):
+        from src.lib.config import cfg
 
         path = get_path(book)
 
@@ -235,7 +250,7 @@ class InboxItem:
         self._last_updated: float | None = None
         self._curr_hash = hash_path_audio_files(path)
         self._hash_changed: float = 0
-        self.key = path.name
+        self.key = str(path.relative_to(cfg.inbox_dir))
         self.size = get_audio_size(path) if path.exists() else 0
         self.status: InboxItemStatus = "new"
         self.failed_reason: str = ""
@@ -321,6 +336,19 @@ class InboxItem:
         return not name_matches(self.path.relative_to(cfg.inbox_dir), cfg.MATCH_NAME)
 
     @property
+    def is_maybe_series_book(self):
+        return len(Path(self.key).parts) > 1
+
+    @cached_property
+    def is_maybe_series_parent(self):
+        return any(
+            [
+                is_maybe_multi_book_or_series(d.name)
+                for d in find_base_dirs_with_audio_files(self.path)
+            ]
+        )
+
+    @property
     def did_change(self) -> bool:
         return (
             True
@@ -357,6 +385,7 @@ class InboxState(Hasher):
         self._items = {}
         self.ready = False
         self.banner_printed = False
+        self.waited_for_changes = False
 
     def set(
         self,
@@ -497,8 +526,16 @@ class InboxState(Hasher):
         return find_book_dirs_in_inbox()
 
     @property
+    def series_parents(self):
+        return find_book_dirs_in_inbox(only_series_parents=True)
+
+    @property
     def num_books(self):
-        return len(self.book_dirs)
+        return len(self.book_dirs) - len(self.series_parents)
+
+    @property
+    def num_series(self):
+        return len(self.series_parents)
 
     @property
     def filtered_books(self):
@@ -510,10 +547,12 @@ class InboxState(Hasher):
 
     @property
     def matched_books(self):
-        return {k: v for k, v in self._items.items() if not v.is_filtered}
+        return filter_series_parents(
+            {k: v for k, v in self._items.items() if not v.is_filtered}
+        )
 
     @property
-    def matched_ok_books(self):
+    def items_to_process(self):
         return {
             k: v
             for k, v in self._items.items()
@@ -526,11 +565,13 @@ class InboxState(Hasher):
 
     @property
     def ok_books(self):
-        return {
-            k: v
-            for k, v in self._items.items()
-            if v.status in ["ok", "new", "needs_retry"]
-        }
+        return filter_series_parents(
+            {
+                k: v
+                for k, v in self._items.items()
+                if v.status in ["ok", "new", "needs_retry"]
+            }
+        )
 
     @property
     def num_ok(self):

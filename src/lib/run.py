@@ -19,7 +19,7 @@ from src.lib.formatters import (
 )
 from src.lib.fs_utils import *
 from src.lib.id3_utils import verify_and_update_id3_tags
-from src.lib.inbox_state import InboxState
+from src.lib.inbox_state import InboxItem, InboxState
 from src.lib.logger import log_global_results
 from src.lib.m4btool import m4btool
 from src.lib.misc import re_group
@@ -30,10 +30,9 @@ from src.lib.strings import en
 from src.lib.term import (
     AMBER_COLOR,
     BOOK_ASCII,
-    border,
+    box,
     divider,
-    fmt_linebreak_path,
-    max_term_width,
+    linebreak_path,
     nl,
     print_aqua,
     print_dark_grey,
@@ -47,7 +46,7 @@ from src.lib.term import (
     tint_light_grey,
     tint_path,
     tint_warning,
-    vline,
+    wrap_brackets,
 )
 from src.lib.typing import SCAN_TTL
 
@@ -135,8 +134,9 @@ def print_banner():
     if not inbox.ready:
         nl()
 
-    if inbox.dir_was_recently_modified:
+    if inbox.waited_for_changes:
         print_notice(f"{en.INBOX_RECENTLY_MODIFIED}\n")
+        inbox.waited_for_changes = False
 
     time.sleep(1 if not cfg.TEST else 0)
 
@@ -144,9 +144,17 @@ def print_banner():
 
 
 def print_book_header(book: Audiobook):
-    border(len(book.basename))
-    smart_print(Tinta().dark_grey(vline).aqua(book.basename).dark_grey(vline).to_str())
-    border(len(book.basename))
+
+    if book.is_series:
+        box(
+            Tinta()
+            .pink(f"Book Series {'•'*book.num_books_in_series}\n")
+            .grey(book.basename)
+            # .dark_grey(f"Converting {in_series}")
+            .to_str(sep="")
+        )
+    else:
+        box(book.basename, color="aqua")
 
 
 def print_book_done(b: int, book: Audiobook, elapsedtime: int):
@@ -194,11 +202,11 @@ def audio_files_found():
 def fail_book(book: Audiobook, reason: str = "unknown"):
     """Adds the book's path to the failed books dict with a value of the last modified date of of the book"""
     inbox = InboxState()
-    if book.basename in inbox.failed_books:
+    if book.key in inbox.failed_books:
         return
-    inbox.set_failed(book.basename, reason)
+    inbox.set_failed(book.key, reason)
 
-    book.write_log(reason)
+    book.write_log(reason.strip().strip("\n"))
     book.set_active_dir("inbox")
     if (build_log := book.build_dir / book.log_filename) and build_log.exists():
         if book.log_file.exists():
@@ -220,9 +228,7 @@ def backup_ok(book: Audiobook):
         print_dark_grey("Skipping backup (folder is empty)")
     else:
         ln = "Making a backup copy → "
-        smart_print(
-            f"{ln}{tint_path(fmt_linebreak_path(book.backup_dir, max_term_width(len(ln)), len(ln)))}"
-        )
+        smart_print(f"{ln}{tint_path(linebreak_path(book.backup_dir, indent=len(ln)))}")
         cp_dir(book.inbox_dir, cfg.backup_dir, overwrite_mode="skip-silent")
 
         fuzzy = 1000
@@ -415,16 +421,19 @@ def has_books_to_process():
             if inbox.num_matched > 1
             else "1 book"
         )
+        note = wrap_brackets(f"ignoring {inbox.match_filter}")
         smart_print(
-            f"Failed to convert {s} in the inbox matching [[{inbox.match_filter}]] (ignoring {inbox.num_filtered})",
+            f"Failed to convert {s} in the inbox matching [[{inbox.match_filter}]]{note}",
             highlight_color=AMBER_COLOR,
         )
         return False
 
     if inbox.match_filter and inbox.matched_books:
         skipping = f", {skipping}" if skipping else ""
+        ignoring = f"ignoring {inbox.num_filtered}" if inbox.num_filtered else ""
+        note = wrap_brackets(ignoring, skipping)
         smart_print(
-            f"Found {pluralize_with_count(inbox.num_matched, 'book')} in the inbox matching [[{inbox.match_filter}]] (ignoring {inbox.num_filtered}{skipping})\n",
+            f"Found {pluralize_with_count(inbox.num_matched, 'book')} in the inbox matching [[{inbox.match_filter}]]{note}\n",
             highlight_color=AMBER_COLOR,
         )
     elif inbox.failed_books:
@@ -440,9 +449,28 @@ def has_books_to_process():
 
 def can_process_multi_dir(book: Audiobook):
     inbox = InboxState()
-    if book.structure.startswith("multi") or book.structure == "mixed":
+    if book.structure.startswith("multi"):
         help_msg = f"Please organize the files in a single folder and rename them so they sort alphabetically\nin the correct order"
         match book.structure:
+            case "multi_book_series":
+                # print_error(f"{en.MULTI_ERR}, maybe this contains multiple books?")
+                # help_msg = "To convert these books, move each book folder to the root of the inbox"
+                # smart_print(f"{help_msg}\n")
+                # fail_book(book, f"{en.MULTI_ERR} (multiple books found) - {help_msg}")
+                # return False
+                if cfg.CONVERT_SERIES:
+                    inbox.set_ok(book)
+                else:
+                    print_error(
+                        f"{en.MULTI_ERR}, maybe this contains multiple books or a series?"
+                    )
+                    smart_print(
+                        f"{help_msg}, or set CONVERT_SERIES=Y to have auto-m4b convert\nbook series individually\n"
+                    )
+                    fail_book(
+                        book, f"{en.MULTI_ERR} (multiple books found) - {help_msg}"
+                    )
+                    return False
             case "multi_disc":
                 if cfg.FLATTEN_MULTI_DISC_BOOKS:
                     smart_print(
@@ -466,7 +494,7 @@ def can_process_multi_dir(book: Audiobook):
                         print_aqua(" ✓\n")
                         files = "\n".join([str(f) for f in book.inbox_dir.glob("*")])
                         print_debug(f"New file structure:\n{files}")
-                        inbox.set_ok(book.basename)
+                        inbox.set_ok(book)
                 else:
                     print_error(f"{en.MULTI_ERR}, maybe this is a multi-disc book?")
                     smart_print(
@@ -474,11 +502,12 @@ def can_process_multi_dir(book: Audiobook):
                     )
                     fail_book(book, f"{en.MULTI_ERR} (multi-disc book) - {help_msg}")
                     return False
-            case "multi_book":
-                print_error(f"{en.MULTI_ERR}, maybe this contains multiple books?")
-                help_msg = "To convert these books, move each book folder to the root of the inbox"
+            case "multi_part":
+                print_error(
+                    f"{en.MULTI_ERR}, maybe this is a multi-part book or a series?"
+                )
                 smart_print(f"{help_msg}\n")
-                fail_book(book, f"{en.MULTI_ERR} (multiple books found) - {help_msg}")
+                fail_book(book, f"{en.MULTI_ERR} (multi-part book) - {help_msg}")
                 return False
             case _:
                 print_error(f"{en.MULTI_ERR}, cannot determine book structure")
@@ -537,8 +566,19 @@ def flatten_nested_book(book: Audiobook):
 def print_book_info(book):
     smart_print("\nFile/folder info:")
 
-    print_list(f"Source folder: {book.inbox_dir}")
-    print_list(f"Output folder: {book.converted_dir}")
+    lmt = 120
+    src = (
+        linebreak_path(book.inbox_dir, indent=10, limit=lmt)
+        if len(str(book.inbox_dir)) > lmt
+        else book.inbox_dir
+    )
+    dst = (
+        linebreak_path(book.converted_dir, indent=10, limit=lmt)
+        if len(str(book.converted_dir)) > lmt
+        else book.converted_dir
+    )
+    print_list(f"Source: {src}")
+    print_list(f"Output: {dst}")
     print_list(f"File type: {book.orig_file_type}")
     print_list(f"Audio files: {book.num_files('inbox')}")
     print_list(f"Total size: {book.size('inbox', 'human')}")
@@ -660,9 +700,7 @@ def move_desc_file(book: Audiobook):
 
 def move_converted_book_and_extras(book: Audiobook):
     ln = "Moving to converted books folder → "
-    smart_print(
-        f"{ln}{tint_path(fmt_linebreak_path(book.converted_file, max_term_width(len(ln)), len(ln)))}"
-    )
+    smart_print(f"{ln}{tint_path(linebreak_path(book.converted_file, indent=len(ln)))}")
 
     # Copy other jpg, png, and txt files from mergefolder to output folder
     mv_dir_contents(
@@ -711,7 +749,7 @@ def move_converted_book_and_extras(book: Audiobook):
 
 def archive_inbox_copy(book: Audiobook):
     if cfg.ON_COMPLETE == "move":
-        smart_print("Archiving original from inbox...", end="")
+        smart_print("\nArchiving original from inbox...", end="")
         mv_dir_contents(
             book.inbox_dir,
             book.archive_dir,
@@ -729,7 +767,7 @@ def archive_inbox_copy(book: Audiobook):
         print_aqua(" ✓")
 
     elif cfg.ON_COMPLETE == "delete":
-        smart_print("Deleting original from inbox...", end="")
+        smart_print("\nDeleting original from inbox...", end="")
         can_del = is_ok_to_delete(book.inbox_dir)
         if can_del or cfg.BACKUP:
             rm_dir(book.inbox_dir, ignore_errors=True, even_if_not_empty=True)
@@ -744,6 +782,94 @@ def archive_inbox_copy(book: Audiobook):
         print_notice("Test mode: The original folder will not be moved or deleted")
 
 
+def process_book(b: int, item: InboxItem):
+
+    inbox = InboxState()
+    book = Audiobook(item.path)
+    print_book_header(book)
+
+    if not item.path.exists():
+        print_notice(
+            f"This book was removed from the inbox or cannot be accessed, skipping"
+        )
+        return False
+
+    # check if the current dir was modified in the last 1m and skip if so
+    if was_recently_modified(book.inbox_dir):
+        print_notice(en.BOOK_RECENTLY_MODIFIED)
+        return False
+
+    if inbox.should_retry(book):
+        nl()
+        smart_print(en.BOOK_SHOULD_RETRY)
+
+    # can't modify the inbox dir until we check whether it was modified recently
+    book.log_file.unlink(missing_ok=True)
+
+    if is_already_m4b(book):
+        return False
+
+    if not has_audio_files(book):
+        return False
+
+    if not can_process_multi_dir(book):
+        return False
+
+    if book.is_series:
+        return
+
+    if not can_process_roman_numeral_book(book):
+        return False
+
+    flatten_nested_book(book)
+    print_book_info(book)
+
+    if not backup_ok(book):
+        return False
+
+    if not ok_to_overwrite(book):
+        return False
+
+    inbox.set_ok(book)
+
+    copy_to_working_dir(book)
+
+    book.extract_path_info()
+    book.extract_metadata()
+
+    clean_dirs([book.build_dir, book.build_tmp_dir])
+    rm_all_empty_dirs(cfg.merge_dir)
+
+    book.set_active_dir("build")
+
+    nl()
+
+    book.write_description_txt()
+
+    if (elapsedtime := convert_book(book)) is False:
+        return False
+
+    book.converted_dir.mkdir(parents=True, exist_ok=True)
+
+    # m4b_num_parts=1 # hardcode for now, until we know if we need to split parts
+
+    move_desc_file(book)
+    log_global_results(book, "SUCCESS", elapsedtime)
+
+    # TODO: Only handles single m4b output file, not multiple files.
+    verify_and_update_id3_tags(book, "build")
+
+    if not move_converted_book_and_extras(book):
+        return False
+
+    archive_inbox_copy(book)
+    print_book_done(b, book, elapsedtime)
+    rm_dirs(
+        [book.build_dir, book.merge_dir], ignore_errors=True, even_if_not_empty=True
+    )
+    b += 1
+
+
 def process_inbox():
     inbox = InboxState()
 
@@ -753,94 +879,18 @@ def process_inbox():
     if not inbox.inbox_needs_processing() and inbox.ready:
         print_debug("Inbox hash is the same, skipping this loop", only_once=True)
         return
+
     process_standalone_files()
 
     check_failed_books()
 
     if not has_books_to_process():
+        inbox.done()
         return
 
-    for b, item in enumerate(inbox.matched_ok_books.values()):
-
-        book = Audiobook(item.path)
-        print_book_header(book)
-
-        if not item.path.exists():
-            print_notice(
-                f"This book was removed from the inbox or cannot be accessed, skipping"
-            )
-            continue
-
-        # check if the current dir was modified in the last 1m and skip if so
-        if was_recently_modified(book.inbox_dir):
-            print_notice(en.BOOK_RECENTLY_MODIFIED)
-            continue
-
-        if inbox.should_retry(book):
-            nl()
-            smart_print(en.BOOK_SHOULD_RETRY)
-
-        # can't modify the inbox dir until we check whether it was modified recently
-        book.log_file.unlink(missing_ok=True)
-
-        if is_already_m4b(book):
-            continue
-
-        if not has_audio_files(book):
-            continue
-
-        if not can_process_multi_dir(book):
-            continue
-
-        if not can_process_roman_numeral_book(book):
-            continue
-
-        flatten_nested_book(book)
-        print_book_info(book)
-
-        if not backup_ok(book):
-            continue
-
-        if not ok_to_overwrite(book):
-            continue
-
-        inbox.set_ok(book)
-
-        copy_to_working_dir(book)
-
-        book.extract_path_info()
-        book.extract_metadata()
-
-        clean_dirs([book.build_dir, book.build_tmp_dir])
-        rm_all_empty_dirs(cfg.merge_dir)
-
-        book.set_active_dir("build")
-
-        nl()
-
-        book.write_description_txt()
-
-        if (elapsedtime := convert_book(book)) is False:
-            continue
-
-        book.converted_dir.mkdir(parents=True, exist_ok=True)
-
-        # m4b_num_parts=1 # hardcode for now, until we know if we need to split parts
-
-        move_desc_file(book)
-        log_global_results(book, "SUCCESS", elapsedtime)
-
-        # TODO: Only handles single m4b output file, not multiple files.
-        verify_and_update_id3_tags(book, "build")
-
-        if not move_converted_book_and_extras(book):
-            continue
-
-        archive_inbox_copy(book)
-        print_book_done(b, book, elapsedtime)
-        rm_dirs(
-            [book.build_dir, book.merge_dir], ignore_errors=True, even_if_not_empty=True
-        )
+    b = 0
+    for item in inbox.items_to_process.values():
+        process_book(b, item)
 
     print_footer()
     clean_dirs([cfg.merge_dir, cfg.build_dir, cfg.trash_dir])

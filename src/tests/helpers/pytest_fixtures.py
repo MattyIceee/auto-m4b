@@ -166,6 +166,11 @@ def secret_project_series__nested_flat_mixed():
     return load_test_fixture("secret_project_series__nested_flat_mixed", exclusive=True)
 
 
+@pytest.fixture(scope="function")
+def chanur_series__multi_book_series_mp3():
+    return load_test_fixture("chanur_series__multi_book_series_mp3", exclusive=True)
+
+
 @pytest.fixture(scope="function", autouse=False)
 def benedict_society__mp3():
 
@@ -310,7 +315,7 @@ def mock_inbox(setup):
         testutils.make_mock_file(nested / f"mock_book_flat_nested - part_{i}.mp3")
 
     # make a multi-series directory
-    multi_book = TEST_DIRS.inbox / "mock_book_multi_book"
+    multi_book = TEST_DIRS.inbox / "mock_book_multi_book_series"
     multi_book.mkdir(parents=True, exist_ok=True)
     names = ["Dawn", "High Noon", "Dusk"]
     for s in ["1", "2", "3"]:
@@ -318,7 +323,7 @@ def mock_inbox(setup):
         series = multi_book / f"{name} - Book {s}"
         series.mkdir(parents=True, exist_ok=True)
         for i in range(1, 2 + int(s)):
-            testutils.make_mock_file(series / f"mock_book_multi_book - ch. {i}.mp3")
+            testutils.make_mock_file(series / f"mock_book_series - ch. {i}.mp3")
 
     # make a multi-disc book
     multi_disc = TEST_DIRS.inbox / "mock_book_multi_disc"
@@ -328,7 +333,21 @@ def mock_inbox(setup):
         disc.mkdir(parents=True, exist_ok=True)
         for i in range(1, 3):
             testutils.make_mock_file(
-                disc / f"mock_book_multi_disc{d} - part_{d+(d-i+1)}.mp3"
+                disc / f"mock_book_multi_disc{d} - ch_{d+(d-i+1)}.mp3"
+            )
+
+    # make a mutli-part book
+    multi_part = TEST_DIRS.inbox / "mock_book_multi_part"
+    multi_part.mkdir(parents=True, exist_ok=True)
+    romans = ["I", "II", "III", "IV"]
+    for i in range(1, 5):
+        part = multi_part / f"Part {i:02} - {romans[i-1]}"
+        part.mkdir(parents=True, exist_ok=True)
+        for j in range(1, 3):
+            testutils.make_mock_file(
+                multi_part
+                / part
+                / f"mock_book_multi_part - pt.{i:02} - {romans[i-1]} - ch_{j}.mp3"
             )
 
     # make a multi-disc book with extras
@@ -463,6 +482,20 @@ def disable_autoflatten():
     testutils.disable_autoflatten()
     yield
     testutils.enable_autoflatten()
+
+
+@pytest.fixture(scope="function", autouse=False)
+def enable_convert_series():
+    testutils.enable_convert_series()
+    yield
+    testutils.disable_convert_series()
+
+
+@pytest.fixture(scope="function", autouse=False)
+def disable_convert_series():
+    testutils.disable_convert_series()
+    yield
+    testutils.enable_convert_series()
 
 
 @pytest.fixture(scope="function", autouse=False)

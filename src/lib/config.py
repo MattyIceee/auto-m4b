@@ -420,6 +420,10 @@ class Config:
         return parse_bool(os.getenv("FLATTEN_MULTI_DISC_BOOKS", False))
 
     @cached_property
+    def CONVERT_SERIES(self):
+        return parse_bool(os.getenv("CONVERT_SERIES", False))
+
+    @cached_property
     def EXIF_WRITER(self) -> ExifWriter:
         return cast(ExifWriter, os.getenv("EXIF_WRITER", "eyed3"))
 

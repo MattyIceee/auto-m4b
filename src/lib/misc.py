@@ -213,3 +213,12 @@ def singleton(class_: type[C]) -> type[C]:
 
     class_w.__name__ = class_.__name__
     return cast(type[C], class_w)
+
+
+def fix_ffprobe():
+    try:
+        from ffmpeg import probe
+    except ImportError:
+        os.system(
+            "pip uninstall ffmpeg-python -y > /dev/null && pip install ffmpeg-python==0.2.0 -y > /dev/null"
+        )

@@ -11,7 +11,10 @@ from eyed3.id3 import Tag
 from tinta import Tinta
 
 from src.lib.cleaners import clean_string
-from src.lib.misc import compare_trim, get_numbers_in_string, re_group
+from src.lib.misc import compare_trim, fix_ffprobe, get_numbers_in_string, re_group
+
+fix_ffprobe()
+
 from src.lib.parsers import (
     find_greatest_common_string,
     get_year_from_date,

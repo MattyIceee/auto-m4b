@@ -5,7 +5,7 @@ import pytest
 from src.lib.term import (
     count_empty_leading_lines,
     count_empty_trailing_lines,
-    fmt_linebreak_path,
+    linebreak_path,
 )
 
 
@@ -38,12 +38,12 @@ from src.lib.term import (
         ),
     ],
 )
-def test_fmt_linebreak_path(path: Path, limit: int, indent: int, expected: str):
+def test_linebreak_path(path: Path, limit: int, indent: int, expected: str):
     if limit == None:
         limit = 120
     if indent == None:
         indent = 0
-    test = fmt_linebreak_path(path, limit, indent)
+    test = linebreak_path(path, indent=indent, limit=limit)
     print(path, "\n       ↓", f"\n{test}")
     assert test == expected
 

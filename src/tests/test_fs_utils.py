@@ -16,7 +16,7 @@ from src.lib.fs_utils import (
     find_next_audio_file,
 )
 from src.lib.misc import isorted, re_group
-from src.lib.typing import BookDirStructure
+from src.lib.typing import InboxDirStructure
 from src.tests.conftest import TEST_DIRS
 
 flat_dir1 = TEST_DIRS.inbox / "mock_book_1"
@@ -28,22 +28,40 @@ expect_flat_dirs = [flat_dir1, flat_dir2, flat_dir3, flat_dir4]
 mixed_dir = TEST_DIRS.inbox / "mock_book_mixed"
 
 flat_nested_dir = TEST_DIRS.inbox / "mock_book_flat_nested"
-multi_book_dir = TEST_DIRS.inbox / "mock_book_multi_book"
+multi_book_series_dir = TEST_DIRS.inbox / "mock_book_multi_book_series"
+series_books = [
+    multi_book_series_dir / "Dawn - Book 1",
+    multi_book_series_dir / "Dusk - Book 3",
+    multi_book_series_dir / "High Noon - Book 2",
+]
 multi_disc_dir = TEST_DIRS.inbox / "mock_book_multi_disc"
 multi_disc_dir_with_extras = TEST_DIRS.inbox / "mock_book_multi_disc_dir_with_extras"
+multi_part_dir = TEST_DIRS.inbox / "mock_book_multi_part"
 multi_nested_dir = TEST_DIRS.inbox / "mock_book_multi_nested"
 standalone_nested_dir = TEST_DIRS.inbox / "mock_book_standalone_nested"
 expect_deep_dirs = [
     flat_nested_dir,
-    multi_book_dir,
+    multi_book_series_dir,
     multi_disc_dir,
     multi_disc_dir_with_extras,
     multi_nested_dir,
+    multi_part_dir,
 ]
+expect_series_dirs = [multi_book_series_dir, *series_books]
 
-expect_all_dirs = isorted(
+expect_all_dirs_no_series = isorted(
     expect_flat_dirs + [mixed_dir] + expect_deep_dirs + [standalone_nested_dir]
 )
+
+expect_all_dirs = isorted(
+    expect_flat_dirs
+    + [mixed_dir]
+    + expect_deep_dirs
+    + expect_series_dirs[1:]
+    + [standalone_nested_dir]
+)
+
+expect_all_book_dirs = [d for d in expect_all_dirs if not d == multi_book_series_dir]
 
 standalone_file1 = TEST_DIRS.inbox / "mock_book_standalone_file_a.mp3"
 standalone_file2 = TEST_DIRS.inbox / "mock_book_standalone_file_b.mp3"
@@ -60,19 +78,25 @@ expect_all = expect_all_dirs + expect_only_standalone_files
     "path, mindepth, maxdepth, expected",
     [
         # fmt: off
-        (TEST_DIRS.inbox, None, None, expect_all_dirs),
-        (TEST_DIRS.inbox, 0, None, expect_all_dirs),
+        (TEST_DIRS.inbox, None, None, expect_all_dirs_no_series),
+        (TEST_DIRS.inbox, 0, None, expect_all_dirs_no_series),
         (TEST_DIRS.inbox, None, 0, []),
         (TEST_DIRS.inbox, 0, 0, []),
         (TEST_DIRS.inbox, 0, 1, expect_flat_dirs + [mixed_dir] + [standalone_nested_dir]),
         (TEST_DIRS.inbox, 1, 1, expect_flat_dirs + [mixed_dir] + [standalone_nested_dir]),
-        (TEST_DIRS.inbox, 1, 2, expect_all_dirs),
+        (TEST_DIRS.inbox, 1, 2, expect_all_dirs_no_series),
         (TEST_DIRS.inbox, 2, 2, [mixed_dir] + expect_deep_dirs),
         # fmt: on
     ],
 )
-def test_find_root_dirs_with_audio_files(
-    path: Path, mindepth: int, maxdepth: int, expected: list[Path], mock_inbox, setup
+def test_find_base_dirs_with_audio_files(
+    path: Path,
+    mindepth: int,
+    maxdepth: int,
+    expected: list[Path],
+    mock_inbox,
+    setup,
+    enable_convert_series,
 ):
     from src.lib.fs_utils import find_base_dirs_with_audio_files
 
@@ -86,17 +110,18 @@ def test_find_root_dirs_with_audio_files(
     [
         *[("flat", d) for d in expect_flat_dirs],
         ("flat_nested", flat_nested_dir),
-        ("multi_book", multi_book_dir),
+        ("multi_book_series", multi_book_series_dir),
         ("multi_disc", multi_disc_dir),
+        ("multi_part", multi_part_dir),
         ("multi_nested", multi_nested_dir),
-        ("mixed", mixed_dir),
+        ("multi_mixed", mixed_dir),
         ("file", standalone_file1),
         ("standalone", standalone_nested_dir),
         ("empty", TEST_DIRS.inbox / "empty_dir"),
     ],
 )
 def test_find_book_audio_files(
-    expected_structure: BookDirStructure,
+    expected_structure: InboxDirStructure,
     path: Path,
     mock_inbox,
     setup,
@@ -106,51 +131,76 @@ def test_find_book_audio_files(
     assert structure == expected_structure
 
 
+@pytest.mark.parametrize(
+    "name, kwargs, expected",
+    [
+        ("include_parents", {"exclude_series_parents": False}, expect_all_dirs),
+        ("exclude_parents", {"exclude_series_parents": True}, expect_all_book_dirs),
+        ("default", {"only_series_parents": False}, expect_all_dirs),
+        ("only_parents", {"only_series_parents": True}, [multi_book_series_dir]),
+    ],
+)
+def test_find_book_dirs_in_inbox(
+    name, kwargs, expected, mock_inbox, setup, enable_convert_series
+):
+    from src.lib.fs_utils import find_book_dirs_in_inbox
+
+    assert find_book_dirs_in_inbox(**kwargs) == expected
+
+
+def test_find_book_dirs_in_inbox_empty_if_series_off(
+    mock_inbox, setup, disable_convert_series
+):
+    from src.lib.fs_utils import find_book_dirs_in_inbox
+
+    assert find_book_dirs_in_inbox(only_series_parents=True) == []
+
+
 @pytest.mark.usefixtures("the_hobbit__multidisc_mp3")
 @pytest.mark.parametrize(
     "test_path, predicted, expected",
     [
         (
-            multi_book_dir,
+            multi_book_series_dir,
             [
-                "mock_book_multi_book - ch. 1.mp3",
-                "mock_book_multi_book - ch. 2.mp3",
-                "mock_book_multi_book - ch. 1.mp3",
-                "mock_book_multi_book - ch. 2.mp3",
-                "mock_book_multi_book - ch. 3.mp3",
-                "mock_book_multi_book - ch. 4.mp3",
-                "mock_book_multi_book - ch. 1.mp3",
-                "mock_book_multi_book - ch. 2.mp3",
-                "mock_book_multi_book - ch. 3.mp3",
+                "mock_book_series - ch. 1.mp3",
+                "mock_book_series - ch. 2.mp3",
+                "mock_book_series - ch. 1.mp3",
+                "mock_book_series - ch. 2.mp3",
+                "mock_book_series - ch. 3.mp3",
+                "mock_book_series - ch. 4.mp3",
+                "mock_book_series - ch. 1.mp3",
+                "mock_book_series - ch. 2.mp3",
+                "mock_book_series - ch. 3.mp3",
             ],
             [
-                "mock_book_multi_book - ch. 1.mp3",
-                "mock_book_multi_book - ch. 2.mp3",
-                "mock_book_multi_book - ch. 3.mp3",
-                "mock_book_multi_book - ch. 4.mp3",
+                "mock_book_series - ch. 1.mp3",
+                "mock_book_series - ch. 2.mp3",
+                "mock_book_series - ch. 3.mp3",
+                "mock_book_series - ch. 4.mp3",
             ],
         ),
         (
             multi_disc_dir,
             [
-                "mock_book_multi_disc1 - part_1.mp3",
-                "mock_book_multi_disc1 - part_2.mp3",
-                "mock_book_multi_disc2 - part_3.mp3",
-                "mock_book_multi_disc2 - part_4.mp3",
-                "mock_book_multi_disc3 - part_5.mp3",
-                "mock_book_multi_disc3 - part_6.mp3",
-                "mock_book_multi_disc4 - part_7.mp3",
-                "mock_book_multi_disc4 - part_8.mp3",
+                "mock_book_multi_disc1 - ch_1.mp3",
+                "mock_book_multi_disc1 - ch_2.mp3",
+                "mock_book_multi_disc2 - ch_3.mp3",
+                "mock_book_multi_disc2 - ch_4.mp3",
+                "mock_book_multi_disc3 - ch_5.mp3",
+                "mock_book_multi_disc3 - ch_6.mp3",
+                "mock_book_multi_disc4 - ch_7.mp3",
+                "mock_book_multi_disc4 - ch_8.mp3",
             ],
             [
-                "mock_book_multi_disc1 - part_1.mp3",
-                "mock_book_multi_disc1 - part_2.mp3",
-                "mock_book_multi_disc2 - part_3.mp3",
-                "mock_book_multi_disc2 - part_4.mp3",
-                "mock_book_multi_disc3 - part_5.mp3",
-                "mock_book_multi_disc3 - part_6.mp3",
-                "mock_book_multi_disc4 - part_7.mp3",
-                "mock_book_multi_disc4 - part_8.mp3",
+                "mock_book_multi_disc1 - ch_1.mp3",
+                "mock_book_multi_disc1 - ch_2.mp3",
+                "mock_book_multi_disc2 - ch_3.mp3",
+                "mock_book_multi_disc2 - ch_4.mp3",
+                "mock_book_multi_disc3 - ch_5.mp3",
+                "mock_book_multi_disc3 - ch_6.mp3",
+                "mock_book_multi_disc4 - ch_7.mp3",
+                "mock_book_multi_disc4 - ch_8.mp3",
             ],
         ),
     ],
@@ -232,7 +282,7 @@ def test_flatten_multidisc_book(
 @pytest.mark.parametrize(
     "test_files, expected",
     [
-        (multi_book_dir, True),
+        (multi_book_series_dir, True),
         (multi_disc_dir, False),
         (multi_disc_dir_with_extras, False),
     ],

@@ -6,9 +6,12 @@ from itertools import combinations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from src.lib.config import cfg
+import cachetools
+import cachetools.func
+
 from src.lib.misc import isorted, re_group
 from src.lib.term import print_debug
+from src.lib.typing import MEMO_TTL
 
 # TODO: Author ignores like "GraphicAudio"
 # TODO: Add test coverage for narrator with /
@@ -24,7 +27,8 @@ part_number_pattern = r",?[-_–—.\s]*?(?:part|ch(?:\.|apter))?[-_–—.\s]*?
 part_number_ignore_pattern = r"(?:\bbook\b|\bvol(?:ume)?)\s*\d+$"
 roman_numeral_pattern = r"((?:^|(?<=[\W_]))[IVXLCDM]+(?:$|(?=[\W_])))"
 multi_disc_pattern = r"(?:^|(?<=[\W_-]))(dis[ck]|cd)(\b|\s|[_.-])*#?(\b|\s|[_.-])*(?:\b|[\W_-])*(\d+)"
-multi_book_pattern = r"(?:^|(?<=[\W_-]))(bo{0,2}k|pa?r?t|vol(?:ume)?|#)(?:\b|[\W_-])*(\d+)"
+multi_book_pattern = r"(?:^|(?<=[\W_-]))(bo{0,2}k|vol(?:ume)?|#)(?:\b|[\W_-])*(\d+)"
+multi_part_pattern = r"(?:^|(?<=[\W_-]))(pa?r?t|ch(?:\.|apter))(?:\b|[\W_-])*(\d+)"
 # fmt: on
 
 
@@ -207,14 +211,9 @@ def get_roman_numerals_dict(*ss: str) -> dict[str, int]:
 
 def find_roman_numerals(d: Path) -> dict[str, int]:
     """Makes a dictionary of all the different roman numerals found in the directory"""
+    from src.lib.fs_utils import only_audio_files
 
-    return get_roman_numerals_dict(
-        *[
-            str(f)
-            for f in d.rglob("*")
-            if any(f.suffix == ext for ext in cfg.AUDIO_EXTS)
-        ]
-    )
+    return get_roman_numerals_dict(*(str(f) for f in only_audio_files(d.rglob("*"))))
 
 
 def count_distinct_roman_numerals(d: Path) -> int:
@@ -254,9 +253,20 @@ def parse_narrator(s: str) -> str:
     return re_group(re.search(narrator_pattern, s, re.I), "narrator").strip()
 
 
+@cachetools.func.ttl_cache(maxsize=32, ttl=MEMO_TTL)
 def is_maybe_multi_book_or_series(s: str) -> bool:
     return not is_maybe_multi_disc(s) and bool(re.search(multi_book_pattern, s, re.I))
 
 
+@cachetools.func.ttl_cache(maxsize=32, ttl=MEMO_TTL)
 def is_maybe_multi_disc(s: str) -> bool:
     return bool(re.search(multi_disc_pattern, s, re.I))
+
+
+@cachetools.func.ttl_cache(maxsize=32, ttl=MEMO_TTL)
+def is_maybe_multi_part(s: str) -> bool:
+    return (
+        not is_maybe_multi_disc(s)
+        and not is_maybe_multi_book_or_series(s)
+        and bool(re.search(multi_part_pattern, s, re.I))
+    )

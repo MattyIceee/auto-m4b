@@ -260,7 +260,7 @@ class test_unhappy_paths:
         app(max_loops=10, no_fix=True, test=True)
 
         msg = "auto-m4b • "
-        assert capfd.readouterr().out.count(msg) == 1
+        assert testutils.get_stdout(capfd).count(msg) == 1
 
     ORDER += 1
 
@@ -280,7 +280,7 @@ class test_unhappy_paths:
         capfd: CaptureFixture[str],
     ):
 
-        with testutils.set_wait_time(2):
+        with testutils.set_wait_time(1):
             # InboxState().flush()
 
             app_task = asyncio.create_task(

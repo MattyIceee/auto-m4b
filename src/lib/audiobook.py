@@ -17,6 +17,7 @@ from src.lib.fs_utils import (
     count_audio_files_in_dir,
     cp_file_to_dir,
     find_book_audio_files,
+    find_book_dirs_for_series,
     find_cover_art_file,
     find_first_audio_file,
     find_next_audio_file,
@@ -76,10 +77,10 @@ class Audiobook(BaseModel):
 
 
     def __str__(self):
-        return f"{self.basename}"
+        return f"{self.key}"
 
     def __repr__(self):
-        return f"{self.basename}"
+        return f"{self.key}"
 
     def extract_path_info(self, quiet: bool = False):
         return extract_path_info(self, quiet)
@@ -105,7 +106,7 @@ class Audiobook(BaseModel):
 
     @property
     def converted_dir(self) -> Path:
-        return cfg.converted_dir.resolve() / self.basename
+        return cfg.converted_dir.resolve() / self.key
 
     @property
     def archive_dir(self) -> Path:
@@ -140,6 +141,19 @@ class Audiobook(BaseModel):
     @property
     def structure(self):
         return find_book_audio_files(self)[0]
+
+    @property
+    def is_series(self):
+        return self.structure == "multi_book_series"
+
+    @property
+    def series_basename(self):
+        d = self.path.relative_to(cfg.inbox_dir)
+        return d.parent if len(d.parts) > 1 and d.parts[-1] == self.basename else d
+
+    @cached_property
+    def num_books_in_series(self):
+        return len(find_book_dirs_for_series(self.inbox_dir))
 
     @cached_property
     def orig_file_type(self):
@@ -184,7 +198,7 @@ class Audiobook(BaseModel):
 
     @property
     def log_filename(self):
-        return f"auto-m4b.{self}.log"
+        return f"auto-m4b.{self.basename}.log"
 
     @property
     def log_file(self) -> Path:
@@ -244,6 +258,10 @@ class Audiobook(BaseModel):
         """The name of the book, including file extension if it is a single file, 
         e.g 'The Book.mp3' or 'The Book' if it is a directory. Equivalent to `<book>.path.name`."""
         return self.path.name
+
+    @property
+    def key(self):
+        return str(self.path.relative_to(cfg.inbox_dir))
 
     @property
     def merge_desc_file(self):

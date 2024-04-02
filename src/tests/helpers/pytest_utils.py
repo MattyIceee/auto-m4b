@@ -113,7 +113,15 @@ class testutils:
     def force_inbox_hash_change(cls, *, delay: int = 0, age: float = 0.5):
         time.sleep(delay)
         cls.print(f"Forcing hash change for inbox")
-        InboxState()._hashes[0] = ("fake-hash", time.time() - age)
+        str_age = f"-{age}s" if age > 0 else f"+{abs(age)}s"
+
+        new_hash = (
+            f"forcing-change {str_age}",
+            time.time() - age,
+        )
+        inbox = InboxState()
+        inbox._hashes.insert(0, new_hash)
+        inbox._last_run = new_hash
 
     @classmethod
     def rename_files(
@@ -159,6 +167,21 @@ class testutils:
         cls.print("Disabling autoflatten")
         os.environ["FLATTEN_MULTI_DISC_BOOKS"] = "N"
         cfg.FLATTEN_MULTI_DISC_BOOKS = False
+
+    @classmethod
+    def enable_convert_series(cls, delay: int = 0):
+
+        time.sleep(delay)
+        cls.print("Enabling convert series")
+        os.environ["CONVERT_SERIES"] = "Y"
+        cfg.CONVERT_SERIES = True
+
+    @classmethod
+    def disable_convert_series(cls, delay: int = 0):
+        time.sleep(delay)
+        cls.print("Disabling convert series")
+        os.environ["CONVERT_SERIES"] = "N"
+        cfg.CONVERT_SERIES = False
 
     @classmethod
     def enable_backups(cls, delay: int = 0):
@@ -230,9 +253,13 @@ class testutils:
     def get_all_processed_books(cls, s: str) -> list[str]:
         return list(
             set(
-                re.findall(
-                    rf"Source folder: {TEST_DIRS.inbox}/(?P<book_name>\w.*)(?!=\\n)", s
-                )
+                [
+                    "".join("".join(p.split("\n")).split())
+                    for p in re.findall(
+                        rf"Source: {TEST_DIRS.inbox}/(?P<book_key>\w.*\n?(?!- Output:).*)",
+                        s,
+                    )
+                ]
             )
         )
 
@@ -249,11 +276,15 @@ class testutils:
             out = cls.get_stdout(out)
 
         processed = cls.get_all_processed_books(out)
-        did_process_all = all([book.basename in processed for book in books])
+        did_process_all = all([book.key in processed for book in books])
         ok = did_process_all and len(processed) == len(books)
+        books_list = (
+            "\n - " + "\n - ".join([book.key for book in books]) if books else ""
+        )
+        processed_list = "\n - " + "\n - ".join(processed) if processed else ""
         assert (
             ok
-        ), f"Expected ({len(books)}) {books} to be processed, but got ({len(processed)}) {processed}"
+        ), f"Expected {len(books)} to be converted: {books_list}\n\nGot {len(processed)}: {processed_list}"
         if found is not None:
             try:
                 assert out.count(f"Found {found[0]} book") == found[1]

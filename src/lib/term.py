@@ -246,10 +246,28 @@ def nl(num_newlines=1):
 
 vline = "|"
 hline = "-"
+dot = "•"
 
 
-def border(book_name_len: int):
-    return smart_print("•" + hline * (book_name_len + 2) + "•", color=DARK_GREY_COLOR)
+def border(book_name_len: int, l: str = dot, c: str = hline, r: str = dot):
+    return smart_print(l + c * (book_name_len + 2) + r, color=DARK_GREY_COLOR)
+
+
+def box(*s: str, color: int | str = DEFAULT_COLOR):
+    content = "".join(s)
+    lines = content.split("\n")
+    max_len = max(len(Tinta.strip_ansi(l)) for l in lines)
+    border(max_len + 2, l="╭", c="╌", r="╮")
+    for l in lines:
+        # pad the line with spaces to match the max length
+        smart_print(
+            Tinta()
+            .dark_grey("││")
+            .tint(color, Tinta.ljust(l, max_len))
+            .dark_grey("││")
+            .to_str()
+        )
+    border(max_len + 2, l="╰", c="╌", r="╯")
 
 
 def print_grey(*args: Any, highlight_color: int | None = LIGHT_GREY_COLOR):
@@ -437,7 +455,7 @@ def divider(lead: str = "", color: int = DARK_GREY_COLOR, width: int = 90):
     smart_print(lead + ("-" * width), color=color)
 
 
-def fmt_linebreak_path(path: Path, limit: int = 120, indent: int = 0) -> str:
+def linebreak_path(path: Path, *, indent: int = 0, limit: int = -1) -> str:
     """Split a path string into multiple lines if it exceeds the limit. Returns a string.
     Args:
         path (str): The path to split
@@ -455,6 +473,9 @@ def fmt_linebreak_path(path: Path, limit: int = 120, indent: int = 0) -> str:
         ```"""
 
     output = ""
+
+    if limit < 0:
+        limit = max_term_width(indent)
 
     if len(path.parts) < 2:
         return str(path)
@@ -495,3 +516,8 @@ def max_term_width(indent: int = 0):
     except OSError:
         tw = 120
     return min(120, tw) - indent
+
+
+def wrap_brackets(*s: str) -> str:
+    inner = "".join(s)
+    return f" ({inner})" if inner else ""

@@ -7,7 +7,7 @@ from pytest import CaptureFixture
 from src.auto_m4b import app
 from src.lib.audiobook import Audiobook
 from src.lib.config import OnComplete
-from src.lib.fs_utils import find_book_dirs_in_inbox
+from src.lib.fs_utils import find_book_dirs_for_series, find_book_dirs_in_inbox
 from src.lib.inbox_state import InboxState
 from src.lib.misc import re_group
 from src.tests.helpers.pytest_utils import testutils
@@ -81,6 +81,31 @@ class test_happy_paths:
             capfd, old_mill__multidisc_mp3, found=(1, 1), converted=1
         )
         assert old_mill__multidisc_mp3.converted_dir.exists()
+
+    def test_convert_multi_book_series_mp3(
+        self,
+        chanur_series__multi_book_series_mp3: Audiobook,
+        enable_convert_series,
+        capfd: CaptureFixture[str],
+    ):
+
+        app(max_loops=1, no_fix=True, test=True)
+        out = testutils.get_stdout(capfd)
+        child_books = list(
+            map(
+                Audiobook,
+                find_book_dirs_for_series(
+                    chanur_series__multi_book_series_mp3.inbox_dir
+                ),
+            )
+        )
+        assert testutils.assert_only_processed_books(
+            out, *child_books, found=(5, 1), converted=5
+        )
+        assert out.count("Book Series •••••")
+        assert chanur_series__multi_book_series_mp3.converted_dir.exists()
+        for book in child_books:
+            assert book.converted_dir.exists()
 
     @pytest.mark.parametrize(
         "partial_flatten_backup_dirs",

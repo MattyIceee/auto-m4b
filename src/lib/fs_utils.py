@@ -10,7 +10,11 @@ from typing import Any, cast, Literal, NamedTuple, overload, TYPE_CHECKING
 from src.lib.config import AUDIO_EXTS, cfg
 from src.lib.formatters import friendly_date, human_size
 from src.lib.misc import isorted, try_get_stat_mtime
-from src.lib.parsers import is_maybe_multi_book_or_series, is_maybe_multi_disc
+from src.lib.parsers import (
+    is_maybe_multi_book_or_series,
+    is_maybe_multi_disc,
+    is_maybe_multi_part,
+)
 from src.lib.term import (
     print_error,
     print_grey,
@@ -18,10 +22,10 @@ from src.lib.term import (
     print_warning,
 )
 from src.lib.typing import (
-    BookDirMap,
-    BookDirStructure,
     BookHashesDict,
     copy_kwargs_omit_first_arg,
+    InboxDirMap,
+    InboxDirStructure,
     Operation,
     OVERWRITE_MODES,
     OverwriteMode,
@@ -225,10 +229,10 @@ def check_src_dst(
     src_type: PathType,
     dst: Path,
     dst_type: PathType,
-    overwrite_mode: OverwriteMode = "skip",
+    overwrite_mode: OverwriteMode | None = None,
 ):
     # valid overwrite modes are "skip" (default), "overwrite", and "overwrite-silent"
-    if overwrite_mode not in OVERWRITE_MODES:
+    if overwrite_mode and overwrite_mode not in OVERWRITE_MODES:
         raise ValueError("Invalid overwrite mode")
 
     # if dst should be dir but does not exist, try to create it
@@ -450,10 +454,7 @@ def _mv_or_copy_dir(
     """
 
     # check that both are dirs:
-    if not src_dir.is_dir():
-        raise NotADirectoryError(f"Source {src_dir} is not a directory")
-    if not dst_dir.is_dir():
-        raise NotADirectoryError(f"Destination {dst_dir} is not a directory")
+    check_src_dst(src_dir, "dir", dst_dir, "dir", overwrite_mode)
 
     # check that src_dir.name and dst_dir.name are not the same, if they are, append src_dir.name to dst_dir
     if src_dir.name == dst_dir.name:
@@ -488,11 +489,7 @@ def mv_file_to_dir(
     new_filename: str | None = None,
     overwrite_mode: OverwriteMode | None = None,
 ) -> None:
-    # Check source and destination
-    if not source_file.is_file():
-        raise FileNotFoundError(f"Source file {source_file} does not exist")
-    if not dst_dir.is_dir():
-        raise NotADirectoryError(f"Destination {dst_dir} is not a directory")
+    check_src_dst(source_file, "file", dst_dir, "dir", overwrite_mode)
 
     dst = dst_dir if new_filename is None else dst_dir / new_filename
 
@@ -514,12 +511,7 @@ def cp_file_to_dir(
     overwrite_mode: OverwriteMode | None = None,
 ) -> None:
     # Check source and destination
-    if not source_file.is_file():
-        raise FileNotFoundError(f"Source file {source_file} does not exist")
-    if not dst_dir.is_dir():
-        dst_dir.mkdir(parents=True, exist_ok=True)
-        if not dst_dir.is_dir():
-            raise NotADirectoryError(f"Destination {dst_dir} is not a directory")
+    check_src_dst(source_file, "file", dst_dir, "dir", overwrite_mode)
 
     dst_file = dst_dir / new_filename if new_filename else dst_dir / source_file.name
 
@@ -652,10 +644,42 @@ def find_base_dirs_with_audio_files(
     return list(isorted(all_roots_with_audio_files))
 
 
-def find_book_dirs_in_inbox():
+def find_book_dirs_in_inbox(
+    exclude_series_parents: bool = False, only_series_parents: bool = False
+):
     from src.lib.config import cfg
 
-    return find_base_dirs_with_audio_files(cfg.inbox_dir, mindepth=1)
+    if all([only_series_parents, exclude_series_parents]):
+        raise ValueError(
+            "`exclude_series_parents` and `only_series_parents` cannot both be True"
+        )
+
+    book_dirs = find_base_dirs_with_audio_files(cfg.inbox_dir, mindepth=1)
+
+    if not cfg.CONVERT_SERIES:
+        return [] if only_series_parents else book_dirs
+
+    books_info = [(d, *find_book_audio_files(d)) for d in book_dirs]
+    # look in each book dir to see if it is maybe a multi-book series
+    for path, structure, _ in books_info.copy():
+        if structure == "multi_book_series":
+            if only_series_parents:
+                continue
+            parent_idx = book_dirs.index(path)
+            series_book_dirs = find_base_dirs_with_audio_files(path, mindepth=1)
+            # splice the series book dirs into the main list
+            book_dirs[parent_idx + 1 : parent_idx + 1] = series_book_dirs
+            if exclude_series_parents:
+                book_dirs.remove(path)
+        elif only_series_parents:
+            book_dirs.remove(path)
+
+    return book_dirs
+
+
+def find_book_dirs_for_series(parent_dir: Path):
+
+    return find_base_dirs_with_audio_files(parent_dir, mindepth=1)
 
 
 def find_standalone_books_in_inbox():
@@ -674,7 +698,7 @@ def find_books_in_inbox():
 
 def find_book_audio_files(
     book: "Audiobook | Path",
-) -> tuple[BookDirStructure, BookDirMap]:
+) -> tuple[InboxDirStructure, InboxDirMap]:
     """Given a book directory, returns a tuple of the book's directory structure type, and a map of the book's audio files."""
     from src.lib.config import cfg
 
@@ -694,7 +718,7 @@ def find_book_audio_files(
     if len(all_audio_files) == 1:
         return ("standalone", [(all_audio_files[0],)])
 
-    root_audio_files_tuples: BookDirMap = [(f,) for f in root_audio_files]
+    root_audio_files_tuples: InboxDirMap = [(f,) for f in root_audio_files]
 
     if len(root_audio_files) == len(all_audio_files):
         return ("flat", root_audio_files_tuples)
@@ -720,21 +744,22 @@ def find_book_audio_files(
             ],
         )
 
-    # if audio files exist in more than one level, return the structure as "mixed"
+    # if audio files exist in more than one level, return the structure as "multi_mixed"
     number_of_different_levels = len(
         set([len(f.relative_to(path).parts) for f in all_audio_files])
     )
     if number_of_different_levels > 1:
-        nested_dirs_tuples: BookDirMap = [
+        nested_dirs_tuples: InboxDirMap = [
             (d, nested_audio_files_dict[d]) for d in nested_audio_files_dict
         ]
         return (
-            "mixed",
-            cast(BookDirMap, root_audio_files_tuples + nested_dirs_tuples),
+            "multi_mixed",
+            cast(InboxDirMap, root_audio_files_tuples + nested_dirs_tuples),
         )
 
-    multi_disc = any(is_maybe_multi_disc(d.name) for d in nested_audio_dirs)
     multi_book = any(is_maybe_multi_book_or_series(d.name) for d in nested_audio_dirs)
+    multi_disc = any(is_maybe_multi_disc(d.name) for d in nested_audio_dirs)
+    multi_part = any(is_maybe_multi_part(d.name) for d in nested_audio_dirs)
 
     file_map = [
         *[(f,) for f in root_audio_files],
@@ -744,15 +769,17 @@ def find_book_audio_files(
         ],
     ]
 
-    struc: BookDirStructure
-    if multi_disc:
+    struc: InboxDirStructure
+    if multi_book:
+        struc = "multi_book_series"
+    elif multi_disc:
         struc = "multi_disc"
-    elif multi_book:
-        struc = "multi_book"
+    elif multi_part:
+        struc = "multi_part"
     elif len(nested_audio_dirs) > 0 and number_of_different_levels == 1:
         struc = "multi_nested"
     else:
-        struc = "mixed"
+        struc = "multi_mixed"
 
     return (
         struc,
