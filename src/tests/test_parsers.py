@@ -511,6 +511,8 @@ def test_is_maybe_multi_part(test_case, expected):
         ("#1", True),
         ("#1", True),
         ("# 1", True),
+        ("01 - Pride Of Chanur", True),
+        ("Old Man's War Series/Old Man's War - John Scalzi", True),
         ("Aleron Kong - The Land Alliances (Chaos Seeds #3)", True),
         ("# 3 (Chaos Seeds) - Aleron Kong - The Land Alliances", True),
         ("The Land Alliances (Chaos Seeds #3) - Aleron Kong", True),

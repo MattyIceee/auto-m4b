@@ -27,7 +27,7 @@ part_number_pattern = r",?[-_–—.\s]*?(?:part|ch(?:\.|apter))?[-_–—.\s]*?
 part_number_ignore_pattern = r"(?:\bbook\b|\bvol(?:ume)?)\s*\d+$"
 roman_numeral_pattern = r"((?:^|(?<=[\W_]))[IVXLCDM]+(?:$|(?=[\W_])))"
 multi_disc_pattern = r"(?:^|(?<=[\W_-]))(dis[ck]|cd)(\b|\s|[_.-])*#?(\b|\s|[_.-])*(?:\b|[\W_-])*(\d+)"
-multi_book_pattern = r"(?:^|(?<=[\W_-]))(bo{0,2}k|vol(?:ume)?|#)(?:\b|[\W_-])*(\d+)"
+book_series_pattern = r"(^\d+|(?:^|(?<=[\W_-]))(bo{0,2}k|vol(?:ume)?|#)(?:\b|[\W_-])*(\d+)|(?<=[\W_-])Series.*/.+)"
 multi_part_pattern = r"(?:^|(?<=[\W_-]))(pa?r?t|ch(?:\.|apter))(?:\b|[\W_-])*(\d+)"
 # fmt: on
 
@@ -255,7 +255,7 @@ def parse_narrator(s: str) -> str:
 
 @cachetools.func.ttl_cache(maxsize=32, ttl=MEMO_TTL)
 def is_maybe_multi_book_or_series(s: str) -> bool:
-    return not is_maybe_multi_disc(s) and bool(re.search(multi_book_pattern, s, re.I))
+    return not is_maybe_multi_disc(s) and bool(re.search(book_series_pattern, s, re.I))
 
 
 @cachetools.func.ttl_cache(maxsize=32, ttl=MEMO_TTL)

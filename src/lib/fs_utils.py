@@ -757,9 +757,23 @@ def find_book_audio_files(
             cast(InboxDirMap, root_audio_files_tuples + nested_dirs_tuples),
         )
 
-    multi_book = any(is_maybe_multi_book_or_series(d.name) for d in nested_audio_dirs)
     multi_disc = any(is_maybe_multi_disc(d.name) for d in nested_audio_dirs)
     multi_part = any(is_maybe_multi_part(d.name) for d in nested_audio_dirs)
+    book_series = False
+
+    if not multi_disc and not multi_part:
+        if not (
+            book_series := any(
+                is_maybe_multi_book_or_series(d.name) for d in nested_audio_dirs
+            )
+        ):
+            nested_basenames = [
+                str(d.relative_to(cfg.inbox_dir)) for d in nested_audio_dirs
+            ]
+            if any("series" in str(d).lower() for d in nested_basenames):
+                book_series = any(
+                    is_maybe_multi_book_or_series(b) for b in nested_basenames
+                )
 
     file_map = [
         *[(f,) for f in root_audio_files],
@@ -770,7 +784,7 @@ def find_book_audio_files(
     ]
 
     struc: InboxDirStructure
-    if multi_book:
+    if book_series:
         struc = "multi_book_series"
     elif multi_disc:
         struc = "multi_disc"

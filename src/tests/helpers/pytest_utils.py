@@ -14,6 +14,7 @@ from src.lib.config import cfg, OnComplete
 from src.lib.formatters import human_elapsed_time
 from src.lib.fs_utils import flatten_files_in_dir, inbox_last_updated_at
 from src.lib.inbox_state import InboxState
+from src.lib.misc import re_group
 from src.lib.typing import ENV_DIRS
 from src.tests.conftest import TEST_DIRS
 
@@ -250,18 +251,21 @@ class testutils:
         return d
 
     @classmethod
-    def get_all_processed_books(cls, s: str) -> list[str]:
-        return list(
-            set(
-                [
-                    "".join("".join(p.split("\n")).split())
-                    for p in re.findall(
-                        rf"Source: {TEST_DIRS.inbox}/(?P<book_key>\w.*\n?(?!- Output:).*)",
-                        s,
-                    )
-                ]
-            )
-        )
+    def get_all_processed_books(
+        cls, s: str, *, root_dir: Path = TEST_DIRS.inbox
+    ) -> list[str]:
+        lines = s.split("\n")
+        books = []
+        for i, line in enumerate(lines):
+            if line.startswith("- Source: "):
+                src = re_group(
+                    re.search(rf"- Source: {root_dir}/(?P<book_key>.*$)", line),
+                    "book_key",
+                )
+                if not lines[i + 1].startswith("- Output: "):
+                    src = f"{src}{lines[i + 1].strip()}"
+                books.append(src)
+        return books
 
     @classmethod
     def assert_only_processed_books(

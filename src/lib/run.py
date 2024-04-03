@@ -143,18 +143,35 @@ def print_banner():
     inbox.banner_printed = True
 
 
-def print_book_header(book: Audiobook):
+def print_book_series_header(book: InboxItem | None):
+    if not book or (
+        not (parent := book.series_parent) or not parent.is_maybe_series_parent
+    ):
+        return
 
-    if book.is_series:
-        box(
-            Tinta()
-            .pink(f"Book Series {'•'*book.num_books_in_series}\n")
-            .grey(book.basename)
-            # .dark_grey(f"Converting {in_series}")
-            .to_str(sep="")
-        )
-    else:
-        box(book.basename, color="aqua")
+    pink_dots = Tinta()
+    for path in parent.series_books:
+        if path == book.path:
+            pink_dots.light_pink("•")
+        else:
+            pink_dots.dark_pink("•")
+
+    box(
+        Tinta()
+        .pink(f"Book Series {pink_dots.to_str(sep='')}\n")
+        .grey(parent.basename)
+        .to_str(sep="")
+    )
+
+
+def print_book_header(book: InboxItem | None):
+
+    if not book:
+        return
+    print_book_series_header(book)
+    if book.is_maybe_series_parent:
+        return
+    box(book.basename, color="aqua")
 
 
 def print_book_done(b: int, book: Audiobook, elapsedtime: int):
@@ -786,7 +803,7 @@ def process_book(b: int, item: InboxItem):
 
     inbox = InboxState()
     book = Audiobook(item.path)
-    print_book_header(book)
+    print_book_header(item)
 
     if not item.path.exists():
         print_notice(
@@ -815,7 +832,7 @@ def process_book(b: int, item: InboxItem):
     if not can_process_multi_dir(book):
         return b
 
-    if book.is_series:
+    if book.is_maybe_series_parent:
         return b
 
     if not can_process_roman_numeral_book(book):

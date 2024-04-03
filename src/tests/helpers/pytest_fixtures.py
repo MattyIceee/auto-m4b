@@ -52,8 +52,17 @@ def reset_match_filter():
     InboxState().set_match_filter(orig_cfg_match_filter)
 
 
+@pytest.fixture(scope="function", params=[("fixture_name")])
+def indirect_fixture(request: pytest.FixtureRequest):
+    return request.getfixturevalue(request.param)
+
+
 def load_test_fixture(
-    name: str, *, exclusive: bool = False, override_name: str | None = None
+    name: str,
+    *,
+    exclusive: bool = False,
+    override_name: str | None = None,
+    match_filter: str | None = None,
 ):
     src = FIXTURES_ROOT / name
     if not src.exists():
@@ -75,13 +84,27 @@ def load_test_fixture(
         if f.is_file() and not src_f.exists():
             f.unlink()
 
-    if exclusive:
-        os.environ["MATCH_NAME"] = name
+    if exclusive or match_filter is not None:
+        testutils.set_match_filter(match_filter or name)
 
     converted_dir = TEST_DIRS.converted / (override_name or name)
     shutil.rmtree(converted_dir, ignore_errors=True)
 
     return Audiobook(dst)
+
+
+def load_test_fixtures(
+    *names: str,
+    exclusive: bool = False,
+    override_names: list[str] | None = None,
+    match_filter: str | None = None,
+):
+    if exclusive:
+        match_filter = match_filter or rf"^({'|'.join(override_names or names)})"
+    return [
+        load_test_fixture(name, override_name=override, match_filter=match_filter)
+        for (name, override) in zip(names, override_names or names)
+    ]
 
 
 @pytest.fixture(scope="function")
@@ -125,21 +148,22 @@ def tower_treasure__nested_mp3():
     return load_test_fixture("tower_treasure__nested_mp3", exclusive=True)
 
 
-@pytest.fixture(scope="function")
-def tower_treasure__all():
-    return [
-        load_test_fixture("tower_treasure__flat_mp3"),
-        load_test_fixture("old_mill__multidisc_mp3"),
-        load_test_fixture("tower_treasure__nested_mp3"),
-    ]
+# @pytest.fixture(scope="function")
+# def tower_treasure__all():
+#     return [
+#         load_test_fixture("tower_treasure__flat_mp3"),
+#         load_test_fixture("old_mill__multidisc_mp3"),
+#         load_test_fixture("tower_treasure__nested_mp3"),
+#     ]
 
 
 @pytest.fixture(scope="function")
 def hardy_boys__flat_mp3():
-    return [
-        load_test_fixture("tower_treasure__flat_mp3"),
-        load_test_fixture("house_on_the_cliff__flat_mp3"),
-    ]
+    return load_test_fixtures(
+        "tower_treasure__flat_mp3",
+        "house_on_the_cliff__flat_mp3",
+        match_filter="^(tower|house)",
+    )
 
 
 @pytest.fixture(scope="function")
@@ -167,8 +191,18 @@ def secret_project_series__nested_flat_mixed():
 
 
 @pytest.fixture(scope="function")
-def chanur_series__multi_book_series_mp3():
-    return load_test_fixture("chanur_series__multi_book_series_mp3", exclusive=True)
+def Chanur_Series(clean_inbox_state):
+    series = "Chanur Series"
+    return load_test_fixtures(
+        series,
+        f"{series}/01 - Pride Of Chanur",
+        f"{series}/02 - Chanur's Venture",
+        f"{series}/03 - Kif Strikes Back",
+        f"{series}/04 - Chanur's Homecoming",
+        f"{series}/05 - Chanur's Legacy",
+        exclusive=True,
+        match_filter=("^(chanur)"),
+    )
 
 
 @pytest.fixture(scope="function", autouse=False)
@@ -272,6 +306,20 @@ def corrupt_audiobook():
     shutil.rmtree(TEST_DIRS.working / "build" / "corrupt_audiobook", ignore_errors=True)
     shutil.rmtree(TEST_DIRS.working / "fix" / "corrupt_audiobook", ignore_errors=True)
     shutil.rmtree(TEST_DIRS.working / "merge" / "corrupt_audiobook", ignore_errors=True)
+
+
+@pytest.fixture(scope="function", autouse=False)
+def test_out_chanur_txt():
+    """Loads 'test_out_chanur.txt' from the fixtures directory."""
+    with open(FIXTURES_ROOT / "test_out_chanur.txt", "r") as f:
+        yield f.read()
+
+
+@pytest.fixture(scope="function", autouse=False)
+def test_out_tower_txt():
+    """Loads 'test_out_tower.txt' from the fixtures directory."""
+    with open(FIXTURES_ROOT / "test_out_tower.txt", "r") as f:
+        yield f.read()
 
 
 @pytest.fixture(scope="function", autouse=False)
@@ -503,3 +551,12 @@ def enable_backups():
     testutils.enable_backups()
     yield
     testutils.disable_backups()
+
+
+@pytest.fixture(scope="function", autouse=False)
+def clean_inbox_state():
+    inbox = InboxState()
+    inbox.destroy()
+    inbox.scan()
+    yield inbox
+    inbox.destroy()

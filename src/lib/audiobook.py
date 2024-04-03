@@ -3,6 +3,8 @@ from math import floor
 from pathlib import Path
 from typing import cast, Literal, overload
 
+import cachetools
+import cachetools.func
 from pydantic import BaseModel
 
 from src.lib.config import cfg
@@ -17,7 +19,6 @@ from src.lib.fs_utils import (
     count_audio_files_in_dir,
     cp_file_to_dir,
     find_book_audio_files,
-    find_book_dirs_for_series,
     find_cover_art_file,
     find_first_audio_file,
     find_next_audio_file,
@@ -75,7 +76,6 @@ class Audiobook(BaseModel):
         self.path = path
         self._active_dir = get_dir_name_from_path(path)
 
-
     def __str__(self):
         return f"{self.key}"
 
@@ -94,7 +94,7 @@ class Audiobook(BaseModel):
 
     @property
     def backup_dir(self) -> Path:
-        return cfg.backup_dir.resolve() / self.basename
+        return cfg.backup_dir.resolve() / self.key
 
     @property
     def build_dir(self) -> Path:
@@ -110,7 +110,7 @@ class Audiobook(BaseModel):
 
     @property
     def archive_dir(self) -> Path:
-        return cfg.archive_dir.resolve() / self.basename
+        return cfg.archive_dir.resolve() / self.key
 
     @property
     def merge_dir(self) -> Path:
@@ -133,27 +133,42 @@ class Audiobook(BaseModel):
         return find_next_audio_file(self.sample_audio1)
 
     def last_updated_at(self, for_dir: DirName = "inbox"):
-        return last_updated_at(getattr(self, for_dir + "_dir"), only_file_exts=cfg.AUDIO_EXTS)
+        return last_updated_at(
+            getattr(self, for_dir + "_dir"), only_file_exts=cfg.AUDIO_EXTS
+        )
 
     def hash(self, for_dir: DirName = "inbox"):
         return hash_path_audio_files(getattr(self, for_dir + "_dir"))
 
-    @property
+    @cached_property
     def structure(self):
         return find_book_audio_files(self)[0]
 
     @property
-    def is_series(self):
-        return self.structure == "multi_book_series"
+    def is_maybe_series_book(self):
+        # return self.structure == "multi_book_series"
+        return self._inbox_item.is_maybe_series_book if self._inbox_item else False
+
+    @property
+    def is_maybe_series_parent(self):
+        return self._inbox_item.is_maybe_series_parent if self._inbox_item else False
+
+    @property
+    def series_parent(self):
+        return self._inbox_item.series_parent if self._inbox_item else None
+
+    @property
+    def series_books(self):
+        return self._inbox_item.series_books if self._inbox_item else None
 
     @property
     def series_basename(self):
-        d = self.path.relative_to(cfg.inbox_dir)
-        return d.parent if len(d.parts) > 1 and d.parts[-1] == self.basename else d
+        return self._inbox_item.series_basename if self._inbox_item else None
 
-    @cached_property
+    @cachetools.func.ttl_cache(maxsize=6, ttl=20)
+    @property
     def num_books_in_series(self):
-        return len(find_book_dirs_for_series(self.inbox_dir))
+        return self._inbox_item.num_books_in_series if self._inbox_item else -1
 
     @cached_property
     def orig_file_type(self):
@@ -222,7 +237,7 @@ class Audiobook(BaseModel):
 
     @property
     def active_dir(self) -> Path:
-        return getattr(self, f"{self._active_dir or "inbox"}_dir")
+        return getattr(self, f"{self._active_dir or 'inbox'}_dir")
 
     @property
     def author(self):
@@ -255,13 +270,20 @@ class Audiobook(BaseModel):
 
     @property
     def basename(self):
-        """The name of the book, including file extension if it is a single file, 
-        e.g 'The Book.mp3' or 'The Book' if it is a directory. Equivalent to `<book>.path.name`."""
+        """The name of the book, including file extension if it is a single file,
+        e.g 'The Book.mp3' or 'The Book' if it is a directory. Equivalent to `<book>.path.name`.
+        """
         return self.path.name
 
     @property
     def key(self):
         return str(self.path.relative_to(cfg.inbox_dir))
+
+    @property
+    def _inbox_item(self):
+        from src.lib.inbox_state import InboxState
+
+        return InboxState().get(self.key)
 
     @property
     def merge_desc_file(self):
@@ -310,4 +332,3 @@ Original duration: {self.duration("inbox", "human")}
             if k.startswith("_") or v is None or v == "":
                 continue
             print(f"- {k}: {v}")
-

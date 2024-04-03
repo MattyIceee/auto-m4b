@@ -20,26 +20,22 @@ class test_happy_paths:
     def setup(self, reset_inbox_state):
         yield
 
-    book_fixure = [("book_fixture")]
-
-    @pytest.fixture(scope="function", params=book_fixure)
-    def book(self, request: pytest.FixtureRequest):
-        return request.getfixturevalue(request.param)
-
     @pytest.mark.parametrize(
-        "book, capfd",
+        "indirect_fixture, capfd",
         [
             ("tower_treasure__flat_mp3", "capfd"),
             ("house_on_the_cliff__flat_mp3", "capfd"),
         ],
-        indirect=["book", "capfd"],
+        indirect=["indirect_fixture", "capfd"],
     )
-    def test_basic_book_mp3(self, book: Audiobook, capfd: CaptureFixture[str]):
+    def test_basic_book_mp3(
+        self, indirect_fixture: Audiobook, capfd: CaptureFixture[str]
+    ):
         app(max_loops=1, no_fix=True, test=True)
         assert testutils.assert_only_processed_books(
-            capfd, book, found=(1, 1), converted=1
+            capfd, indirect_fixture, found=(1, 1), converted=1
         )
-        assert book.converted_dir.exists()
+        assert indirect_fixture.converted_dir.exists()
 
     def test_match_filter_multiple_mp3s(
         self,
@@ -82,28 +78,27 @@ class test_happy_paths:
         )
         assert old_mill__multidisc_mp3.converted_dir.exists()
 
-    def test_convert_multi_book_series_mp3(
+    def test_convert_book_series_mp3(
         self,
-        chanur_series__multi_book_series_mp3: Audiobook,
+        Chanur_Series: list[Audiobook],
         enable_convert_series,
         capfd: CaptureFixture[str],
     ):
 
         app(max_loops=1, no_fix=True, test=True)
         out = testutils.get_stdout(capfd)
+        series = Chanur_Series[0]
         child_books = list(
             map(
                 Audiobook,
-                find_book_dirs_for_series(
-                    chanur_series__multi_book_series_mp3.inbox_dir
-                ),
+                find_book_dirs_for_series(series.inbox_dir),
             )
         )
         assert testutils.assert_only_processed_books(
             out, *child_books, found=(5, 1), converted=5
         )
         assert out.count("Book Series •••••")
-        assert chanur_series__multi_book_series_mp3.converted_dir.exists()
+        assert series.converted_dir.exists()
         for book in child_books:
             assert book.converted_dir.exists()
 

@@ -6,12 +6,15 @@ from functools import cached_property, wraps
 from pathlib import Path
 from typing import Any, cast, Literal
 
+import cachetools
+
 from src.lib.audiobook import Audiobook
 from src.lib.formatters import human_elapsed_time, human_size
 from src.lib.fs_utils import (
     count_audio_files_in_inbox,
     count_standalone_books_in_inbox,
     find_base_dirs_with_audio_files,
+    find_book_dirs_for_series,
     find_book_dirs_in_inbox,
     find_books_in_inbox,
     find_standalone_books_in_inbox,
@@ -20,7 +23,7 @@ from src.lib.fs_utils import (
     last_updated_audio_files_at,
     name_matches,
 )
-from src.lib.misc import singleton
+from src.lib.misc import isorted, singleton
 from src.lib.parsers import is_maybe_multi_book_or_series
 from src.lib.term import print_debug
 
@@ -77,6 +80,18 @@ def scanner(func: Callable[..., Any]):
         result = func(*args, **kwargs)
         hasher.scan()
         return result
+
+    return wrapper
+
+
+def requires_scan(func: Callable[..., Any]):
+    """A decorator that ensures the path of a Hasher object has been scanned before calling the decorated function."""
+
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        hasher = cast(Hasher, args[0])
+        hasher.scan()
+        return func(*args, **kwargs)
 
     return wrapper
 
@@ -265,14 +280,21 @@ class InboxItem:
     def __eq__(self, other):
         return self.key == other.key
 
+    def __hash__(self):
+        return self.key.__hash__()
+
     def reload(self):
         self = InboxItem(self.path)
 
-    @property
+    @cached_property
     def path(self) -> Path:
         from src.lib.config import cfg
 
         return cfg.inbox_dir / self.key
+
+    @cached_property
+    def basename(self):
+        return self.path.name
 
     @property
     def hash(self):
@@ -348,6 +370,45 @@ class InboxItem:
             ]
         )
 
+    @cached_property
+    def series_parent(self):
+        inbox = InboxState()
+        if not self.is_maybe_series_book:
+            return None
+        return inbox.get(self.series_key)
+
+    @property
+    def series_books(self):
+        return isorted(find_book_dirs_for_series(self.path))
+
+    @cached_property
+    def series_key(self):
+        from src.lib.config import cfg
+
+        return (
+            str(self.path.relative_to(cfg.inbox_dir).parent)
+            if self.is_maybe_series_book
+            else None
+        )
+
+    @cached_property
+    def series_basename(self):
+        from src.lib.config import cfg
+
+        d = self.path.relative_to(cfg.inbox_dir)
+        return (
+            str(d.parent)
+            if len(d.parts) > 1 and d.parts[-1] == self.basename
+            else str(d)
+        )
+
+    @property
+    @cachetools.func.ttl_cache(maxsize=6, ttl=10)
+    def num_books_in_series(self):
+        if not self.is_maybe_series_parent:
+            return -1
+        return len(self.series_books)
+
     @property
     def did_change(self) -> bool:
         return (
@@ -402,9 +463,26 @@ class InboxState(Hasher):
         if status:
             self._items[item.key].status = status
 
-    def get(self, key_path_or_book: str | Path | Audiobook) -> InboxItem | None:
-        return self._items.get(get_key(key_path_or_book), None)
+    @requires_scan
+    def get(
+        self, key_path_hash_or_book: str | Path | Audiobook | None
+    ) -> InboxItem | None:
+        if not key_path_hash_or_book:
+            return None
+        key = get_key(key_path_hash_or_book)
+        simple = self._items.get(key, None)
+        if simple:
+            return simple
+        return next(
+            (
+                item
+                for item in self._items.values()
+                if key in [item.key, item.hash, item.path]
+            ),
+            None,
+        )
 
+    @requires_scan
     def get_from_hash(self, hash: str):
         return next(
             (
@@ -421,9 +499,21 @@ class InboxState(Hasher):
             return
         self._items.pop(key, None)
 
-    def scan(self):
+    def scan(self, *paths: str | Path):
+        from src.lib.config import cfg
+
         super().scan()
-        new_items = {p.name: InboxItem(p) for p in find_books_in_inbox()}
+
+        if paths:
+            _paths = [
+                p.relative_to(cfg.inbox_dir)
+                for p in map(Path, paths)
+                if not p.is_absolute()
+            ]
+        else:
+            _paths = find_books_in_inbox()
+
+        new_items = {p.name: InboxItem(p) for p in _paths}
         gone_keys = set(self._items.keys()) - set(new_items.keys())
         for k, v in new_items.items():
             if k not in self._items:
@@ -485,21 +575,25 @@ class InboxState(Hasher):
             item.set_ok()
         self._sync_failed_to_env()
 
+    @requires_scan
     def did_fail(self, key_path_or_book: str | Path | Audiobook):
         if item := self.get(key_path_or_book):
             return item.status == "failed"
         return False
 
+    @requires_scan
     def should_retry(self, key_path_or_book: str | Path | Audiobook):
         if item := self.get(key_path_or_book):
             return item.status == "needs_retry"
         return False
 
+    @requires_scan
     def is_filtered(self, key_or_path: str | Path | Audiobook):
         if item := self.get(key_or_path):
             return item.is_filtered
         return False
 
+    @requires_scan
     def is_ok(self, key_path_or_book: str | Path | Audiobook):
         if item := self.get(key_path_or_book):
             return item.status in ["ok", "new"]
@@ -553,11 +647,13 @@ class InboxState(Hasher):
 
     @property
     def items_to_process(self):
-        return {
-            k: v
-            for k, v in self._items.items()
-            if not v.is_filtered and v.status in ["ok", "new", "needs_retry"]
-        }
+        return filter_series_parents(
+            {
+                k: v
+                for k, v in self._items.items()
+                if not v.is_filtered and v.status in ["ok", "new", "needs_retry"]
+            }
+        )
 
     @property
     def num_matched(self):
