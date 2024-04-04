@@ -20,7 +20,7 @@ DEFAULT_COLOR = 0
 GREY_COLOR = Tinta().inspect(name="grey")
 DARK_GREY_COLOR = Tinta().inspect(name="dark_grey")
 LIGHT_GREY_COLOR = Tinta().inspect(name="light_grey")
-AQUA_COLOR = Tinta().inspect(name="aqua")
+MINT_COLOR = Tinta().inspect(name="mint")
 GREEN_COLOR = Tinta().inspect(name="green")
 BLUE_COLOR = Tinta().inspect(name="blue")
 PURPLE_COLOR = Tinta().inspect(name="purple")
@@ -290,9 +290,9 @@ def print_light_grey(*args: Any, highlight_color: int | None = GREY_COLOR):
     )
 
 
-def print_aqua(*args: Any, highlight_color: int | None = None):
+def print_mint(*args: Any, highlight_color: int | None = None):
     smart_print(
-        " ".join(map(str, args)), color=AQUA_COLOR, highlight_color=highlight_color
+        " ".join(map(str, args)), color=MINT_COLOR, highlight_color=highlight_color
     )
 
 
@@ -361,7 +361,7 @@ def print_debug(
     cfg._last_debug_print = s
 
 
-def print_list(*args: Any, highlight_color: int | None = None):
+def print_list_item(*args: Any, highlight_color: int | None = None):
     smart_print(
         "- " + " ".join(map(str, args)),
         color=GREY_COLOR,
@@ -394,8 +394,8 @@ def tint_path(*args: Any):
     return Tinta().tint(PURPLE_COLOR, *args).to_str()
 
 
-def tint_aqua(*args: Any):
-    return Tinta().tint(AQUA_COLOR, *args).to_str()
+def tint_mint(*args: Any):
+    return Tinta().tint(MINT_COLOR, *args).to_str()
 
 
 def tint_amber(*args: Any):
@@ -431,9 +431,9 @@ def tinted_mp3(*args: Any):
 
 def tinted_m4b(*args):
     if not args:
-        return Tinta().aqua("m4b").to_str()
+        return Tinta().mint("m4b").to_str()
     else:
-        return Tinta().aqua(*args).to_str()
+        return Tinta().mint(*args).to_str()
 
 
 def tinted_file(*args):
@@ -445,7 +445,7 @@ def tinted_file(*args):
             case "m4b":
                 return tinted_m4b(s)
             case "m4a":
-                return tint_aqua(s)
+                return tint_mint(s)
             case "wma":
                 return Tinta().tint(AMBER_COLOR, s).to_str()
     return s

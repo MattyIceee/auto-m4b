@@ -359,11 +359,13 @@ class test_unhappy_paths:
     @pytest.mark.order(ORDER)
     def test_inbox_hash_doesnt_change_when_book_fails(
         self,
+        tiny__flat_mp3: Audiobook,
         old_mill__multidisc_mp3: Audiobook,
+        disable_autoflatten,
+        enable_debug,
         capfd: CaptureFixture[str],
     ):
-        testutils.disable_autoflatten()
-        testutils.enable_debug()
+        testutils.set_match_filter("^(tiny|old)")
         time.sleep(2)
         app(max_loops=1, no_fix=True, test=True)
         out = testutils.get_stdout(capfd)
@@ -373,7 +375,7 @@ class test_unhappy_paths:
         assert out.count(en.INBOX_RECENTLY_MODIFIED) == 0
 
         time.sleep(1)
-        app(max_loops=1, no_fix=True, test=True)
+        app(max_loops=2, no_fix=True, test=True)
         out = testutils.get_stdout(capfd)
         assert out.count("Inbox hash is the same") == 1
         assert out.count(en.DONE_CONVERTING) == 0

@@ -7,43 +7,29 @@ class TestInboxState:
 
     def test_get_item_by_key(
         self,
-        chanur_series__multi_book_series_mp3: Audiobook,
+        Chanur_Series: list[Audiobook],
         clean_inbox_state: InboxState,
     ):
 
-        assert (
-            clean_inbox_state.get("Chanur Series")
-            == chanur_series__multi_book_series_mp3._inbox_item
-        )
+        assert clean_inbox_state.get("Chanur Series") == Chanur_Series[0]._inbox_item
 
     def test_get_item_from_audiobook(
         self,
-        chanur_series__multi_book_series_mp3: Audiobook,
+        Chanur_Series: list[Audiobook],
         clean_inbox_state: InboxState,
     ):
 
-        assert (
-            clean_inbox_state.get(chanur_series__multi_book_series_mp3)
-            == chanur_series__multi_book_series_mp3._inbox_item
-        )
+        assert clean_inbox_state.get(Chanur_Series[0]) == Chanur_Series[0]._inbox_item
 
     def test_get_item_from_hash(
         self,
-        chanur_series__multi_book_series_mp3: Audiobook,
+        Chanur_Series: list[Audiobook],
         clean_inbox_state: InboxState,
     ):
 
-        _hash = hash_path_audio_files(chanur_series__multi_book_series_mp3.inbox_dir)
+        _hash = hash_path_audio_files(Chanur_Series[0].inbox_dir)
 
-        assert (
-            clean_inbox_state.get(_hash)
-            == chanur_series__multi_book_series_mp3._inbox_item
-        )
-
-        assert (
-            clean_inbox_state.get_from_hash(_hash)
-            == chanur_series__multi_book_series_mp3._inbox_item
-        )
+        assert clean_inbox_state.get(_hash) == Chanur_Series[0]._inbox_item
 
     def test_get_series_parent(
         self,

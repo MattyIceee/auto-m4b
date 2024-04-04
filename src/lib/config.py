@@ -13,7 +13,9 @@ from multiprocessing import cpu_count
 from pathlib import Path
 from typing import Any, cast, Literal, overload, TypeVar
 
+from src.lib.formatters import listify
 from src.lib.misc import get_git_root, load_env, parse_bool, singleton, to_json
+from src.lib.strings import en
 from src.lib.term import nl, print_amber
 from src.lib.typing import ExifWriter, OverwriteMode
 
@@ -162,6 +164,25 @@ def ensure_dir_exists_and_is_writable(path: Path, throw: bool = True) -> None:
             return
 
 
+@contextmanager
+def use_pid_file():
+    from src.lib.config import cfg
+
+    already_exists = cfg.PID_FILE.is_file()
+
+    if not cfg.PID_FILE.is_file():
+        cfg.PID_FILE.touch()
+        current_local_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        pid = os.getpid()
+        cfg.PID_FILE.write_text(
+            f"auto-m4b started at {current_local_time}, watching {cfg.inbox_dir} - pid={pid}\n"
+        )
+    try:
+        yield already_exists
+    finally:
+        cfg.PID_FILE.unlink(missing_ok=True)
+
+
 @singleton
 class Config:
     _ENV: dict[str, str | None] = {}
@@ -174,28 +195,43 @@ class Config:
         self.load_env(quiet=True)
 
     def startup(self, args: AutoM4bArgs | None = None):
-        from src.lib.term import print_aqua, print_dark_grey, print_grey
+        from src.lib.term import print_dark_grey, print_grey, print_mint
 
-        with self.load_env(args) as env_msg:
-            if self.SLEEP_TIME and not self.TEST:
-                time.sleep(min(2, self.SLEEP_TIME / 2))
-            if not self.PID_FILE.is_file():
-                self.PID_FILE.touch()
-                current_local_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                with self.PID_FILE.open("a") as f:
-                    f.write(
-                        f"auto-m4b started at {current_local_time}, watching {self.inbox_dir}\n"
-                    )
-                print_aqua("\nStarting auto-m4b...")
-                if self.TEST and self.DEBUG:
-                    print_amber("TEST + DEBUG modes on")
-                elif self.TEST:
-                    print_amber("TEST mode on")
-                elif self.DEBUG:
-                    print_amber("DEBUG mode on")
-                print_grey(self.info_str)
-                if env_msg:
-                    print_dark_grey(env_msg)
+        with use_pid_file() as pid_exists:
+            with self.load_env(args) as env_msg:
+                if self.SLEEP_TIME and not self.TEST:
+                    time.sleep(min(2, self.SLEEP_TIME / 2))
+
+                if not pid_exists:
+                    print_mint("\nStarting auto-m4b...")
+                    print_grey(self.info_str)
+                    if env_msg:
+                        print_dark_grey(env_msg)
+
+                    beta_features = [
+                        (
+                            en.FEATURE_FLATTEN_MULTI_DISC_BOOKS,
+                            self.FLATTEN_MULTI_DISC_BOOKS,
+                        ),
+                        (en.FEATURE_CONVERT_SERIES, self.CONVERT_SERIES),
+                    ]
+                    if beta_msg := (
+                        f"[Beta] features are enabled:\n{listify([f for f, b in beta_features if b])}\n"
+                        if any(b for _f, b in beta_features)
+                        else ""
+                    ):
+                        print_amber(beta_msg)
+
+                    if test_debug_msg := (
+                        "TEST + DEBUG modes on"
+                        if self.TEST and self.DEBUG
+                        else (
+                            "TEST mode on"
+                            if self.TEST
+                            else "DEBUG mode on" if self.DEBUG else ""
+                        )
+                    ):
+                        print_amber(test_debug_msg)
 
         nl()
 

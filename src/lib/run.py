@@ -34,12 +34,12 @@ from src.lib.term import (
     divider,
     linebreak_path,
     nl,
-    print_aqua,
     print_dark_grey,
     print_debug,
     print_error,
     print_grey,
-    print_list,
+    print_list_item,
+    print_mint,
     print_notice,
     print_orange,
     smart_print,
@@ -50,19 +50,8 @@ from src.lib.term import (
 )
 from src.lib.typing import SCAN_TTL
 
-
-def print_launch():
-    if cfg.SLEEP_TIME and not cfg.TEST:
-        time.sleep(min(2, cfg.SLEEP_TIME / 2))
-    if not cfg.PID_FILE.is_file():
-        cfg.PID_FILE.touch()
-        current_local_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        with cfg.PID_FILE.open("a") as f:
-            f.write(
-                f"auto-m4b started at {current_local_time}, watching {cfg.inbox_dir}\n"
-            )
-        print_aqua("\nStarting auto-m4b...")
-        print_grey(f"{cfg.info_str}\n")
+# glasses 1: ⌐◒-◒
+# glasses 2: ᒡ◯ᴖ◯ᒢ
 
 
 def process_standalone_files():
@@ -113,10 +102,6 @@ def process_standalone_files():
         inbox.set_ok(folder_name)
 
 
-# glasses 1: ⌐◒-◒
-# glasses 2: ᒡ◯ᴖ◯ᒢ
-
-
 def print_banner():
     inbox = InboxState()
 
@@ -125,9 +110,9 @@ def print_banner():
 
     current_local_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    dash = "-" * 24
+    dash = "-" * 25
 
-    print_aqua(f"{dash}  ⌐◒-◒  auto-m4b • {current_local_time}  -{dash}")
+    print_mint(f"{dash}  ⌐◒-◒  auto-m4b • {current_local_time}  {dash}")
 
     print_grey(f"Watching for new books in {{{{{cfg.inbox_dir}}}}} ꨄ︎")
 
@@ -171,21 +156,16 @@ def print_book_header(book: InboxItem | None):
     print_book_series_header(book)
     if book.is_maybe_series_parent:
         return
-    box(book.basename, color="aqua")
+    box(book.basename, color="mint")
 
 
 def print_book_done(b: int, book: Audiobook, elapsedtime: int):
-    inbox = InboxState()
     smart_print(
         Tinta("\nConverted")
-        .aqua(book.basename)
+        .mint(book.basename)
         .clear(f"in {human_elapsed_time(elapsedtime, relative=False)} 🐾✨🥞")
         .to_str()
     )
-
-    divider("\n")
-    if b < inbox.num_books - 1:
-        nl()
 
 
 def print_footer(b: int):
@@ -399,7 +379,7 @@ def copy_to_working_dir(book: Audiobook):
         cp_file_to_dir(
             book.cover_art, book.merge_dir, overwrite_mode="overwrite-silent"
         )
-    print_aqua(" ✓\n")
+    print_mint(" ✓\n")
     book.set_active_dir("merge")
 
 
@@ -508,7 +488,7 @@ def can_process_multi_dir(book: Audiobook):
                     else:
                         flatten_files_in_dir(book.inbox_dir)
                         book = Audiobook(book.inbox_dir)
-                        print_aqua(" ✓\n")
+                        print_mint(" ✓\n")
                         files = "\n".join([str(f) for f in book.inbox_dir.glob("*")])
                         print_debug(f"New file structure:\n{files}")
                         inbox.set_ok(book)
@@ -577,7 +557,7 @@ def flatten_nested_book(book: Audiobook):
             end="",
         )
         flatten_files_in_dir(book.inbox_dir)
-        print_aqua(" ✓\n")
+        print_mint(" ✓\n")
 
 
 def print_book_info(book):
@@ -594,13 +574,13 @@ def print_book_info(book):
         if len(str(book.converted_dir)) > lmt
         else book.converted_dir
     )
-    print_list(f"Source: {src}")
-    print_list(f"Output: {dst}")
-    print_list(f"File type: {book.orig_file_type}")
-    print_list(f"Audio files: {book.num_files('inbox')}")
-    print_list(f"Total size: {book.size('inbox', 'human')}")
+    print_list_item(f"Source: {src}")
+    print_list_item(f"Output: {dst}")
+    print_list_item(f"File type: {book.orig_file_type}")
+    print_list_item(f"Audio files: {book.num_files('inbox')}")
+    print_list_item(f"Total size: {book.size('inbox', 'human')}")
     if book.cover_art:
-        print_list(f"Cover art: {book.cover_art.name}")
+        print_list_item(f"Cover art: {book.cover_art.name}")
 
     nl()
 
@@ -781,7 +761,7 @@ def archive_inbox_copy(book: Audiobook):
                 "     To prevent this book from being converted again, move it out of the inbox folder"
             )
             return
-        print_aqua(" ✓")
+        print_mint(" ✓")
 
     elif cfg.ON_COMPLETE == "delete":
         smart_print("\nDeleting original from inbox...", end="")
@@ -793,7 +773,7 @@ def archive_inbox_copy(book: Audiobook):
                 "Notice: The original folder is not empty, it will not be deleted because backups are disabled"
             )
             return
-        print_aqua(" ✓")
+        print_mint(" ✓")
 
     elif cfg.ON_COMPLETE == "test_do_nothing":
         print_notice("Test mode: The original folder will not be moved or deleted")
@@ -909,6 +889,9 @@ def process_inbox():
     b = 0
     for item in inbox.items_to_process.values():
         b = process_book(b, item)
+        divider("\n")
+        if b < inbox.num_books - 1:
+            nl()
 
     print_footer(b)
     clean_dirs([cfg.merge_dir, cfg.build_dir, cfg.trash_dir])

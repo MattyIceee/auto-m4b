@@ -27,7 +27,7 @@ from src.lib.term import (
     PATH_COLOR,
     print_debug,
     print_error,
-    print_list,
+    print_list_item,
     smart_print,
 )
 from src.lib.typing import BadFileError, TagSource
@@ -159,7 +159,7 @@ def verify_and_update_id3_tags(
             s.amber(left_value)
         else:
             s.light_grey("Missing")
-        s.dark_grey("»").aqua(right_value)
+        s.dark_grey("»").mint(right_value)
         smart_print(s.to_str())
 
     if book.title and book_to_check.id3_title != book.title:
@@ -269,12 +269,12 @@ def verify_and_update_id3_tags(
             comment_needs_updating,
         ]
     ):
-        sys.stdout.write(Tinta().aqua(" ✓\n").to_str())
+        sys.stdout.write(Tinta().mint(" ✓\n").to_str())
         smart_print()
 
     else:
         [update() for update in updates]
-        smart_print(Tinta("Done").aqua("✓").to_str())
+        smart_print(Tinta("Done").mint("✓").to_str())
 
     nl()
 
@@ -655,12 +655,12 @@ def extract_metadata(book: "Audiobook", quiet: bool = False) -> "Audiobook":
     book.artist = clean_string(book.artist)
 
     if not quiet:
-        print_list(f"Title: {book.title}")
+        print_list_item(f"Title: {book.title}")
 
     # Album:
     book.album = book.title
     if not quiet:
-        print_list(f"Album: {book.album}")
+        print_list_item(f"Album: {book.album}")
 
     if book.id3_sortalbum:
         book.sortalbum = book.id3_sortalbum
@@ -773,9 +773,9 @@ def extract_metadata(book: "Audiobook", quiet: bool = False) -> "Audiobook":
             book.id3_comment = f"Read by {book.narrator} // {book.id3_comment}"
 
     if not quiet:
-        print_list(f"Author: {book.artist}")
+        print_list_item(f"Author: {book.artist}")
     if book.narrator and not quiet:
-        print_list(f"Narrator: {book.narrator}")
+        print_list_item(f"Narrator: {book.narrator}")
 
     # Date:
     if book.id3_date and not book.fs_year:
@@ -789,15 +789,17 @@ def extract_metadata(book: "Audiobook", quiet: bool = False) -> "Audiobook":
             book.date = book.fs_year
 
     if book.date and not quiet:
-        print_list(f"Date: {book.date}")
+        print_list_item(f"Date: {book.date}")
     # extract 4 digits from date
     book.year = get_year_from_date(book.date)
 
     # convert bitrate and sample rate to friendly to kbit/s, rounding to nearest tenths, e.g. 44.1 kHz
     if not quiet:
-        print_list(f"Quality: {book.bitrate_friendly} @ {book.samplerate_friendly}")
-        print_list(f"Duration: {book.duration('inbox', 'human')}")
+        print_list_item(
+            f"Quality: {book.bitrate_friendly} @ {book.samplerate_friendly}"
+        )
+        print_list_item(f"Duration: {book.duration('inbox', 'human')}")
         if not book.has_id3_cover:
-            print_list(f"No cover art")
+            print_list_item(f"No cover art")
 
     return book

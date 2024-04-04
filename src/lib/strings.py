@@ -9,3 +9,5 @@ class en:
     BOOK_SHOULD_RETRY = (
         "This book previously failed, but it has been updated – trying again"
     )
+    FEATURE_CONVERT_SERIES = "Converting book series"
+    FEATURE_FLATTEN_MULTI_DISC_BOOKS = "Converting multi-disc books"

@@ -11,7 +11,7 @@ from tinta import Tinta
 
 from src.lib.audiobook import Audiobook
 from src.lib.config import cfg, OnComplete
-from src.lib.formatters import human_elapsed_time
+from src.lib.formatters import human_elapsed_time, listify
 from src.lib.fs_utils import flatten_files_in_dir, inbox_last_updated_at
 from src.lib.inbox_state import InboxState
 from src.lib.misc import re_group
@@ -282,10 +282,8 @@ class testutils:
         processed = cls.get_all_processed_books(out)
         did_process_all = all([book.key in processed for book in books])
         ok = did_process_all and len(processed) == len(books)
-        books_list = (
-            "\n - " + "\n - ".join([book.key for book in books]) if books else ""
-        )
-        processed_list = "\n - " + "\n - ".join(processed) if processed else ""
+        books_list = f"\n{listify([book.key for book in books])}" if books else ""
+        processed_list = f"\n{listify(processed)}" if processed else ""
         assert (
             ok
         ), f"Expected {len(books)} to be converted: {books_list}\n\nGot {len(processed)}: {processed_list}"

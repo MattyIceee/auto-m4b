@@ -99,3 +99,56 @@ def test_get_nearest_standard_bitrate(in_bitrate, expected):
     assert get_nearest_standard_bitrate(in_bitrate) == expected
     if in_bitrate:
         assert get_nearest_standard_bitrate(in_bitrate * 1000) == expected * 1000
+
+
+listify_arrs = [
+    [],
+    ["apple"],
+    ["apple", "banana"],
+    ["apple", "banana", "carrot"],
+    [1, 2, 3],
+]
+
+listify_opts = [{}, {"bul": "•"}, {"bul": "→", "indent": 2}]
+
+
+def listify_expected(indent: int = 1):
+
+    i = " " * indent
+    return [
+        [
+            "",
+            f"{i}- apple",
+            f"{i}- apple\n{i}- banana",
+            f"{i}- apple\n{i}- banana\n{i}- carrot",
+            f"{i}- 1\n{i}- 2\n{i}- 3",
+        ],
+        [
+            "",
+            f"{i}• apple",
+            f"{i}• apple\n{i}• banana",
+            f"{i}• apple\n{i}• banana\n{i}• carrot",
+            f"{i}• 1\n{i}• 2\n{i}• 3",
+        ],
+        [
+            "",
+            f"{i}→ apple",
+            f"{i}→ apple\n{i}→ banana",
+            f"{i}→ apple\n{i}→ banana\n{i}→ carrot",
+            f"{i}→ 1\n{i}→ 2\n{i}→ 3",
+        ],
+    ]
+
+
+@pytest.mark.parametrize(
+    "test_arr, opts, expected",
+    [
+        (a, o, listify_expected(o.get("indent", 0))[e][i])
+        for e, o in enumerate(listify_opts)
+        for i, a in enumerate([a for a in listify_arrs])
+    ],
+)
+def test_listify(test_arr, opts, expected):
+    from src.lib.formatters import listify
+
+    assert listify(test_arr, **opts) == expected

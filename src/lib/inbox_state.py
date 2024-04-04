@@ -1,5 +1,6 @@
 import json
 import os
+import threading
 import time
 from collections.abc import Callable
 from functools import cached_property, wraps
@@ -90,7 +91,8 @@ def requires_scan(func: Callable[..., Any]):
     @wraps(func)
     def wrapper(*args, **kwargs):
         hasher = cast(Hasher, args[0])
-        hasher.scan()
+        if not hasher._hashes:
+            hasher.scan()
         return func(*args, **kwargs)
 
     return wrapper
@@ -118,11 +120,12 @@ class Hasher:
         return last_updated_audio_files_at(self.path)
 
     def scan(self):
-        new_hash = hash_path_audio_files(self.path)
-        if new_hash != self.current_hash:
-            self._hashes.insert(0, (new_hash, time.time()))
-            if len(self._hashes) > self.max_hashes:
-                self._hashes.pop()
+        with threading.Lock():
+            new_hash = hash_path_audio_files(self.path)
+            if new_hash != self.current_hash:
+                self._hashes.insert(0, (new_hash, time.time()))
+                if len(self._hashes) > self.max_hashes:
+                    self._hashes.pop()
 
     @property
     def hashes(self):
@@ -482,20 +485,9 @@ class InboxState(Hasher):
             None,
         )
 
-    @requires_scan
-    def get_from_hash(self, hash: str):
-        return next(
-            (
-                item.key
-                for item in self._items.values()
-                if item.hash == hash or item.path == hash
-            ),
-            None,
-        )
-
     def rm(self, key_path_book_or_hash: str | Path | Audiobook):
         key = get_key(key_path_book_or_hash)
-        if not key and not (key := self.get_from_hash(str(key_path_book_or_hash))):
+        if not key and not (key := self.get(str(key_path_book_or_hash))):
             return
         self._items.pop(key, None)
 

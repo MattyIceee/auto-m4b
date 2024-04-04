@@ -123,6 +123,11 @@ def bitrate_nonstandard__mp3():
 
 
 @pytest.fixture(scope="function")
+def tiny__flat_mp3():
+    return load_test_fixture("tiny__flat_mp3", exclusive=True)
+
+
+@pytest.fixture(scope="function")
 def tower_treasure__flat_mp3():
     return load_test_fixture("tower_treasure__flat_mp3", exclusive=True)
 
@@ -499,6 +504,8 @@ def global_test_log():
 @pytest.fixture(scope="function", autouse=False)
 def reset_inbox_state(reset_match_filter, reset_failed):
 
+    from src.lib.config import cfg
+
     inbox = InboxState()
     inbox.destroy()
     clean_dirs([TEST_DIRS.archive, TEST_DIRS.converted, TEST_DIRS.working])
@@ -516,6 +523,7 @@ def reset_inbox_state(reset_match_filter, reset_failed):
 
     clean_dirs([TEST_DIRS.archive, TEST_DIRS.converted, TEST_DIRS.working])
     inbox.destroy()
+    cfg.PID_FILE.unlink(missing_ok=True)
 
 
 @pytest.fixture(scope="function", autouse=False)
@@ -551,6 +559,27 @@ def enable_backups():
     testutils.enable_backups()
     yield
     testutils.disable_backups()
+
+
+@pytest.fixture(scope="function", autouse=False)
+def disable_backups():
+    testutils.disable_backups()
+    yield
+    testutils.enable_backups()
+
+
+@pytest.fixture(scope="function", autouse=False)
+def enable_debug():
+    testutils.enable_debug()
+    yield
+    testutils.disable_debug()
+
+
+@pytest.fixture(scope="function", autouse=False)
+def disable_debug():
+    testutils.disable_debug()
+    yield
+    testutils.enable_debug()
 
 
 @pytest.fixture(scope="function", autouse=False)
