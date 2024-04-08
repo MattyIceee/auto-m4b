@@ -873,7 +873,11 @@ def process_book(b: int, item: InboxItem):
 def process_inbox():
     inbox = InboxState()
 
+    if not inbox.ready:
+        print_debug("First run, scanning inbox")
+
     if not audio_files_found():
+        print_debug("No audio files found, skipping this loop", only_once=True)
         return
 
     if not inbox.inbox_needs_processing() and inbox.ready:
