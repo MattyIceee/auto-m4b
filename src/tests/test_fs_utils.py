@@ -95,7 +95,7 @@ def test_find_base_dirs_with_audio_files(
     maxdepth: int,
     expected: list[Path],
     mock_inbox,
-    setup,
+    setup_teardown,
     enable_convert_series,
 ):
     from src.lib.fs_utils import find_base_dirs_with_audio_files
@@ -124,7 +124,7 @@ def test_find_book_audio_files(
     expected_structure: InboxDirStructure,
     path: Path,
     mock_inbox,
-    setup,
+    setup_teardown,
 ):
     structure, _paths = find_book_audio_files(path)
 
@@ -141,7 +141,7 @@ def test_find_book_audio_files(
     ],
 )
 def test_find_book_dirs_in_inbox(
-    name, kwargs, expected, mock_inbox, setup, enable_convert_series
+    name, kwargs, expected, mock_inbox, setup_teardown, enable_convert_series
 ):
     from src.lib.fs_utils import find_book_dirs_in_inbox
 
@@ -149,7 +149,7 @@ def test_find_book_dirs_in_inbox(
 
 
 def test_find_book_dirs_in_inbox_empty_if_series_off(
-    mock_inbox, setup, disable_convert_series
+    mock_inbox, setup_teardown, disable_convert_series
 ):
     from src.lib.fs_utils import find_book_dirs_in_inbox
 

@@ -12,12 +12,20 @@ LOOP_COUNT = 0
 
 
 def handle_err(e: Exception):
-    if "pytest" in sys.modules:
-        raise e
-    elif cfg.DEBUG:
+
+    from src.lib.config import cfg
+
+    with open(cfg.FATAL_FILE, "a") as f:
+        f.write(f"Fatal Error: {e}")
+
+    if cfg.DEBUG:
         print_red(f"\n{traceback.format_exc()}")
     else:
         print_error(f"Error: {e}")
+
+    if "pytest" in sys.modules:
+        raise e
+
     time.sleep(cfg.SLEEP_TIME)
 
 

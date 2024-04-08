@@ -19,15 +19,20 @@ from src.lib.misc import get_git_root, load_env
 
 
 @pytest.fixture(autouse=True, scope="session")
-def setup():
-    # os.environ["TEST"] = "Y"
-    # os.environ["SLEEP_TIME"] = "0.1"
-    # os.environ["WAIT_TIME"] = "0.5"
+def setup_teardown():
+    from src.lib.config import cfg
+
+    cfg.FATAL_FILE.unlink(missing_ok=True)
 
     for env in get_git_root().glob(".env.local*"):
         dotenv.load_dotenv(env)
 
-    load_env(GIT_ROOT / ".env.test", clean_working_dirs=True)
+    with testutils.set_on_complete("test_do_nothing"):
+        load_env(GIT_ROOT / ".env.test", clean_working_dirs=True)
+
+        yield
+
+        cfg.FATAL_FILE.unlink(missing_ok=True)
 
 
 @pytest.fixture(scope="function", autouse=False)
@@ -343,7 +348,7 @@ def not_an_audio_file():
 
 
 @pytest.fixture(scope="function", autouse=False)
-def mock_inbox(setup):
+def mock_inbox(setup_teardown):
     """Populate INBOX_FOLDER with mocked sample audiobooks."""
 
     backup_inbox = Path(f"{TEST_DIRS.inbox}_backup")
@@ -580,6 +585,20 @@ def disable_debug():
     testutils.disable_debug()
     yield
     testutils.enable_debug()
+
+
+@pytest.fixture(scope="function", autouse=False)
+def enable_archiving():
+    testutils.enable_archiving()
+    yield
+    testutils.disable_archiving()
+
+
+@pytest.fixture(scope="function", autouse=False)
+def disable_archiving():
+    testutils.disable_archiving()
+    yield
+    testutils.enable_archiving()
 
 
 @pytest.fixture(scope="function", autouse=False)

@@ -18,6 +18,8 @@ from src.lib.misc import re_group
 from src.lib.typing import ENV_DIRS
 from src.tests.conftest import TEST_DIRS
 
+cfg.PID_FILE.unlink(missing_ok=True)
+
 
 class testutils:
 
@@ -217,6 +219,21 @@ class testutils:
         cfg.DEBUG = False
 
     @classmethod
+    def enable_archiving(cls, delay: int = 0):
+
+        time.sleep(delay)
+        cls.print("Enabling archiving")
+        os.environ["ON_COMPLETE"] = "archive"
+        cfg.ON_COMPLETE = "archive"
+
+    @classmethod
+    def disable_archiving(cls, delay: int = 0):
+        time.sleep(delay)
+        cls.print("Disabling archiving")
+        os.environ["ON_COMPLETE"] = "test_do_nothing"
+        cfg.ON_COMPLETE = "test_do_nothing"
+
+    @classmethod
     def make_mock_file(cls, path: Path, size: int = 1024 * 5):
         if not path.is_absolute():
             path = TEST_DIRS.inbox / path
@@ -308,3 +325,17 @@ class testutils:
                 )
 
         return ok
+
+    @classmethod
+    def assert_converted_book_and_collateral_exist(cls, book: Audiobook, quality: str):
+        assert book.converted_dir.exists()
+        m4b = book.converted_dir / f"{book.path.name}.m4b"
+        assert m4b.exists()
+        assert m4b.stat().st_size > 0
+        log = book.converted_dir / f"auto-m4b.{book.path.name}.log"
+        assert log.exists()
+        assert log.stat().st_size > 0
+        desc = book.converted_dir / f"{book.path.name} [{quality}].txt"
+        assert desc.exists()
+        assert desc.stat().st_size > 0
+        return m4b, log, desc

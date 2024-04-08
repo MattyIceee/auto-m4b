@@ -607,7 +607,7 @@ def extract_metadata(book: "Audiobook", quiet: bool = False) -> "Audiobook":
 
     if not quiet:
         smart_print(
-            f"Sampling {{{{{book.sample_audio1.name}}}}} for book metadata and quality info:",
+            f"Sampling [[{book.sample_audio1.name}]] for book metadata and quality info:",
             highlight_color=PATH_COLOR,
         )
 

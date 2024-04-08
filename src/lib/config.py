@@ -16,7 +16,7 @@ from typing import Any, cast, Literal, overload, TypeVar
 from src.lib.formatters import listify
 from src.lib.misc import get_git_root, load_env, parse_bool, singleton, to_json
 from src.lib.strings import en
-from src.lib.term import nl, print_amber
+from src.lib.term import nl, print_amber, print_error
 from src.lib.typing import ExifWriter, OverwriteMode
 
 DEFAULT_SLEEP_TIME = 10
@@ -60,7 +60,7 @@ WORKING_DIRS = [
     "TRASH_FOLDER",
 ]
 
-OnComplete = Literal["move", "delete", "test_do_nothing"]
+OnComplete = Literal["archive", "delete", "test_do_nothing"]
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--env", help="Path to .env file", type=Path)
@@ -168,6 +168,12 @@ def ensure_dir_exists_and_is_writable(path: Path, throw: bool = True) -> None:
 def use_pid_file():
     from src.lib.config import cfg
 
+    # read the pid file and look for a line starting with `FATAL` in all caps, if so, the app crashed and we should exit
+    if cfg.FATAL_FILE.exists():
+        err = f"auto-m4b fatally crashed on last run, once the problem is fixed, please delete the following lock file to continue:\n\n {cfg.FATAL_FILE}\n\n{cfg.FATAL_FILE.open().read()}"
+        print_error(err)
+        raise RuntimeError(err)
+
     already_exists = cfg.PID_FILE.is_file()
 
     if not cfg.PID_FILE.is_file():
@@ -177,6 +183,7 @@ def use_pid_file():
         cfg.PID_FILE.write_text(
             f"auto-m4b started at {current_local_time}, watching {cfg.inbox_dir} - pid={pid}\n"
         )
+
     try:
         yield already_exists
     finally:
@@ -242,8 +249,8 @@ class Config:
         self.check_m4b_tool()
 
     @cached_property
-    def ON_COMPLETE(self):
-        default = "test_do_nothing" if self.TEST else "move"
+    def ON_COMPLETE(self) -> OnComplete:
+        default = "test_do_nothing" if self.TEST else "archive"
         return cast(OnComplete, os.getenv("ON_COMPLETE", default))
 
     @cached_property
@@ -527,6 +534,11 @@ class Config:
     def PID_FILE(self):
         pid_file = self.tmp_dir / "running.pid"
         return pid_file
+
+    @cached_property
+    def FATAL_FILE(self):
+        fatal_file = self.tmp_dir / "fatal.log"
+        return fatal_file
 
     def clean(self):
         from src.lib.fs_utils import clean_dir

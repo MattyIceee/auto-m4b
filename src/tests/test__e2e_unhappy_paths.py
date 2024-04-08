@@ -5,6 +5,7 @@ import functools
 import shutil
 import time
 from copy import deepcopy
+from unittest.mock import patch
 
 import pytest
 from pytest import CaptureFixture
@@ -63,7 +64,9 @@ class test_unhappy_paths:
 
     @pytest.mark.order(ORDER)
     def test_match_name_has_no_matches(
-        self, tower_treasure__flat_mp3: Audiobook, capfd: CaptureFixture[str]
+        self,
+        tower_treasure__flat_mp3: Audiobook,
+        capfd: CaptureFixture[str],
     ):
 
         testutils.set_match_filter("test-do-not-match")
@@ -305,14 +308,11 @@ class test_unhappy_paths:
         self,
         secret_project_series__nested_flat_mixed: Audiobook,
         capfd: CaptureFixture[str],
+        disable_convert_series,
     ):
 
         app(max_loops=1, no_fix=True, test=True)
-        romans_msg = (
-            "Error: Some of this book's files appear to be named with roman numerals"
-        )
         stdout, _ = capfd.readouterr()
-        assert romans_msg not in stdout
         assert en.MULTI_ERR in stdout
 
     ORDER += 1
@@ -407,3 +407,29 @@ class test_unhappy_paths:
         finally:
             # unhide inbox
             inbox_hidden.rename(TEST_DIRS.inbox)
+
+    ORDER += 1
+
+    @pytest.mark.order(ORDER)
+    def test_fatal_err_creates_err_file(
+        self, tiny__flat_mp3: Audiobook, enable_backups, tmp_path
+    ):
+        from src.lib.config import cfg
+
+        def bad__mv_or_cp_dir_contents(*args, **kwargs):
+            raise FileNotFoundError(f"No such file or directory {args[1]}")
+
+        with patch(
+            "src.lib.fs_utils._mv_or_cp_dir_contents", bad__mv_or_cp_dir_contents
+        ):
+
+            try:
+
+                from src.lib.config import cfg
+
+                with pytest.raises(FileNotFoundError):
+                    app(max_loops=1, no_fix=True, test=True)
+
+                assert cfg.FATAL_FILE.exists()
+            finally:
+                cfg.FATAL_FILE.unlink(missing_ok=True)

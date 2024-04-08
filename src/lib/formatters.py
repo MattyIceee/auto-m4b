@@ -1,7 +1,7 @@
 from collections.abc import Iterable
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Literal, overload
+from typing import Any, cast, Literal, overload
 
 import cachetools.func
 import humanize
@@ -160,18 +160,20 @@ def human_elapsed_time(delta_or_time: datetime | float, relative: bool = True) -
     return humanize.naturaldelta(delta)
 
 
-def pluralize(count: int, singular: inflect.Word, plural: str | None = None) -> str:
+def pluralize(
+    count: int, singular: str | inflect.Word, plural: str | None = None
+) -> str:
     p = inflect.engine()
     if count == 1:
         return str(singular)
     elif count == 0 or count > 1:
-        return p.plural(singular) if plural is None else plural
+        return p.plural(cast(inflect.Word, singular)) if plural is None else plural
     else:
         return f"{singular}(s)"
 
 
 def pluralize_with_count(
-    count: int, singular: inflect.Word, plural: str | None = None
+    count: int, singular: str | inflect.Word, plural: str | None = None
 ) -> str:
     return f"{count} {pluralize(count, singular, plural)}"
 

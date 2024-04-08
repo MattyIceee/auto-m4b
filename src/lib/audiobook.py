@@ -294,7 +294,7 @@ class Audiobook(BaseModel):
         quality = f"{self.bitrate_friendly} @ {self.samplerate_friendly}".replace(
             "kb/s", "kbps"
         )
-        return self.converted_dir / f"{self} [{quality}].txt"
+        return self.converted_dir / f"{self.basename} [{quality}].txt"
 
     def write_description_txt(self, out_path: Path | None = None):
 

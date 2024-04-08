@@ -135,11 +135,11 @@ def print_book_series_header(book: InboxItem | None):
         return
 
     pink_dots = Tinta()
-    for path in parent.series_books:
-        if path == book.path:
+    for item in parent.series_books:
+        if item == book:
             pink_dots.light_pink("•")
         else:
-            pink_dots.dark_pink("•")
+            pink_dots.dim().light_pink("•").normal()
 
     box(
         Tinta()
@@ -226,7 +226,7 @@ def backup_ok(book: Audiobook):
     else:
         ln = "Making a backup copy → "
         smart_print(f"{ln}{tint_path(linebreak_path(book.backup_dir, indent=len(ln)))}")
-        cp_dir(book.inbox_dir, cfg.backup_dir, overwrite_mode="skip-silent")
+        cp_dir_contents(book.inbox_dir, book.backup_dir, overwrite_mode="skip-silent")
 
         fuzzy = 1000
 
@@ -418,7 +418,9 @@ def has_books_to_process():
             if inbox.num_matched > 1
             else "1 book"
         )
-        note = wrap_brackets(f"ignoring {inbox.match_filter}")
+        note = wrap_brackets(
+            f"ignoring {inbox.num_filtered}" if inbox.num_filtered else ""
+        )
         smart_print(
             f"Failed to convert {s} in the inbox matching [[{inbox.match_filter}]]{note}",
             highlight_color=AMBER_COLOR,
@@ -745,7 +747,7 @@ def move_converted_book_and_extras(book: Audiobook):
 
 
 def archive_inbox_copy(book: Audiobook):
-    if cfg.ON_COMPLETE == "move":
+    if cfg.ON_COMPLETE == "archive":
         smart_print("\nArchiving original from inbox...", end="")
         mv_dir_contents(
             book.inbox_dir,

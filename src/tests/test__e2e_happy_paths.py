@@ -7,7 +7,7 @@ from pytest import CaptureFixture
 from src.auto_m4b import app
 from src.lib.audiobook import Audiobook
 from src.lib.config import OnComplete
-from src.lib.fs_utils import find_book_dirs_for_series, find_book_dirs_in_inbox
+from src.lib.fs_utils import find_book_dirs_in_inbox
 from src.lib.inbox_state import InboxState
 from src.lib.misc import re_group
 from src.tests.helpers.pytest_utils import testutils
@@ -31,20 +31,38 @@ class test_happy_paths:
     def test_basic_book_mp3(
         self, indirect_fixture: Audiobook, capfd: CaptureFixture[str]
     ):
+        book = indirect_fixture
+        quality = f"{book.bitrate_friendly} @ {book.samplerate_friendly}".replace(
+            "kb/s", "kbps"
+        )
         app(max_loops=1, no_fix=True, test=True)
         assert testutils.assert_only_processed_books(
-            capfd, indirect_fixture, found=(1, 1), converted=1
+            capfd, book, found=(1, 1), converted=1
         )
-        assert indirect_fixture.converted_dir.exists()
+        assert testutils.assert_converted_book_and_collateral_exist(book, quality)
+
+    def test_backup_book_mp3(
+        self, tiny__flat_mp3: Audiobook, capfd: CaptureFixture[str], enable_backups
+    ):
+        app(max_loops=1, no_fix=True, test=True)
+        out = testutils.get_stdout(capfd)
+        assert "Making a backup copy" in out
+        assert testutils.assert_only_processed_books(
+            out, tiny__flat_mp3, found=(1, 1), converted=1
+        )
+        assert tiny__flat_mp3.converted_dir.exists()
 
     def test_match_filter_multiple_mp3s(
         self,
         tower_treasure__flat_mp3: Audiobook,
         house_on_the_cliff__flat_mp3: Audiobook,
         capfd: CaptureFixture[str],
+        enable_archiving,
     ):
 
         testutils.set_match_filter("^(tower|house)")
+        inbox = InboxState()
+        inbox_dirs = inbox.book_dirs
         app(max_loops=1, no_fix=True, test=True)
         assert tower_treasure__flat_mp3.converted_dir.exists()
         assert house_on_the_cliff__flat_mp3.converted_dir.exists()
@@ -56,14 +74,18 @@ class test_happy_paths:
             found=(2, 1),
             converted=2,
         )
-        inbox = InboxState()
         found = int(re_group(re.search(r"Found (\d+) book", out), 1))
         ignoring = int(re_group(re.search(r"\(ignoring (\d+)\)", out), 1))
+        converted = len(testutils.get_all_processed_books(out))
         assert found == len(inbox.matched_books)
         assert ignoring == len(inbox.filtered_books)
         assert (
-            found + ignoring == len(inbox.book_dirs) == len(find_book_dirs_in_inbox())
+            found + ignoring
+            == len(inbox_dirs)
+            == len(find_book_dirs_in_inbox()) + converted
         )
+        # With archiving enabled, the inbox should have 2 fewer books.
+        # If archiving is disabled, the inbox should have the same number of books. ````gfv/.jh
 
     def test_autoflatten_multidisc_mp3(
         self,
@@ -78,29 +100,35 @@ class test_happy_paths:
         )
         assert old_mill__multidisc_mp3.converted_dir.exists()
 
+    @pytest.mark.parametrize("backups_enabled", [False, True])
     def test_convert_book_series_mp3(
         self,
         Chanur_Series: list[Audiobook],
         enable_convert_series,
         capfd: CaptureFixture[str],
+        backups_enabled,
     ):
-
-        app(max_loops=1, no_fix=True, test=True)
-        out = testutils.get_stdout(capfd)
-        series = Chanur_Series[0]
-        child_books = list(
-            map(
-                Audiobook,
-                find_book_dirs_for_series(series.inbox_dir),
+        with testutils.set_backups(backups_enabled):
+            qualities = [
+                f"{b.bitrate_friendly} @ {b.samplerate_friendly}".replace(
+                    "kb/s", "kbps"
+                )
+                for b in Chanur_Series
+            ]
+            app(max_loops=1, no_fix=True, test=True)
+            out = testutils.get_stdout(capfd)
+            series = Chanur_Series[0]
+            child_books = Chanur_Series[1:]
+            assert len(child_books) == 5
+            for book, quality in zip(child_books, qualities):
+                testutils.assert_converted_book_and_collateral_exist(book, quality)
+            assert testutils.assert_only_processed_books(
+                out, *child_books, found=(5, 1), converted=5
             )
-        )
-        assert testutils.assert_only_processed_books(
-            out, *child_books, found=(5, 1), converted=5
-        )
-        assert out.count("Book Series •••••")
-        assert series.converted_dir.exists()
-        for book in child_books:
-            assert book.converted_dir.exists()
+            assert out.count("Book Series •••••")
+            assert series.converted_dir.exists()
+            for book in child_books:
+                assert book.converted_dir.exists()
 
     @pytest.mark.parametrize(
         "partial_flatten_backup_dirs",
@@ -158,7 +186,7 @@ class test_happy_paths:
         "on_complete, backup",
         [
             ("test_do_nothing", False),
-            ("move", False),
+            ("archive", False),
             ("delete", False),
             ("delete", True),
         ],
@@ -176,7 +204,7 @@ class test_happy_paths:
                     case "test_do_nothing":
                         assert tower_treasure__flat_mp3.inbox_dir.exists()
                         assert not tower_treasure__flat_mp3.archive_dir.exists()
-                    case "move":
+                    case "archive":
                         assert not tower_treasure__flat_mp3.inbox_dir.exists()
                         assert tower_treasure__flat_mp3.archive_dir.exists()
                     case "delete":

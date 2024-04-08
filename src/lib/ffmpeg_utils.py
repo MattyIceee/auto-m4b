@@ -5,6 +5,10 @@ from typing import Any, Literal, overload
 import cachetools.func
 import ffmpeg
 
+from src.lib.misc import fix_ffprobe
+
+fix_ffprobe()
+
 from src.lib.config import AUDIO_EXTS
 from src.lib.formatters import format_duration, get_nearest_standard_bitrate
 from src.lib.fs_utils import only_audio_files

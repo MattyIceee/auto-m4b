@@ -215,10 +215,30 @@ def singleton(class_: type[C]) -> type[C]:
     return cast(type[C], class_w)
 
 
+FIX_FFPROBE_COUNTER = 0
+
+
 def fix_ffprobe():
+    global FIX_FFPROBE_COUNTER
+    from src.lib.term import print_warning
+
+    fix_cmd = "pip uninstall ffmpeg-python -y && pip install ffmpeg-python==0.2.0 --force-reinstall -y"
+
     try:
-        from ffmpeg import probe
+        from ffmpeg import Error, probe
+
+        FIX_FFPROBE_COUNTER += 1
     except ImportError:
-        os.system(
-            "pip uninstall ffmpeg-python -y > /dev/null && pip install ffmpeg-python==0.2.0 -y > /dev/null"
-        )
+        if FIX_FFPROBE_COUNTER == 0:
+            print_warning(
+                "ffmpeg's ffprobe is not installed or not working. Attempting to fix..."
+            )
+
+        os.system(fix_cmd)
+        if FIX_FFPROBE_COUNTER < 3:
+            FIX_FFPROBE_COUNTER += 1
+            fix_ffprobe()
+        else:
+            raise ImportError(
+                f"ffmpeg's ffprobe is not installed, please fix it manually:\n\n $ {fix_cmd}\n\n"
+            )

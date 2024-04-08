@@ -5,7 +5,7 @@ import time
 from collections.abc import Callable
 from functools import cached_property, wraps
 from pathlib import Path
-from typing import Any, cast, Literal
+from typing import Any, cast, Literal, TypeVar
 
 import cachetools
 
@@ -15,7 +15,6 @@ from src.lib.fs_utils import (
     count_audio_files_in_inbox,
     count_standalone_books_in_inbox,
     find_base_dirs_with_audio_files,
-    find_book_dirs_for_series,
     find_book_dirs_in_inbox,
     find_books_in_inbox,
     find_standalone_books_in_inbox,
@@ -24,7 +23,7 @@ from src.lib.fs_utils import (
     last_updated_audio_files_at,
     name_matches,
 )
-from src.lib.misc import isorted, singleton
+from src.lib.misc import singleton
 from src.lib.parsers import is_maybe_multi_book_or_series
 from src.lib.term import print_debug
 
@@ -85,15 +84,18 @@ def scanner(func: Callable[..., Any]):
     return wrapper
 
 
-def requires_scan(func: Callable[..., Any]):
+R = TypeVar("R")
+
+
+def requires_scan(func: Callable[..., R]):
     """A decorator that ensures the path of a Hasher object has been scanned before calling the decorated function."""
 
     @wraps(func)
     def wrapper(*args, **kwargs):
         hasher = cast(Hasher, args[0])
-        if not hasher._hashes:
+        if not hasher._hashes or not hasher._last_run:
             hasher.scan()
-        return func(*args, **kwargs)
+        return cast(R, func(*args, **kwargs))
 
     return wrapper
 
@@ -281,6 +283,8 @@ class InboxItem:
         return f"{self.key} ({human_size(self.size)}) -- {self.status} -- {since} -- {self.hash}"
 
     def __eq__(self, other):
+        if not isinstance(other, InboxItem):
+            return False
         return self.key == other.key
 
     def __hash__(self):
@@ -381,8 +385,12 @@ class InboxItem:
         return inbox.get(self.series_key)
 
     @property
-    def series_books(self):
-        return isorted(find_book_dirs_for_series(self.path))
+    def series_books(self) -> list["InboxItem"]:
+        inbox = InboxState()
+        if not self.is_maybe_series_parent:
+            return []
+
+        return inbox.series_items_for_key(self.key)
 
     @cached_property
     def series_key(self):
@@ -446,7 +454,7 @@ class InboxState(Hasher):
         from src.lib.config import cfg
 
         super().__init__(cfg.inbox_dir)
-        self._items = {}
+        self._items: dict[str, InboxItem] = {}
         self.ready = False
         self.banner_printed = False
         self.waited_for_changes = False
@@ -614,6 +622,15 @@ class InboxState(Hasher):
     @property
     def series_parents(self):
         return find_book_dirs_in_inbox(only_series_parents=True)
+
+    def series_items_for_key(self, key: str):
+        return [
+            v
+            for _k, v in self._items.items()
+            if v.series_key == key
+            or Path(v.key).parts[0] == key
+            and v.is_maybe_series_book
+        ]
 
     @property
     def num_books(self):
