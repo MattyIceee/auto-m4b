@@ -130,6 +130,27 @@ class test_happy_paths:
             for book in child_books:
                 assert book.converted_dir.exists()
 
+    def test_book_series_handles_series_collateral(
+        self,
+        Chanur_Series: list[Audiobook],
+        enable_convert_series,
+        enable_archiving,
+    ):
+
+        app(max_loops=1, no_fix=True, test=True)
+        series = Chanur_Series[0]
+        assert series.converted_dir.exists()
+        for pic in [
+            "414fL6J.png",
+            "i367gyc.png",
+            "KiaprKx.png",
+            "mhHDEdX.png",
+            "xEZNYAN.png",
+        ]:
+            assert (series.converted_dir / pic).exists()
+        assert not series.inbox_dir.exists()
+        assert series.archive_dir.exists()
+
     @pytest.mark.parametrize(
         "partial_flatten_backup_dirs",
         [

@@ -154,6 +154,14 @@ class Audiobook(BaseModel):
         return self._inbox_item.is_maybe_series_parent if self._inbox_item else False
 
     @property
+    def is_first_book_in_series(self):
+        return self._inbox_item.is_first_book_in_series if self._inbox_item else False
+
+    @property
+    def is_last_book_in_series(self):
+        return self._inbox_item.is_last_book_in_series if self._inbox_item else False
+
+    @property
     def series_parent(self):
         return self._inbox_item.series_parent if self._inbox_item else None
 

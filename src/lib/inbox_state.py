@@ -26,6 +26,7 @@ from src.lib.fs_utils import (
 from src.lib.misc import singleton
 from src.lib.parsers import is_maybe_multi_book_or_series
 from src.lib.term import print_debug
+from src.lib.typing import DirName
 
 InboxItemStatus = Literal["new", "ok", "needs_retry", "failed", "gone"]
 
@@ -378,6 +379,24 @@ class InboxItem:
         )
 
     @cached_property
+    def is_first_book_in_series(self):
+        return (
+            self.is_maybe_series_book
+            and (parent := self.series_parent)
+            and (series_books := parent.series_books)
+            and series_books[0] == self
+        )
+
+    @cached_property
+    def is_last_book_in_series(self):
+        return (
+            self.is_maybe_series_book
+            and (parent := self.series_parent)
+            and (series_books := parent.series_books)
+            and series_books[-1] == self
+        )
+
+    @cached_property
     def series_parent(self):
         inbox = InboxState()
         if not self.is_maybe_series_book:
@@ -445,6 +464,11 @@ class InboxItem:
             "status": "gone" if self.is_gone else self.status,
             "failed_reason": self.failed_reason,
         }
+
+    def to_audiobook(self, active_dir: DirName = "inbox") -> Audiobook:
+        book = Audiobook(self.path)
+        book._active_dir = active_dir
+        return book
 
 
 @singleton

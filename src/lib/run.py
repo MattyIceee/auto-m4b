@@ -18,6 +18,7 @@ from src.lib.formatters import (
     pluralize_with_count,
 )
 from src.lib.fs_utils import *
+from src.lib.fs_utils import _mv_or_cp_dir_contents
 from src.lib.id3_utils import verify_and_update_id3_tags
 from src.lib.inbox_state import InboxItem, InboxState
 from src.lib.logger import log_global_results
@@ -128,22 +129,31 @@ def print_banner():
     inbox.banner_printed = True
 
 
-def print_book_series_header(book: InboxItem | None):
-    if not book or (
-        not (parent := book.series_parent) or not parent.is_maybe_series_parent
-    ):
+def print_book_series_header(
+    book: InboxItem | None, progress: bool = True, done: bool = False
+):
+    if not book:
+        return
+    if book.is_maybe_series_parent:
+        parent = book
+    elif not ((parent := book.series_parent) and parent.is_maybe_series_parent):
         return
 
-    pink_dots = Tinta()
-    for item in parent.series_books:
-        if item == book:
-            pink_dots.light_pink("•")
-        else:
-            pink_dots.dim().light_pink("•").normal()
+    # parent = book if book.is_maybe_series_parent else parent
+
+    indicator = Tinta()
+    if progress:
+        for item in parent.series_books:
+            if item == book:
+                indicator.light_pink("•")
+            else:
+                indicator.dim().light_pink("•").normal()
+    elif done:
+        indicator.light_pink("✓")
 
     box(
         Tinta()
-        .pink(f"Book Series {pink_dots.to_str(sep='')}\n")
+        .pink(f"Book Series {indicator.to_str(sep='')}\n")
         .grey(parent.basename)
         .to_str(sep="")
     )
@@ -151,11 +161,9 @@ def print_book_series_header(book: InboxItem | None):
 
 def print_book_header(book: InboxItem | None):
 
-    if not book:
+    if not book or book.is_maybe_series_parent:
         return
     print_book_series_header(book)
-    if book.is_maybe_series_parent:
-        return
     box(book.basename, color="mint")
 
 
@@ -746,7 +754,61 @@ def move_converted_book_and_extras(book: Audiobook):
     return True
 
 
-def archive_inbox_copy(book: Audiobook):
+def cleanup_series_dir(parent: InboxItem | None):
+    if not parent or not parent.is_maybe_series_parent:
+        print_debug(
+            f"{parent} is not a series parent, can't move series extras or clean up"
+        )
+        return
+
+    print_book_series_header(parent, progress=False, done=True)
+
+    parent_book = parent.to_audiobook()
+    verb = "copy" if cfg.ON_COMPLETE == "test_do_nothing" else "move"
+    # Move (or copy) series collateral to converted folder
+    _mv_or_cp_dir_contents(
+        verb,
+        parent_book.inbox_dir,
+        parent_book.converted_dir,
+        only_file_exts=cfg.OTHER_EXTS,
+        overwrite_mode="overwrite-silent",
+    )
+
+    smart_print("\nCleaning up series folder...", end="")
+
+    parent_book.set_active_dir("converted")
+
+    if cfg.ON_COMPLETE == "test_do_nothing":
+        print_notice(
+            "Test mode: The original series folder will not be moved or deleted"
+        )
+
+    elif parent_book.inbox_dir.exists():
+        if cfg.ON_COMPLETE == "archive":
+            _mv_or_cp_dir_contents(
+                verb,
+                parent_book.inbox_dir,
+                parent_book.archive_dir,
+                overwrite_mode="skip-silent",
+            )
+
+        elif cfg.ON_COMPLETE == "delete":
+            can_del = is_ok_to_delete(parent_book.inbox_dir)
+            if can_del or cfg.BACKUP:
+                rm_dir(
+                    parent_book.inbox_dir, ignore_errors=True, even_if_not_empty=True
+                )
+            elif not can_del and not cfg.BACKUP:
+                print_notice(
+                    f"Notice: The book series folder [[{parent_book.inbox_dir}]] is not empty, it will not be deleted because backups are disabled"
+                )
+                return
+    print_mint(" ✓")
+
+    divider("\n")
+
+
+def archive_inbox_book(book: Audiobook):
     if cfg.ON_COMPLETE == "archive":
         smart_print("\nArchiving original from inbox...", end="")
         mv_dir_contents(
@@ -861,7 +923,8 @@ def process_book(b: int, item: InboxItem):
     if not move_converted_book_and_extras(book):
         return b
 
-    archive_inbox_copy(book)
+    archive_inbox_book(book)
+
     print_book_done(b, book, elapsedtime)
     rm_dirs(
         [book.build_dir, book.merge_dir], ignore_errors=True, even_if_not_empty=True
@@ -874,10 +937,9 @@ def process_inbox():
     inbox = InboxState()
 
     if not inbox.ready:
-        print_debug("First run, scanning inbox")
+        print_debug("First run, scanning inbox...")
 
     if not audio_files_found():
-        print_debug("No audio files found, skipping this loop", only_once=True)
         return
 
     if not inbox.inbox_needs_processing() and inbox.ready:
@@ -898,6 +960,9 @@ def process_inbox():
         divider("\n")
         if b < inbox.num_books - 1:
             nl()
+
+        if item.is_maybe_series_book and item.is_last_book_in_series:
+            cleanup_series_dir(item.series_parent)
 
     print_footer(b)
     clean_dirs([cfg.merge_dir, cfg.build_dir, cfg.trash_dir])

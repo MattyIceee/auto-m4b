@@ -316,10 +316,8 @@ def _mv_or_cp_dir_contents(
 
     overwrite_mode = overwrite_mode or cfg.OVERWRITE_MODE
 
-    if overwrite_mode not in OVERWRITE_MODES:
-        raise ValueError("Invalid overwrite mode")
-
-    dst_dir.mkdir(parents=True, exist_ok=True)
+    if not check_src_dst(src_dir, "dir", dst_dir, "dir", overwrite_mode):
+        raise FileNotFoundError("Source or destination directory does not exist")
 
     if operation == "move" and not src_and_dst_are_on_same_partition(src_dir, dst_dir):
         # print_debug(
