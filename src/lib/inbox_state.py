@@ -93,9 +93,9 @@ def requires_scan(func: Callable[..., R]):
 
     @wraps(func)
     def wrapper(*args, **kwargs):
-        hasher = cast(Hasher, args[0])
-        if not hasher._hashes or not hasher._last_run:
-            hasher.scan()
+        inbox = cast(InboxState, args[0])
+        if not inbox._hashes or not inbox._last_run_end:
+            inbox.scan(skip_failed_sync=True)
         return cast(R, func(*args, **kwargs))
 
     return wrapper
@@ -109,7 +109,8 @@ class Hasher:
         # self.last_updated = last_updated_audio_files_at(path)
         self.max_hashes = max_hashes
         self._hashes = []
-        self._last_run = None
+        self._last_run_start = None
+        self._last_run_end = None
         self.flush()
 
     def __repr__(self):
@@ -137,8 +138,13 @@ class Hasher:
 
     @property
     @scanner
-    def changed_since_last_run(self):
-        return hash_path_audio_files(self.path) != self.last_run_hash
+    def changed_since_last_run_started(self):
+        return hash_path_audio_files(self.path) != self.last_run_start_hash
+
+    @property
+    @scanner
+    def changed_since_last_run_ended(self):
+        return hash_path_audio_files(self.path) != self.last_run_end_hash
 
     @property
     def time_since_last_change(self):
@@ -185,7 +191,11 @@ class Hasher:
             waited_count += 1
             time.sleep(0.5)
 
-        needs_processing = changed_after_waiting or self.changed_since_last_run
+        needs_processing = (
+            changed_after_waiting
+            or self.changed_since_last_run_ended
+            or self.changed_since_last_run_started
+        )
         # print_debug(
         #     f"----------------------------\n"
         #     f"        Recently modified: {rec_mod}\n"
@@ -230,18 +240,23 @@ class Hasher:
     def next_hash(self):
         return hash_path_audio_files(self.path)
 
+    @requires_scan
+    def start(self):
+        if len(self._hashes):
+            self._last_run_start = self._hashes[0]
+
+    @scanner
     def done(self):
         if len(self._hashes):
-            self.scan()
-            self._last_run = self._hashes[0]
+            self._last_run_end = self._hashes[0]
 
     @property
-    def last_run(self):
-        return self._last_run
+    def last_run_start_hash(self):
+        return self._last_run_start[0] if self._last_run_start else ""
 
     @property
-    def last_run_hash(self):
-        return self.last_run[0] if self.last_run else ""
+    def last_run_end_hash(self):
+        return self._last_run_end[0] if self._last_run_end else ""
 
     def to_dict(self):
         return {
@@ -523,7 +538,7 @@ class InboxState(Hasher):
             return
         self._items.pop(key, None)
 
-    def scan(self, *paths: str | Path):
+    def scan(self, *paths: str | Path, skip_failed_sync=False):
         from src.lib.config import cfg
 
         super().scan()
@@ -548,7 +563,7 @@ class InboxState(Hasher):
             if item := self._items.get(k):
                 item.set_gone()
 
-        if not self.failed_books and os.getenv("FAILED_BOOKS"):
+        if not skip_failed_sync and not self.failed_books and os.getenv("FAILED_BOOKS"):
             self._sync_failed_from_env()
 
     def flush(self):
@@ -675,7 +690,11 @@ class InboxState(Hasher):
     @property
     def matched_books(self):
         return filter_series_parents(
-            {k: v for k, v in self._items.items() if not v.is_filtered}
+            {
+                k: v
+                for k, v in self._items.items()
+                if not v.is_filtered and not v.status in ["gone"]
+            }
         )
 
     @property
@@ -785,6 +804,16 @@ class InboxState(Hasher):
 
         if item := self.get(key_path_or_book):
             item.set_ok()
+            self._sync_failed_to_env()
+        else:
+            print_debug(f"Item {key_path_or_book} not found in inbox")
+
+    def set_gone(self, key_path_or_book: str | Path | Audiobook):
+        if not self.get(key_path_or_book):
+            self.set(key_path_or_book)
+
+        if item := self.get(key_path_or_book):
+            item.set_gone()
             self._sync_failed_to_env()
         else:
             print_debug(f"Item {key_path_or_book} not found in inbox")

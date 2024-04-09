@@ -15,6 +15,7 @@ from src.lib.audiobook import Audiobook
 from src.lib.inbox_state import InboxState
 from src.lib.strings import en
 from src.tests.conftest import TEST_DIRS
+from src.tests.helpers.pytest_fixtures import load_test_fixtures
 from src.tests.helpers.pytest_utils import testutils
 
 ORDER = 1
@@ -24,7 +25,7 @@ ORDER = 1
 class test_unhappy_paths:
 
     @pytest.fixture(scope="function", autouse=True)
-    def setup(self, reset_inbox_state):
+    def setup(self, reset_inbox_state: None):
         yield
 
     @pytest.mark.order(ORDER)
@@ -41,8 +42,8 @@ class test_unhappy_paths:
             capfd,
             bitrate_nonstandard__mp3,
             the_crusades_through_arab_eyes__flat_mp3,
-            found=(2, 1),
-            converted=2,
+            found=[testutils.found_books(books=2, prints=1)],
+            converted=[testutils.converted_books(books=2)],
         )
         assert bitrate_nonstandard__mp3.converted_dir.exists()
         assert the_crusades_through_arab_eyes__flat_mp3.converted_dir.exists()
@@ -95,8 +96,8 @@ class test_unhappy_paths:
         assert testutils.assert_only_processed_books(
             out,
             tower_treasure__flat_mp3,
-            found=(2, 1),
-            converted=1,
+            found=[testutils.found_books(books=2, prints=1)],
+            converted=[testutils.converted_books(books=1)],
         )
         assert out.count("named with roman numerals") == 1
 
@@ -111,8 +112,8 @@ class test_unhappy_paths:
         assert testutils.assert_only_processed_books(
             out,
             tower_treasure__flat_mp3,
-            found=(2, 1),
-            converted=1,
+            found=[testutils.found_books(books=2, prints=1)],
+            converted=[testutils.converted_books(books=1)],
         )
         # assert out.count("2 books in the inbox") == 1
         assert out.count("skipping 1 that previously failed") == 1
@@ -140,8 +141,8 @@ class test_unhappy_paths:
             assert testutils.assert_only_processed_books(
                 out,
                 tower_treasure__flat_mp3,
-                found=(2, 1),
-                converted=1,
+                found=[testutils.found_books(books=2, prints=1)],
+                converted=[testutils.converted_books(books=1)],
             )
             assert out.count("named with roman numerals") == 1
             testutils.fail_book("Roman Numeral Book", from_now=30)
@@ -155,8 +156,8 @@ class test_unhappy_paths:
                 out,
                 tower_treasure__flat_mp3,
                 house_on_the_cliff__flat_mp3,
-                found=(3, 1),
-                converted=2,
+                found=[testutils.found_books(books=3, prints=1)],
+                converted=[testutils.converted_books(books=2)],
             )
 
     ORDER += 1
@@ -300,6 +301,71 @@ class test_unhappy_paths:
             out = testutils.get_stdout(capfd)
             assert out.count(en.INBOX_RECENTLY_MODIFIED) == 1
             assert out.count("Skipping this book, it was recently") == 0
+
+    ORDER += 1
+
+    async def run_app_for__books_added_while_converting(self):
+        with testutils.set_wait_time(2):
+            testutils.print("Starting app...")
+            app(max_loops=2, no_fix=True, test=True)
+            testutils.print("Finished app")
+
+    @pytest.mark.asyncio
+    @pytest.mark.order(ORDER)
+    async def test_books_added_while_converting_are_discovered(
+        self,
+        tower_treasure__flat_mp3: Audiobook,
+        house_on_the_cliff__flat_mp3: Audiobook,
+        enable_archiving,
+        capfd: CaptureFixture[str],
+    ):
+        the_sunlit_man__flat_mp3 = Audiobook(
+            TEST_DIRS.inbox / "the_sunlit_man__flat_mp3"
+        )
+        tiny__flat_mp3 = Audiobook(TEST_DIRS.inbox / "tiny__flat_mp3")
+        shutil.rmtree(the_sunlit_man__flat_mp3.inbox_dir, ignore_errors=True)
+        shutil.rmtree(tiny__flat_mp3.inbox_dir, ignore_errors=True)
+
+        match_filter = "^(tower|house|the_sunlit|tiny)"
+        testutils.set_match_filter(match_filter)
+
+        def add_book_to_inbox():
+            # copy the_sunlit_man__flat_mp3 and tiny__flat_mp3 from fixtures to inbox
+            time.sleep(5)
+            testutils.print("Loading additional test fixtures...")
+            load_test_fixtures(
+                "the_sunlit_man__flat_mp3", "tiny__flat_mp3", match_filter=match_filter
+            )
+
+        with testutils.set_wait_time(1):
+            # InboxState().flush()
+
+            app_task = asyncio.create_task(
+                self.run_app_for__books_added_while_converting()
+            )
+
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                await asyncio.get_running_loop().run_in_executor(
+                    executor, add_book_to_inbox
+                )
+
+            await app_task
+
+            out = testutils.get_stdout(capfd)
+            assert testutils.assert_only_processed_books(
+                out,
+                tower_treasure__flat_mp3,
+                house_on_the_cliff__flat_mp3,
+                # the_hobbit__multidisc_mp3,
+                the_sunlit_man__flat_mp3,
+                tiny__flat_mp3,
+                found=[
+                    testutils.found_books(books=2, prints=1),
+                    testutils.found_books(books=2, prints=1),
+                ],
+                # found=(4, 1),
+                # converted=4,
+            )
 
     ORDER += 1
 

@@ -6,6 +6,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
+from pydantic import BaseModel
 from pytest import CaptureFixture
 from tinta import Tinta
 
@@ -22,6 +23,17 @@ cfg.PID_FILE.unlink(missing_ok=True)
 
 
 class testutils:
+
+    class found_books(BaseModel):
+        books: int
+        prints: int
+
+    class converted_books(BaseModel):
+        books: int
+
+    class ignoring_books(BaseModel):
+        min_books: int
+        prints: int
 
     @classmethod
     def print(cls, *s: Any):
@@ -124,7 +136,7 @@ class testutils:
         )
         inbox = InboxState()
         inbox._hashes.insert(0, new_hash)
-        inbox._last_run = new_hash
+        inbox._last_run_end = new_hash
 
     @classmethod
     def rename_files(
@@ -289,8 +301,9 @@ class testutils:
         cls,
         out: str | CaptureFixture[str],
         *books: Audiobook,
-        found: tuple[int, int] | None = None,
-        converted: int | None = None,
+        found: list[found_books] | None = None,
+        converted: list[converted_books] | None = None,
+        ignoring: list[ignoring_books] | None = None,
     ) -> bool:
 
         if isinstance(out, CaptureFixture):
@@ -304,25 +317,58 @@ class testutils:
         assert (
             ok
         ), f"Expected {len(books)} to be converted: {books_list}\n\nGot {len(processed)}: {processed_list}"
-        if found is not None:
+
+        def assert_found(i: int, f: testutils.found_books, out_run: str = out):
             try:
-                assert out.count(f"Found {found[0]} book") == found[1]
+                assert out_run.count(f"Found {f.books} book") == f.prints
             except AssertionError:
-                # cls.print(out)
+                # cls.print(out_run)
                 actual = re.findall(r"Found (\d+) books?", out)
-                expected = " × ".join(map(str, list(found)))
-                raise AssertionError(
-                    f"Found books count mismatch - should be {expected}, got {len(actual)} - {actual}"
+                expected = f.model_dump()
+                f_actual = testutils.found_books(
+                    books=int(actual[i]), prints=len(actual)
                 )
-        if converted is not None:
+                raise AssertionError(
+                    f"Found books count mismatch - should be {expected}, got {f_actual}"
+                )
+
+        def assert_converted(c: testutils.converted_books, out_run: str = out):
             try:
-                assert out.count("Converted") == converted
+                assert out_run.count("Converted") == c.books
             except AssertionError:
-                # cls.print(out)
-                actual = re.findall(r"Converted.*(?<!\\n)", out)
+                # cls.print(out_run)
+                actual = re.findall(r"Converted.*(?<!\\n)", out_run)
                 raise AssertionError(
-                    f"'Converted' print count mismatch - should be {converted}, got {len(actual)} - {actual}"
+                    f"'Converted' print count mismatch - should be {c.books}, got {len(actual)}"
                 )
+
+        def assert_ignoring(i: int, f: testutils.ignoring_books, out_run: str = out):
+            try:
+                count = re.findall(r"ignoring (\d+)", out_run)
+                assert len(count) == f.prints
+                assert int(count[i]) >= f.min_books
+            except AssertionError:
+                # cls.print(out_run)
+                actual = re.findall(r"ignoring (\d+)", out_run)
+                expected = f.model_dump()
+                f_actual = testutils.found_books(
+                    books=int(actual[i]), prints=len(actual)
+                )
+                raise AssertionError(
+                    f"Found ignored books count mismatch - should be {expected}, got {f_actual}"
+                )
+
+        if found:
+            for i, (f, o) in enumerate(zip(found, out.split("CATS")[:-1])):
+                assert_found(i, f, o)
+
+        if converted:
+            for c, o in zip(converted, out.split("CATS")[:-1]):
+                assert_converted(c, o)
+
+        if ignoring:
+            for i, (f, o) in enumerate(zip(ignoring, out.split("CATS")[:-1])):
+                assert_ignoring(i, f, o)
 
         return ok
 
@@ -338,4 +384,4 @@ class testutils:
         desc = book.converted_dir / f"{book.path.name} [{quality}].txt"
         assert desc.exists()
         assert desc.stat().st_size > 0
-        return m4b, log, desc
+        return True

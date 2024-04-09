@@ -106,7 +106,9 @@ def process_standalone_files():
 def print_banner():
     inbox = InboxState()
 
-    if inbox.ready and any([not inbox.changed_since_last_run, inbox.banner_printed]):
+    if inbox.ready and any(
+        [not inbox.changed_since_last_run_ended, inbox.banner_printed]
+    ):
         return
 
     current_local_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -803,44 +805,46 @@ def cleanup_series_dir(parent: InboxItem | None):
                     f"Notice: The book series folder [[{parent_book.inbox_dir}]] is not empty, it will not be deleted because backups are disabled"
                 )
                 return
+        InboxState().set_gone(parent_book)
     print_mint(" ✓")
 
     divider("\n")
 
 
 def archive_inbox_book(book: Audiobook):
-    if cfg.ON_COMPLETE == "archive":
-        smart_print("\nArchiving original from inbox...", end="")
-        mv_dir_contents(
-            book.inbox_dir,
-            book.archive_dir,
-            overwrite_mode="overwrite-silent",
-        )
-
-        if book.inbox_dir.exists():
-            print_warning(
-                f"Warning: {tint_warning(book)} is still in the inbox folder, it should have been archived"
-            )
-            print_orange(
-                "     To prevent this book from being converted again, move it out of the inbox folder"
-            )
-            return
-        print_mint(" ✓")
-
-    elif cfg.ON_COMPLETE == "delete":
-        smart_print("\nDeleting original from inbox...", end="")
-        can_del = is_ok_to_delete(book.inbox_dir)
-        if can_del or cfg.BACKUP:
-            rm_dir(book.inbox_dir, ignore_errors=True, even_if_not_empty=True)
-        elif not can_del and not cfg.BACKUP:
-            print_notice(
-                "Notice: The original folder is not empty, it will not be deleted because backups are disabled"
-            )
-            return
-        print_mint(" ✓")
-
-    elif cfg.ON_COMPLETE == "test_do_nothing":
+    if cfg.ON_COMPLETE == "test_do_nothing":
         print_notice("Test mode: The original folder will not be moved or deleted")
+    else:
+        if cfg.ON_COMPLETE == "archive":
+            smart_print("\nArchiving original from inbox...", end="")
+            mv_dir_contents(
+                book.inbox_dir,
+                book.archive_dir,
+                overwrite_mode="overwrite-silent",
+            )
+
+            if book.inbox_dir.exists():
+                print_warning(
+                    f"Warning: {tint_warning(book)} is still in the inbox folder, it should have been archived"
+                )
+                print_orange(
+                    "     To prevent this book from being converted again, move it out of the inbox folder"
+                )
+                return
+
+        elif cfg.ON_COMPLETE == "delete":
+            smart_print("\nDeleting original from inbox...", end="")
+            can_del = is_ok_to_delete(book.inbox_dir)
+            if can_del or cfg.BACKUP:
+                rm_dir(book.inbox_dir, ignore_errors=True, even_if_not_empty=True)
+            elif not can_del and not cfg.BACKUP:
+                print_notice(
+                    "Notice: The original folder is not empty, it will not be deleted because backups are disabled"
+                )
+                return
+
+        InboxState().set_gone(book)
+        print_mint(" ✓")
 
 
 def process_book(b: int, item: InboxItem):
@@ -953,6 +957,8 @@ def process_inbox():
     if not has_books_to_process():
         inbox.done()
         return
+
+    inbox.start()
 
     b = 0
     for item in inbox.items_to_process.values():
