@@ -48,9 +48,7 @@ class m4btool:
         _(("--logfile", dockerize_volume(book.log_file)))
         _("--no-chapter-reindexing")
 
-        if cfg.SKIP_COVERS:
-            _("--no-cover-image")
-        elif not book.has_id3_cover and book.cover_art:
+        if not book.has_id3_cover and book.cover_art:
             _(("--cover", dockerize_volume(book.cover_art)))
 
         if cfg.USE_FILENAMES_AS_CHAPTERS:

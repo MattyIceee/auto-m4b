@@ -1,4 +1,5 @@
 import argparse
+import functools
 import os
 import re
 import shutil
@@ -6,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from collections.abc import Callable
 from contextlib import contextmanager
 from datetime import datetime
 from functools import cached_property
@@ -14,13 +16,28 @@ from pathlib import Path
 from typing import Any, cast, Literal, overload, TypeVar
 
 from src.lib.formatters import listify
-from src.lib.misc import get_git_root, load_env, parse_bool, singleton, to_json
+from src.lib.misc import (
+    get_git_root,
+    is_boolish,
+    is_floatish,
+    is_intish,
+    is_maybe_path,
+    is_noneish,
+    load_env,
+    parse_bool,
+    parse_float,
+    parse_int,
+    pathify,
+    set_typed_env_var,
+    singleton,
+    to_json,
+)
 from src.lib.strings import en
-from src.lib.term import nl, print_amber, print_error
+from src.lib.term import nl, print_amber, print_banana, print_error
 from src.lib.typing import ExifWriter, OverwriteMode
 
-DEFAULT_SLEEP_TIME = 10
-DEFAULT_WAIT_TIME = 5
+DEFAULT_SLEEP_TIME: float = 10
+DEFAULT_WAIT_TIME: float = 5
 AUDIO_EXTS = [".mp3", ".m4a", ".m4b", ".wma"]
 OTHER_EXTS = [
     ".jpg",
@@ -64,19 +81,24 @@ OnComplete = Literal["archive", "delete", "test_do_nothing"]
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--env", help="Path to .env file", type=Path)
-parser.add_argument("--debug", help="Enable debug mode", action="store_true")
-parser.add_argument("--test", help="Enable test mode", action="store_true")
+parser.add_argument(
+    "--debug",
+    help="Enable/disable debug mode (--debug off to disable)",
+    action="store",
+    type=lambda x: False if x.lower() == "off" else True,
+)
+parser.add_argument(
+    "--test",
+    help="Enable/disable test mode (--test off to disable)",
+    action="store",
+    type=lambda x: False if x.lower() == "off" else True,
+)
 parser.add_argument(
     "-l",
     "--max_loops",
     help="Max number of times the app should loop (default: -1, infinity)",
     default=-1,
     type=int,
-)
-parser.add_argument(
-    "--no-fix",
-    help="Disables moving problematic books to the fix folder. Default is False, or True if DEBUG mode is on.",
-    action="store_true",
 )
 parser.add_argument(
     "--match-name",
@@ -94,7 +116,7 @@ def pick(a: T, b) -> T: ...
 
 
 @overload
-def pick(a: T, b, default: None = None) -> T: ...
+def pick(a: T, b, default: None = None) -> T | None: ...
 
 
 @overload
@@ -109,12 +131,68 @@ def pick(a: T, b, default: D = None) -> T | D:
     return default
 
 
+def env_property(
+    typ: type[D] = str,
+    default: D | None = None,
+    var_name: str | None = None,
+    on_get: Callable[[D], D] | None = None,
+    on_set: Callable[[D | None], D | None] | None = None,
+):
+    def decorator(func):
+        if not ("self" in func.__code__.co_varnames):
+            raise ValueError("Function must have a 'self' argument")
+
+        key = func.__name__.upper().lstrip("_")
+
+        @functools.wraps(func)
+        def getter(self: "Config", *args, **kwargs):
+            if not key in self._env or self._env[key] is None:
+                env_value = os.getenv(var_name or key, default)
+                if is_maybe_path(env_value) or typ == Path:
+                    self._env[key] = pathify(key, env_value)
+                elif is_boolish(env_value) or typ == bool:
+                    self._env[key] = parse_bool(env_value)
+                elif is_floatish(env_value) or typ == float:
+                    self._env[key] = parse_float(env_value)
+                elif is_intish(env_value) or typ == int:
+                    self._env[key] = parse_int(env_value)
+                elif env_value is None:
+                    self._env.pop(key, None)
+                elif is_noneish(env_value):
+                    self._env[key] = None
+                elif env_value is None and default is not None:
+                    self._env[key] = default
+                else:
+                    self._env[key] = str(env_value)
+
+            if on_get:
+                return on_get(self._env[key])
+
+            return cast(D, self._env.get(key, default))
+
+        @functools.wraps(func)
+        def setter(self: "Config", value: D | None):
+
+            if on_set:
+                value = on_set(value)
+
+            if value is None:
+                self._env.pop(key, None)
+                os.environ.pop(key, None)
+            else:
+                self._env[key] = value
+                os.environ[var_name or key] = str(value)
+
+        return cast(D, property(getter, setter))
+
+    return cast(Callable[..., D], decorator)
+
+
 class AutoM4bArgs:
     env: Path | None
-    debug: bool
-    test: bool
+    debug: bool | None
+    test: bool | None
     max_loops: int
-    no_fix: bool
     match_name: str | None
 
     def __init__(
@@ -123,16 +201,14 @@ class AutoM4bArgs:
         debug: bool | None = None,
         test: bool | None = None,
         max_loops: int | None = None,
-        no_fix: bool | None = None,
         match_name: str | None = None,
     ):
         args = parser.parse_known_args()[0]
 
         self.env = pick(env, args.env)
-        self.debug = pick(debug, args.debug, False)
-        self.test = pick(test, args.test, False)
+        self.debug = pick(debug, args.debug, None)
+        self.test = pick(test, args.test, None)
         self.max_loops = pick(max_loops, args.max_loops, -1)
-        self.no_fix = pick(no_fix, args.no_fix, False)
         self.match_name = pick(match_name, args.match_name)
 
     def __str__(self) -> str:
@@ -192,8 +268,8 @@ def use_pid_file():
 
 @singleton
 class Config:
-    _ENV: dict[str, str | None] = {}
-    _ENV_SRC: Any = None
+    _env: dict[str, Any] = {}
+    _dotenv_src: Any = None
     _USE_DOCKER = False
     _last_debug_print: str = ""
 
@@ -206,7 +282,7 @@ class Config:
 
         with use_pid_file() as pid_exists:
             with self.load_env(args) as env_msg:
-                if self.SLEEP_TIME and not self.TEST:
+                if self.SLEEP_TIME and not "pytest" in sys.modules:
                     time.sleep(min(2, self.SLEEP_TIME / 2))
 
                 if not pid_exists:
@@ -222,12 +298,6 @@ class Config:
                         ),
                         (en.FEATURE_CONVERT_SERIES, self.CONVERT_SERIES),
                     ]
-                    if beta_msg := (
-                        f"[Beta] features are enabled:\n{listify([f for f, b in beta_features if b])}\n"
-                        if any(b for _f, b in beta_features)
-                        else ""
-                    ):
-                        print_amber(beta_msg)
 
                     if test_debug_msg := (
                         "TEST + DEBUG modes on"
@@ -240,6 +310,13 @@ class Config:
                     ):
                         print_amber(test_debug_msg)
 
+                    if beta_msg := (
+                        f"[Beta] features are enabled:\n{listify([f for f, b in beta_features if b])}\n"
+                        if any(b for _f, b in beta_features)
+                        else ""
+                    ):
+                        print_banana(beta_msg)
+
         nl()
 
         self.clean()
@@ -249,46 +326,59 @@ class Config:
         self.check_m4b_tool()
 
     @cached_property
-    def ON_COMPLETE(self) -> OnComplete:
-        default = "test_do_nothing" if self.TEST else "archive"
-        return cast(OnComplete, os.getenv("ON_COMPLETE", default))
-
-    @cached_property
-    def OVERWRITE_MODE(self) -> OverwriteMode:
-        return (
-            "overwrite"
-            if parse_bool(os.getenv("OVERWRITE_EXISTING", False))
-            else "skip"
-        )
-
-    @cached_property
-    def NO_ASCII(self) -> bool:
-        return parse_bool(os.getenv("NO_ASCII", False))
-
-    @cached_property
     def MATCH_NAME(self) -> str | None:
         """Only process books that contain this string in their filename. May be a regex pattern,
         but \\ must be escaped → '\\\\'. Default is None. This is primarily for testing, but can
         be used to filter books or directories."""
-        if self.ARGS.match_name:
-            return self.ARGS.match_name
-        match_name = os.getenv("MATCH_NAME", None)
+        if self.args.match_name:
+            return self.args.match_name
+        match_name = self.get_env_var("MATCH_NAME", None)
         if str(match_name).lower() in ["none", ""]:
             return None
         return match_name
 
-    @cached_property
-    def CPU_CORES(self) -> int:
-        return int(os.getenv("CPU_CORES", cpu_count()))
+    @env_property(
+        typ=OnComplete,
+        default="test_do_nothing" if "pytest" in sys.modules else "archive",
+    )
+    def _ON_COMPLETE(self): ...
 
-    @cached_property
-    def SLEEP_TIME(self):
-        return float(os.getenv("SLEEP_TIME", DEFAULT_SLEEP_TIME))
+    ON_COMPLETE = _ON_COMPLETE
 
-    @cached_property
-    def WAIT_TIME(self):
+    @env_property(
+        var_name="OVERWRITE_EXISTING",
+        typ=OverwriteMode,
+        default="skip",
+        on_get=lambda v: "overwrite" if parse_bool(v) else "skip",
+        on_set=lambda v: "Y" if v == "overwrite" else "N",
+    )
+    def _OVERWRITE_MODE(self): ...
+
+    OVERWRITE_MODE = _OVERWRITE_MODE
+
+    @env_property(typ=bool, default=False)
+    def _NO_CATS(self) -> bool: ...
+
+    NO_CATS = _NO_CATS
+
+    @env_property(typ=int, default=cpu_count())
+    def _CPU_CORES(self): ...
+
+    CPU_CORES = _CPU_CORES
+
+    @env_property(typ=float, default=DEFAULT_SLEEP_TIME)
+    def _SLEEP_TIME(self):
+        """Time to sleep between loops, in seconds. Default is 10s."""
+        ...
+
+    SLEEP_TIME = _SLEEP_TIME
+
+    @env_property(typ=float, default=DEFAULT_WAIT_TIME)
+    def _WAIT_TIME(self):
         """Time to wait when a dir has been recently modified, in seconds. Default is 5s."""
-        return float(os.getenv("WAIT_TIME", DEFAULT_WAIT_TIME))
+        ...
+
+    WAIT_TIME = _WAIT_TIME
 
     @property
     def sleeptime_friendly(self):
@@ -300,11 +390,22 @@ class Config:
             else f"{self.SLEEP_TIME:.1f}s"
         )
 
-    @cached_property
-    def MAX_CHAPTER_LENGTH(self):
+    # @cached_property
+    # def MAX_CHAPTER_LENGTH(self):
+
+    #     max_chapter_length = self.get_env_var("MAX_CHAPTER_LENGTH", "15,30")
+    #     return ",".join(str(int(x) * 60) for x in max_chapter_length.split(","))
+
+    @env_property(
+        typ=str,
+        default="15,30",
+        on_get=lambda v: ",".join(str(int(x) * 60) for x in v.split(",")),
+    )
+    def _MAX_CHAPTER_LENGTH(self):
         """Max chapter length in seconds, default is 15-30m, and is converted to m4b-tool's seconds format."""
-        max_chapter_length = os.getenv("MAX_CHAPTER_LENGTH", "15,30")
-        return ",".join(str(int(x) * 60) for x in max_chapter_length.split(","))
+        ...
+
+    MAX_CHAPTER_LENGTH = _MAX_CHAPTER_LENGTH
 
     @cached_property
     def max_chapter_length_friendly(self):
@@ -315,25 +416,49 @@ class Config:
             + "m"
         )
 
-    @cached_property
-    def SKIP_COVERS(self):
-        return parse_bool(os.getenv("SKIP_COVERS", False))
+    @env_property(typ=bool, default=False)
+    def _USE_FILENAMES_AS_CHAPTERS(self): ...
 
-    # @cached_property
-    # def no_cover_image_arg(self):
-    #     return "--no-cover-image" if self.should_skip_covers else ""
+    USE_FILENAMES_AS_CHAPTERS = _USE_FILENAMES_AS_CHAPTERS
 
-    @cached_property
-    def USE_FILENAMES_AS_CHAPTERS(self):
-        return parse_bool(os.getenv("USE_FILENAMES_AS_CHAPTERS", False))
+    @env_property(typ=bool, default="pytest" in sys.modules)
+    def _TEST(self): ...
 
-    # @cached_property
-    # def use_filenames_as_chapters_arg(self):
-    #     return "--use-filenames-as-chapters" if self.use_filenames_as_chapters else ""
+    TEST = _TEST
 
-    @cached_property
-    def VERSION(self):
-        return os.getenv("VERSION", "latest")
+    @env_property(typ=bool, default="pytest" in sys.modules)
+    def _DEBUG(self): ...
+
+    DEBUG = _DEBUG
+
+    @env_property(typ=bool, default=True)
+    def _BACKUP(self): ...
+
+    BACKUP = _BACKUP
+
+    @env_property(typ=bool, default=False)
+    def _FLATTEN_MULTI_DISC_BOOKS(self): ...
+
+    FLATTEN_MULTI_DISC_BOOKS = _FLATTEN_MULTI_DISC_BOOKS
+
+    @env_property(typ=bool, default=False)
+    def _CONVERT_SERIES(self): ...
+
+    CONVERT_SERIES = _CONVERT_SERIES
+
+    @property
+    def MAX_LOOPS(self):
+        return self.args.max_loops if self.args.max_loops else -1
+
+    @property
+    def args(self) -> AutoM4bArgs:
+        if not hasattr(self, "_ARGS"):
+            self._args = AutoM4bArgs()
+        return self._args
+
+    @property
+    def env(self):
+        return self._env
 
     @cached_property
     def m4b_tool_version(self):
@@ -353,85 +478,13 @@ class Config:
     def m4b_tool(self):
         return " ".join(self._m4b_tool)
 
-    @overload
-    def _load_path_env(
-        self, key: str, default: Path, allow_empty: bool = ...
-    ) -> Path: ...
-
-    @overload
-    def _load_path_env(
-        self,
-        key: str,
-        default: Path | None = None,
-        allow_empty: Literal[True] = True,
-    ) -> Path | None: ...
-
-    @overload
-    def _load_path_env(
-        self,
-        key: str,
-        default: Path | None = None,
-        allow_empty: Literal[False] = False,
-    ) -> Path: ...
-
-    def _load_path_env(
-        self, key: str, default: Path | None = None, allow_empty: bool = True
-    ) -> Path | None:
-        with self.load_env(quiet=True):
-            v = os.getenv(key, self.ENV.get(key, None))
-        path = Path(v).expanduser() if v else default
-        if not path and not allow_empty:
-            raise EnvironmentError(
-                f"{key} is not set, please make sure to set it in a .env file or as an ENV var"
-            )
-        return path.resolve() if path else None
-
-    # def parse_args(self):
-    #     args = parser.parse_known_args()[0]
-    #     self._ARGS = AutoM4bArgs(
-    #         env=args.env,
-    #         debug=args.debug,
-    #         test=args.test,
-    #         max_loops=args.loops,
-    #         no_fix=args.no_fix,
-    #     )
-
-    @property
-    def ARGS(self) -> AutoM4bArgs:
-        if not hasattr(self, "_ARGS"):
-            self._ARGS = AutoM4bArgs()
-        return self._ARGS
-
-    @property
-    def ENV(self):
-        return self._ENV
-
-    @cached_property
-    def TEST(self):
-        if self.ARGS.test or "pytest" in sys.modules:
-            return True
-        return parse_bool(os.getenv("TEST", False))
-
-    @cached_property
-    def DEBUG(self):
-        if self.ARGS.debug:
-            return True
-        return parse_bool(os.getenv("DEBUG", False))
-
-    @property
-    def MAX_LOOPS(self):
-        return self.ARGS.max_loops if self.ARGS.max_loops else -1
-
     @cached_property
     def info_str(self):
         info = f"{self.CPU_CORES} CPU cores / "
         info += f"{self.sleeptime_friendly} sleep / "
         info += f"Max ch. length: {self.max_chapter_length_friendly} / "
-        # info += f"Cover images: {"off" if self.SKIP_COVERS else "on"} / "
         if self.USE_DOCKER:
             info += f"{self.m4b_tool_version} (Docker)"
-        elif self.VERSION == "{self.m4b_tool_version}":
-            info += f"{self.m4b_tool_version}"
         else:
             info += f"{self.m4b_tool_version}"
 
@@ -455,18 +508,6 @@ class Config:
         return IGNORE_FILES
 
     @cached_property
-    def BACKUP(self):
-        return parse_bool(os.getenv("BACKUP", False))
-
-    @cached_property
-    def FLATTEN_MULTI_DISC_BOOKS(self):
-        return parse_bool(os.getenv("FLATTEN_MULTI_DISC_BOOKS", False))
-
-    @cached_property
-    def CONVERT_SERIES(self):
-        return parse_bool(os.getenv("CONVERT_SERIES", False))
-
-    @cached_property
     def EXIF_WRITER(self) -> ExifWriter:
         return cast(ExifWriter, os.getenv("EXIF_WRITER", "eyed3"))
 
@@ -477,24 +518,24 @@ class Config:
 
     @cached_property
     def docker_path(self):
-        env_path = self._load_path_env("DOCKER_PATH", allow_empty=True)
+        env_path = self.load_path_env("DOCKER_PATH", allow_empty=True)
         return env_path or shutil.which("docker")
 
     @cached_property
     def inbox_dir(self):
-        return self._load_path_env("INBOX_FOLDER", allow_empty=False)
+        return self.load_path_env("INBOX_FOLDER", allow_empty=False)
 
     @cached_property
     def converted_dir(self):
-        return self._load_path_env("CONVERTED_FOLDER", allow_empty=False)
+        return self.load_path_env("CONVERTED_FOLDER", allow_empty=False)
 
     @cached_property
     def archive_dir(self):
-        return self._load_path_env("ARCHIVE_FOLDER", allow_empty=False)
+        return self.load_path_env("ARCHIVE_FOLDER", allow_empty=False)
 
     @cached_property
     def backup_dir(self):
-        return self._load_path_env("BACKUP_FOLDER", allow_empty=False)
+        return self.load_path_env("BACKUP_FOLDER", allow_empty=False)
 
     @cached_property
     def tmp_dir(self):
@@ -505,7 +546,7 @@ class Config:
     @cached_property
     def working_dir(self):
         """The working directory for auto-m4b, defaults to /<tmpdir>/auto-m4b."""
-        d = self._load_path_env("WORKING_FOLDER", None, allow_empty=True)
+        d = self.load_path_env("WORKING_FOLDER", None, allow_empty=True)
         if not d:
             return self.tmp_dir
         d.mkdir(parents=True, exist_ok=True)
@@ -604,7 +645,7 @@ class Config:
             )
         )
         env_use_docker = bool(
-            os.getenv("USE_DOCKER", self.ENV.get("USE_DOCKER", False))
+            os.getenv("USE_DOCKER", self.env.get("USE_DOCKER", False))
         )
         install_script = "./scripts/install-docker-m4b-tool.sh"
 
@@ -660,21 +701,80 @@ class Config:
     @contextmanager
     def load_env(self, args: AutoM4bArgs | None = None, *, quiet: bool = False):
         msg = ""
-        self._ARGS = args or AutoM4bArgs()
-        if self.ARGS.env:
-            if self._ENV_SRC != self.ARGS.env:
-                msg = f"Loading ENV from {self.ARGS.env}"
-            self._ENV_SRC = self.ARGS.env
-            self._ENV = load_env(self.ARGS.env)
-        elif self.TEST or "pytest" in sys.modules:
+        self._args = args or AutoM4bArgs()
+
+        self.TEST = (
+            self._args.test
+            if self._args.test is not None
+            else (self.TEST or "pytest" in sys.modules)
+        )
+
+        if self.args.env:
+            if self._dotenv_src != self.args.env:
+                msg = f"Loading ENV from {self.args.env}"
+            self._dotenv_src = self.args.env
+            self._env = load_env(self.args.env)
+        elif self.TEST:
             env_file = get_git_root() / ".env.test"
-            if self._ENV_SRC != env_file:
+            if self._dotenv_src != env_file:
                 msg = f"Loading test ENV from {env_file}"
-            self._ENV_SRC = env_file
-            self._ENV = load_env(env_file)
+            self._dotenv_src = env_file
+            self._env = load_env(env_file)
         else:
-            self._ENV = {}
+            self._env = {}
+        for k, v in self._env.items():
+            self.set_env_var(k, v)
         yield "" if quiet else msg
+
+    @overload
+    def load_path_env(
+        self, key: str, default: Path, allow_empty: bool = ...
+    ) -> Path: ...
+
+    @overload
+    def load_path_env(
+        self,
+        key: str,
+        default: Path | None = None,
+        allow_empty: Literal[True] = True,
+    ) -> Path | None: ...
+
+    @overload
+    def load_path_env(
+        self,
+        key: str,
+        default: Path | None = None,
+        allow_empty: Literal[False] = False,
+    ) -> Path: ...
+
+    def load_path_env(
+        self, key: str, default: Path | None = None, allow_empty: bool = True
+    ) -> Path | None:
+        v = self.get_env_var(key, default=default)
+        path = Path(v).expanduser() if v else default
+        if not path and not allow_empty:
+            raise EnvironmentError(
+                f"{key} is not set, please make sure to set it in a .env file or as an ENV var"
+            )
+        return path.resolve() if path else None
+
+    @overload
+    def get_env_var(self, key: str) -> Any | None: ...
+
+    @overload
+    def get_env_var(self, key: str, default: D) -> str | D: ...
+
+    def get_env_var(self, key: str, default: D | None = None) -> str | None | D:
+        if not self._env:
+            with self.load_env(quiet=True):
+                ...
+        return cast(D, os.getenv(key, self.env.get(key, default)))
+
+    def set_env_var(self, key: str, value: Any):
+        typed_value = set_typed_env_var(key, value, self._env)[key]
+
+        if key.upper() == key and not key.startswith("_"):
+            setattr(self, key, typed_value)
 
     def reload(self):
         self.__init__()

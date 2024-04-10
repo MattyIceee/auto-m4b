@@ -195,7 +195,7 @@ def test_logs_m4b_tool_failures(corrupt_audiobook: Audiobook, global_test_log: P
 
     log_file = TEST_DIRS.inbox / "corrupt_audiobook" / corrupt_audiobook.log_filename
     log_file.unlink(missing_ok=True)
-    app(max_loops=1, no_fix=True, test=True)
+    app(max_loops=1, test=True)
     assert global_test_log.exists()
     assert log_file.exists()
     ffprobe_log = corrupt_audiobook.sample_audio1.with_suffix(".ffprobe-error.txt")

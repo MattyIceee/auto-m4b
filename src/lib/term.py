@@ -23,6 +23,7 @@ LIGHT_GREY_COLOR = Tinta().inspect(name="light_grey")
 MINT_COLOR = Tinta().inspect(name="mint")
 GREEN_COLOR = Tinta().inspect(name="green")
 BLUE_COLOR = Tinta().inspect(name="blue")
+BANANA_COLOR = Tinta().inspect(name="banana")
 PURPLE_COLOR = Tinta().inspect(name="purple")
 AMBER_COLOR = Tinta().inspect(name="amber")
 AMBER_HIGHLIGHT_COLOR = Tinta().inspect(name="amber_accent")
@@ -305,6 +306,14 @@ def print_green(*args: Any, highlight_color: int | None = None):
 def print_blue(*args: Any, highlight_color: int | None = None):
     smart_print(
         " ".join(map(str, args)), color=BLUE_COLOR, highlight_color=highlight_color
+    )
+
+
+def print_banana(*args: Any, highlight_color: int | None = None):
+    smart_print(
+        " ".join(map(str, args)),
+        color=BANANA_COLOR,
+        highlight_color=highlight_color,
     )
 
 

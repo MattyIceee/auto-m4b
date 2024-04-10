@@ -1,10 +1,10 @@
 import asyncio
+import functools
 import os
 import re
-import shutil
 import subprocess
 from collections.abc import Generator, Iterable
-from pathlib import Path
+from pathlib import Path, PosixPath
 from typing import Any, cast, TypeVar
 
 from dotenv import dotenv_values
@@ -55,15 +55,18 @@ def get_numbers_in_string(s: str) -> str:
     return "".join(re.findall(r"\d", s))
 
 
+G = TypeVar("G")
+
+
 def re_group(
     match: re.Match[str] | None,
     group: int | str = 0,
     *,
-    default: str = "",
-) -> str:
+    default: G = "",
+) -> G:
     # returns the first match of pattern in string or default if no match
     found = match.group(group) if match else None
-    return found if found is not None else default
+    return cast(G, found) if found is not None else default
 
 
 def isorted(
@@ -74,6 +77,13 @@ def isorted(
 
 def compare_trim(a: str, b: str) -> bool:
     return " ".join(a.split()) == " ".join(b.split())
+
+
+def try_get_stat_mtime(p: Path) -> float:
+    try:
+        return p.stat().st_mtime
+    except FileNotFoundError:
+        return 0.0
 
 
 def is_boolish(v: Any) -> bool:
@@ -87,45 +97,91 @@ def parse_bool(v: Any) -> bool:
     return str(v).lower() in ("true", "1", "t", "y", "yes")
 
 
-def try_get_stat_mtime(p: Path) -> float:
+def is_floatish(v: Any) -> bool:
     try:
-        return p.stat().st_mtime
-    except FileNotFoundError:
-        return 0.0
+        float(v)
+        return True
+    except ValueError:
+        return False
+
+
+def parse_float(v: Any) -> float:
+    return float(v) if is_floatish(v) else v
+
+
+def is_intish(v: Any) -> bool:
+    try:
+        int(v)
+        return True
+    except ValueError:
+        return False
+
+
+def parse_int(v: Any) -> int:
+    return int(v) if is_intish(v) else v
+
+
+def is_noneish(v: Any) -> bool:
+    return v is None or str(v).lower() in ("none", "null", "nil", "n/a")
+
+
+def parse_none(v: Any) -> None:
+    return None if is_noneish(v) else v
+
+
+def is_maybe_path(v: Any) -> bool:
+    checks = [type(v) in [Path, PosixPath], re.match(r"^\.{0,2}/", str(v))]
+    return any(checks)
+
+
+def pathify(k: str, v: Any) -> Path | None:
+    # from src.lib.config import WORKING_DIRS
+
+    if not k.endswith("_FOLDER") or not is_maybe_path(v):
+        return None
+    p = Path(str(v)).expanduser()
+    if not p.is_absolute():
+        p = get_git_root() / p
+    os.environ[k] = str(p)
+    # if p.exists() and k in WORKING_DIRS and clean_working_dirs:
+    #     shutil.rmtree(p)
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def set_typed_env_var(
+    k: str,
+    v: Any,
+    dict_to_update: dict[str, Any] | None = None,
+):
+
+    if not dict_to_update:
+        dict_to_update = {}
+
+    if not v:
+        os.environ.pop(k, None)
+        dict_to_update[k] = None
+    if is_boolish(v):
+        os.environ[k] = "Y" if parse_bool(v) else "N"
+        dict_to_update[k] = parse_bool(v)
+    elif is_maybe_path(v) and (p := pathify(k, v)):
+        os.environ[k] = str(v)
+        dict_to_update[k] = p
+    else:
+        os.environ[k] = str(v)
+        dict_to_update[k] = os.environ[k]
+
+    return dict_to_update
 
 
 def load_env(
     env_file: str | Path, clean_working_dirs: bool = False
-) -> dict[str, str | None]:
-    from src.lib.config import WORKING_DIRS
+) -> dict[str, Any | None]:
 
     env_file = Path(env_file)
-
-    def is_maybe_path(v: Any) -> bool:
-        v = str(v)
-        return v and Path(v).exists() or "." in v or "/" in v or "\\" in v or "~" in v
-
-    env_vars: dict[str, str | None] = {}
-
+    env_vars: dict[str, Any] = {}
     for k, v in dotenv_values(env_file).items():
-        if not v:
-            continue
-        if is_boolish(v):
-            os.environ[k] = "Y" if parse_bool(v) else "N"
-        elif is_maybe_path(v):
-            if not k.endswith("_FOLDER"):
-                continue
-            v = str(v)
-            p = Path(v).expanduser()
-            if not p.is_absolute():
-                p = get_git_root() / p
-            os.environ[k] = str(p)
-            if Path(v).exists() and k in WORKING_DIRS and clean_working_dirs:
-                shutil.rmtree(v)
-            p.mkdir(parents=True, exist_ok=True)
-        else:
-            os.environ[k] = str(v)
-        env_vars[k] = os.environ[k]
+        set_typed_env_var(k, v, env_vars)
 
     return env_vars
 
@@ -195,12 +251,20 @@ def singleton(class_: type[C]) -> type[C]:
     class class_w(class_):
         _instance = None
 
+        @functools.wraps(class_.__new__)
         def __new__(cls, *args, **kwargs):
             if class_w._instance is None:
                 class_w._instance = super(class_w, cls).__new__(cls, *args, **kwargs)
                 class_w._instance._sealed = False
+                name = f"{class_.__name__}[singleton]"
+                class_w.__name__ = name
+                class_w._instance.__name__ = name
+                qualname = f"{class_.__qualname__}[singleton]"
+                class_w.__qualname__ = qualname
+                class_w._instance.__qualname__ = qualname
             return class_w._instance
 
+        @functools.wraps(class_.__init__)
         def __init__(self, *args, **kwargs):
             if self._sealed:
                 return
@@ -211,7 +275,6 @@ def singleton(class_: type[C]) -> type[C]:
         def destroy(cls):
             cls._instance = None
 
-    class_w.__name__ = class_.__name__
     return cast(type[C], class_w)
 
 

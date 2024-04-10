@@ -37,13 +37,12 @@ class test_unhappy_paths:
     ):
 
         testutils.set_match_filter("^(bitrate_nonstandard|the_crusades)")
-        app(max_loops=1, no_fix=True, test=True)
-        assert testutils.assert_only_processed_books(
+        app(max_loops=1)
+        assert testutils.assert_processed_books(
             capfd,
             bitrate_nonstandard__mp3,
             the_crusades_through_arab_eyes__flat_mp3,
-            found=[testutils.found_books(books=2, prints=1)],
-            converted=[testutils.converted_books(books=2)],
+            check=[testutils.check_output(found_books_eq=2, converted_eq=2)],
         )
         assert bitrate_nonstandard__mp3.converted_dir.exists()
         assert the_crusades_through_arab_eyes__flat_mp3.converted_dir.exists()
@@ -54,12 +53,13 @@ class test_unhappy_paths:
     def test_failed_books_only_print_once(
         self, roman_numeral__mp3: Audiobook, capfd: CaptureFixture[str]
     ):
-        app(max_loops=3, no_fix=True, test=True)
+        app(max_loops=3)
         # assert the message only appears once
         out = testutils.get_stdout(capfd)
         assert out.count(en.ROMAN_ERR) == 1
-        assert out.count("in the inbox, but none match") == 0
-        assert out.count("inbox matching") == 1
+        assert testutils.assert_processed_books(
+            out, check=[testutils.check_output(found_books_eq=1, converted_eq=0)]
+        )
 
     ORDER += 1
 
@@ -71,8 +71,10 @@ class test_unhappy_paths:
     ):
 
         testutils.set_match_filter("test-do-not-match")
-        app(max_loops=4, no_fix=True, test=True)
-        assert capfd.readouterr().out.count("but none match") == 1
+        app(max_loops=4)
+        assert testutils.assert_processed_books(
+            capfd, check=[testutils.check_output(found_books_eq=0, converted_eq=0)]
+        )
 
     ORDER += 1
 
@@ -88,37 +90,33 @@ class test_unhappy_paths:
         match_filter = "^(Roman|tower)"
 
         testutils.set_match_filter(match_filter)
-        app(max_loops=2, no_fix=True, test=True)
+        app(max_loops=2)
         out = testutils.get_stdout(capfd)
-        # assert out.count("2 books in the inbox") == 1
-        # assert out.count("Converted tower_treasure__flat_mp3") == 1
 
-        assert testutils.assert_only_processed_books(
+        assert testutils.assert_processed_books(
             out,
             tower_treasure__flat_mp3,
-            found=[testutils.found_books(books=2, prints=1)],
-            converted=[testutils.converted_books(books=1)],
+            check=[testutils.check_output(found_books_eq=2, converted_eq=1)],
         )
-        assert out.count("named with roman numerals") == 1
+        assert out.count(en.ROMAN_ERR) == 1
 
-        # inbox.flush_global_hash()
         testutils.fail_book(roman_numeral__mp3, from_now=30)
         inbox.reset(match_filter)
         time.sleep(1)
         testutils.force_inbox_hash_change(age=-2)
-        app(max_loops=4, no_fix=True, test=True)
+        app(max_loops=4)
         out = testutils.get_stdout(capfd)
 
-        assert testutils.assert_only_processed_books(
+        assert testutils.assert_processed_books(
             out,
             tower_treasure__flat_mp3,
-            found=[testutils.found_books(books=2, prints=1)],
-            converted=[testutils.converted_books(books=1)],
+            check=[
+                testutils.check_output(
+                    found_books_eq=2, converted_eq=1, skipped_failed_eq=1
+                )
+            ],
         )
-        # assert out.count("2 books in the inbox") == 1
-        assert out.count("skipping 1 that previously failed") == 1
-        assert out.count("named with roman numerals") == 0
-        # assert out.count("Converted tower_treasure__flat_mp3") == 1
+        assert out.count(en.ROMAN_ERR) == 0
 
     ORDER += 1
 
@@ -136,28 +134,29 @@ class test_unhappy_paths:
         with testutils.set_wait_time(2):
 
             testutils.set_match_filter("^(Roman|tower)")
-            app(max_loops=1, no_fix=True, test=True)
+            app(max_loops=1)
             out = testutils.get_stdout(capfd)
-            assert testutils.assert_only_processed_books(
+            assert testutils.assert_processed_books(
                 out,
                 tower_treasure__flat_mp3,
-                found=[testutils.found_books(books=2, prints=1)],
-                converted=[testutils.converted_books(books=1)],
+                check=[testutils.check_output(found_books_eq=2, converted_eq=1)],
             )
-            assert out.count("named with roman numerals") == 1
+            assert out.count(en.ROMAN_ERR) == 1
             testutils.fail_book("Roman Numeral Book", from_now=30)
             inbox.reset("^(Roman|tower|house)")
             time.sleep(1)
             testutils.force_inbox_hash_change(age=-2)
-            app(max_loops=3, no_fix=True, test=True)
+            app(max_loops=3)
             out = testutils.get_stdout(capfd)
-            assert out.count("skipping 1 that previously failed") == 1
-            assert testutils.assert_only_processed_books(
+            assert testutils.assert_processed_books(
                 out,
                 tower_treasure__flat_mp3,
                 house_on_the_cliff__flat_mp3,
-                found=[testutils.found_books(books=3, prints=1)],
-                converted=[testutils.converted_books(books=2)],
+                check=[
+                    testutils.check_output(
+                        found_books_eq=3, converted_eq=2, skipped_failed_eq=1
+                    )
+                ],
             )
 
     ORDER += 1
@@ -166,7 +165,7 @@ class test_unhappy_paths:
         with testutils.set_wait_time(2):
             testutils.print("Starting app...")
             testutils.set_match_filter("chums")
-            app(max_loops=4, no_fix=True, test=False)
+            app(max_loops=4, test=False)
             testutils.print("Finished app")
 
     def add_books__failed_books_skip_when_new_books_added(
@@ -177,14 +176,13 @@ class test_unhappy_paths:
         for book in books:
             testutils.rename_files(book, append=append, rstrip=rstrip)
         (TEST_DIRS.inbox / "missing_chums__mixed_mp3").touch()
-        # time.sleep(1)
 
     @pytest.mark.asyncio
     async def test_failed_books_skip_when_new_books_added(
         self,
         missing_chums__mixed_mp3: Audiobook,
         tower_treasure__flat_mp3: Audiobook,
-        # house_on_the_cliff__flat_mp3: Audiobook,
+        enable_debug,
         capfd: CaptureFixture[str],
     ):
 
@@ -195,7 +193,6 @@ class test_unhappy_paths:
         rename1 = functools.partial(
             self.add_books__failed_books_skip_when_new_books_added,
             tower_treasure__flat_mp3,
-            # house_on_the_cliff__flat_mp3,
             append="-new1",
             rstrip=r"-new\d",
         )
@@ -203,7 +200,6 @@ class test_unhappy_paths:
         rename2 = functools.partial(
             self.add_books__failed_books_skip_when_new_books_added,
             tower_treasure__flat_mp3,
-            # house_on_the_cliff__flat_mp3,
             append="-new2",
             rstrip=r"-new\d",
         )
@@ -215,17 +211,26 @@ class test_unhappy_paths:
         await app_task
         assert tower_treasure__flat_mp3.converted_dir.exists()
         out = testutils.get_stdout(capfd)
-        assert out.count(en.INBOX_RECENTLY_MODIFIED) == 1
         assert out.count(en.MULTI_ERR) == 1
-        # assert testutils.get_stdout(capfd).count("trying again") == 1
-        # shutil.rmtree(inbox_dir, ignore_errors=True)
+        assert testutils.assert_processed_books(
+            out,
+            tower_treasure__flat_mp3,
+            check=[
+                testutils.check_output(found_books_eq=1, converted_eq=0),
+                testutils.check_output(
+                    found_books_eq=1, converted_eq=1, skipped_failed_eq=1
+                ),
+            ],
+        )
+        assert out.count(en.INBOX_RECENTLY_MODIFIED) == 1
+        assert out.count("Waiting for inbox to be modified") > 1
 
     ORDER += 1
 
     async def run_app_for__retries_failed_books_when_changed(self):
         with testutils.set_wait_time(3):
             testutils.print("Starting app...")
-            app(max_loops=4, no_fix=True, test=True)
+            app(max_loops=4)
             testutils.print("Finished app")
 
     @pytest.mark.order(ORDER)
@@ -249,31 +254,48 @@ class test_unhappy_paths:
                 executor, testutils.flatten_book, old_mill__multidisc_mp3, 5
             )
 
+        out = testutils.get_stdout(capfd)
+
         await app_task
-        assert converted_dir.exists()
-        assert testutils.get_stdout(capfd).count("trying again") == 1
+        assert out.count(en.MULTI_ERR) == 1
+        assert testutils.assert_processed_books(
+            out,
+            old_mill__multidisc_mp3,
+            check=[
+                testutils.check_output(found_books_eq=1, converted_eq=0),
+                testutils.check_output(
+                    found_books_eq=1,
+                    converted_eq=1,
+                    skipped_failed_eq=0,
+                    retried_books_eq=1,
+                ),
+            ],
+        )
         shutil.rmtree(inbox_dir, ignore_errors=True)
 
     ORDER += 1
 
     @pytest.mark.order(ORDER)
     def test_header_only_prints_when_there_are_books_to_process(
-        self, tower_treasure__flat_mp3: Audiobook, capfd: CaptureFixture[str]
+        self, tiny__flat_mp3: Audiobook, capfd: CaptureFixture[str]
     ):
         testutils.set_match_filter("test-do-not-match")
-        app(max_loops=10, no_fix=True, test=True)
+        app(max_loops=10)
 
-        msg = "auto-m4b • "
-        assert testutils.get_stdout(capfd).count(msg) == 1
+        out = testutils.get_stdout(capfd)
+        assert out.count("auto-m4b •") == 1
+        assert testutils.assert_processed_books(
+            out,
+            check=[testutils.check_output(found_books_eq=0, converted_eq=0)],
+        )
 
     ORDER += 1
 
     async def run_app_for__inbox_changes_not_detected(self):
-        with testutils.set_wait_time(2):
-            testutils.print("Starting app...")
-            testutils.set_match_filter("tower")
-            app(max_loops=1, no_fix=True, test=True)
-            testutils.print("Finished app")
+        testutils.print("Starting app...")
+        testutils.set_match_filter("tower")
+        app(max_loops=1)
+        testutils.print("Finished app")
 
     @pytest.mark.asyncio
     @pytest.mark.order(ORDER)
@@ -284,8 +306,7 @@ class test_unhappy_paths:
         capfd: CaptureFixture[str],
     ):
 
-        with testutils.set_wait_time(1):
-            # InboxState().flush()
+        with testutils.set_wait_time(0.75):
 
             app_task = asyncio.create_task(
                 self.run_app_for__inbox_changes_not_detected()
@@ -293,7 +314,7 @@ class test_unhappy_paths:
 
             with concurrent.futures.ThreadPoolExecutor() as executor:
                 await asyncio.get_running_loop().run_in_executor(
-                    executor, mock_inbox_being_copied_to, 5
+                    executor, mock_inbox_being_copied_to, 5, 1
                 )
 
             await app_task
@@ -307,7 +328,7 @@ class test_unhappy_paths:
     async def run_app_for__books_added_while_converting(self):
         with testutils.set_wait_time(2):
             testutils.print("Starting app...")
-            app(max_loops=2, no_fix=True, test=True)
+            app(max_loops=2)
             testutils.print("Finished app")
 
     @pytest.mark.asyncio
@@ -330,7 +351,6 @@ class test_unhappy_paths:
         testutils.set_match_filter(match_filter)
 
         def add_book_to_inbox():
-            # copy the_sunlit_man__flat_mp3 and tiny__flat_mp3 from fixtures to inbox
             time.sleep(5)
             testutils.print("Loading additional test fixtures...")
             load_test_fixtures(
@@ -338,7 +358,6 @@ class test_unhappy_paths:
             )
 
         with testutils.set_wait_time(1):
-            # InboxState().flush()
 
             app_task = asyncio.create_task(
                 self.run_app_for__books_added_while_converting()
@@ -352,19 +371,16 @@ class test_unhappy_paths:
             await app_task
 
             out = testutils.get_stdout(capfd)
-            assert testutils.assert_only_processed_books(
+            assert testutils.assert_processed_books(
                 out,
                 tower_treasure__flat_mp3,
                 house_on_the_cliff__flat_mp3,
-                # the_hobbit__multidisc_mp3,
                 the_sunlit_man__flat_mp3,
                 tiny__flat_mp3,
-                found=[
-                    testutils.found_books(books=2, prints=1),
-                    testutils.found_books(books=2, prints=1),
+                check=[
+                    testutils.check_output(found_books_eq=2, converted_eq=2),
+                    testutils.check_output(found_books_eq=2, converted_eq=2),
                 ],
-                # found=(4, 1),
-                # converted=4,
             )
 
     ORDER += 1
@@ -377,7 +393,7 @@ class test_unhappy_paths:
         disable_convert_series,
     ):
 
-        app(max_loops=1, no_fix=True, test=True)
+        app(max_loops=1)
         stdout, _ = capfd.readouterr()
         assert en.MULTI_ERR in stdout
 
@@ -392,15 +408,15 @@ class test_unhappy_paths:
             missing_ok=True
         )  # remove the log file to force a conversion
         testutils.set_match_filter("Conspiracies")
-        app(max_loops=1, no_fix=True, test=True)
+        app(max_loops=1)
         assert conspiracy_theories__flat_mp3.converted_dir.exists()
         # do the conversion again to test the log file
-        inbox.destroy()
+        inbox.destroy()  # type: ignore
         shutil.rmtree(conspiracy_theories__flat_mp3.converted_dir, ignore_errors=True)
         TEST_DIRS.inbox.touch()
         time.sleep(1)
 
-        app(max_loops=2, no_fix=True, test=True)
+        app(max_loops=2)
         assert conspiracy_theories__flat_mp3_copy.converted_dir.exists()
 
     ORDER += 1
@@ -415,7 +431,7 @@ class test_unhappy_paths:
         testutils.disable_autoflatten()
         shutil.rmtree(old_mill__multidisc_mp3.converted_dir, ignore_errors=True)
         time.sleep(2)
-        app(max_loops=2, no_fix=True, test=True)
+        app(max_loops=2)
         out = testutils.get_stdout(capfd)
         assert out.count(en.MULTI_ERR) == 1
         assert not old_mill__multidisc_mp3.converted_dir.exists()
@@ -433,7 +449,7 @@ class test_unhappy_paths:
     ):
         testutils.set_match_filter("^(tiny|old)")
         time.sleep(2)
-        app(max_loops=1, no_fix=True, test=True)
+        app(max_loops=1)
         out = testutils.get_stdout(capfd)
         assert out.count("Inbox hash is the same") == 0
         assert out.count(en.DONE_CONVERTING) == 1
@@ -441,7 +457,7 @@ class test_unhappy_paths:
         assert out.count(en.INBOX_RECENTLY_MODIFIED) == 0
 
         time.sleep(1)
-        app(max_loops=2, no_fix=True, test=True)
+        app(max_loops=2)
         out = testutils.get_stdout(capfd)
         assert out.count("Inbox hash is the same") == 1
         assert out.count(en.DONE_CONVERTING) == 0
@@ -453,6 +469,7 @@ class test_unhappy_paths:
     @pytest.mark.order(ORDER)
     def test_prints_dont_repeat_when_inbox_is_empty(
         self,
+        enable_debug,
         capfd: CaptureFixture[str],
     ):
         inbox_hidden = TEST_DIRS.inbox.parent / "inbox-hidden"
@@ -466,7 +483,7 @@ class test_unhappy_paths:
             )
 
         try:
-            app(max_loops=5, no_fix=True, test=True)
+            app(max_loops=5)
             out = testutils.get_stdout(capfd)
             assert out.count("Watching for new books in") == 1
             assert out.count("No audio files found") == 1
@@ -494,7 +511,7 @@ class test_unhappy_paths:
                 from src.lib.config import cfg
 
                 with pytest.raises(FileNotFoundError):
-                    app(max_loops=1, no_fix=True, test=True)
+                    app(max_loops=1)
 
                 assert cfg.FATAL_FILE.exists()
             finally:

@@ -46,7 +46,7 @@ def test_display_flatten_and_convert_features(
     capfd: CaptureFixture[str],
 ):
     testutils.set_match_filter("--none--")
-    app(max_loops=1, no_fix=True, test=True)
+    app(max_loops=1)
 
     out = testutils.get_stdout(capfd)
 

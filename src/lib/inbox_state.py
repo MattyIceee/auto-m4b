@@ -25,7 +25,8 @@ from src.lib.fs_utils import (
 )
 from src.lib.misc import singleton
 from src.lib.parsers import is_maybe_multi_book_or_series
-from src.lib.term import print_debug
+from src.lib.strings import en
+from src.lib.term import print_debug, print_notice
 from src.lib.typing import DirName
 
 InboxItemStatus = Literal["new", "ok", "needs_retry", "failed", "gone"]
@@ -36,8 +37,6 @@ def get_key(path_or_book: "str | Path | Audiobook | InboxItem") -> str:
         return path_or_book
     if isinstance(path_or_book, Path):
         return path_or_book.name
-    # if isinstance(path_or_book, Audiobook):
-    #     return path_or_book.key
     return path_or_book.key
 
 
@@ -106,7 +105,6 @@ class Hasher:
 
     def __init__(self, path: Path, max_hashes: int = 10):
         self.path = path
-        # self.last_updated = last_updated_audio_files_at(path)
         self.max_hashes = max_hashes
         self._hashes = []
         self._last_run_start = None
@@ -165,29 +163,26 @@ class Hasher:
         from src.lib.run import print_banner
 
         changed_after_waiting = False
-        # printed_waiting = False
         waited_count = 0
         before_modified_hash = self.current_hash
-        banner_printed = False
-        rec_mod = self.dir_was_recently_modified
+        waited_printed = False
+        # rec_mod = self.dir_was_recently_modified
         while self.dir_was_recently_modified:
             print_debug(f"Waiting for inbox to be modified: {waited_count + 1}")
             self.scan()
             self.ready = True
             if self.current_hash != before_modified_hash:
-                print_debug(
-                    f"self hash - last: {self.previous_hash or None} / curr: {self.current_hash}",
-                    # only_once=True,
-                )
-                if not banner_printed:
-                    self.banner_printed = False
-                    changed_after_waiting = True
-                    self.waited_for_changes = True
+                # print_debug(
+                #     f"self hash - last: {self.previous_hash or None} / curr: {self.current_hash}",
+                #     # only_once=True,
+                # )
+                changed_after_waiting = True
+                if not self.banner_printed:
                     print_banner()
-                    banner_printed = True
-                # if not printed_waiting:
+                if not waited_printed:
+                    print_notice(f"{en.INBOX_RECENTLY_MODIFIED}\n")
+                    waited_printed = True
 
-                #     printed_waiting = True
             waited_count += 1
             time.sleep(0.5)
 
@@ -212,11 +207,8 @@ class Hasher:
 
         if waited_count:
             print_debug("Done waiting for inbox to be modified")
-            self.banner_printed = True
 
         if needs_processing:
-            self.banner_printed = banner_printed
-            print_banner()
             self.scan()
             self.ready = True
 
@@ -249,6 +241,7 @@ class Hasher:
     def done(self):
         if len(self._hashes):
             self._last_run_end = self._hashes[0]
+        self.banner_printed = False
 
     @property
     def last_run_start_hash(self):
@@ -534,11 +527,10 @@ class InboxState(Hasher):
 
     def rm(self, key_path_book_or_hash: str | Path | Audiobook):
         key = get_key(key_path_book_or_hash)
-        if not key and not (key := self.get(str(key_path_book_or_hash))):
-            return
-        self._items.pop(key, None)
+        if key or (item := self.get(str(key_path_book_or_hash))) and (key := item.key):
+            return self._items.pop(key, None)
 
-    def scan(self, *paths: str | Path, skip_failed_sync=False):
+    def scan(self, *paths: str | Path, skip_failed_sync=False, set_ready: bool = False):
         from src.lib.config import cfg
 
         super().scan()
@@ -565,6 +557,9 @@ class InboxState(Hasher):
 
         if not skip_failed_sync and not self.failed_books and os.getenv("FAILED_BOOKS"):
             self._sync_failed_from_env()
+
+        if set_ready:
+            self.ready = True
 
     def flush(self):
         super().flush()
@@ -598,14 +593,9 @@ class InboxState(Hasher):
 
     def reset(self, new_match_filter: str | None = None):
 
-        # self._items = {path.name: InboxItem(path) for path in find_books_in_inbox()}
-        # self.flush_global_hash()
         self.set_match_filter(new_match_filter)
-        # self._items = {}
-        # self._global_hash_changed = inbox_last_updated_at()
         self.flush()
         self.ready = False
-        # self.scan()
         self._sync_failed_from_env()
         return self
 

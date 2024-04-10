@@ -24,16 +24,82 @@ cfg.PID_FILE.unlink(missing_ok=True)
 
 class testutils:
 
-    class found_books(BaseModel):
-        books: int
-        prints: int
+    class check_output(BaseModel):
+        found_books_eq: int | None = None
+        found_books_gt: int | None = None
+        # found_books_gte: int | None = None
+        # found_books_lt: int | None = None
+        # found_books_lte: int | None = None
+        ignored_books_eq: int | None = None
+        ignored_books_gt: int | None = None
+        retried_books_eq: int | None = None
+        retried_books_gt: int | None = None
+        # skipped_books_gte: int | None = None
+        # skipped_books_lt: int | None = None
+        # skipped_books_lte: int | None = None
+        skipped_failed_eq: int | None = None
+        skipped_failed_gt: int | None = None
 
-    class converted_books(BaseModel):
-        books: int
+        converted_eq: int | None = None
+        converted_gt: int | None = None
+        # converted_gte: int | None = None
+        # converted_lt: int | None = None
+        # converted_lte: int | None = None
 
-    class ignoring_books(BaseModel):
-        min_books: int
-        prints: int
+        def found_books_result(self):
+            return ", ".join(
+                [
+                    f"to have found{self.get_comparator(k)} {v} book(s)"
+                    for k, v in self.model_dump().items()
+                    if k.startswith("found") and v is not None
+                ]
+            )
+
+        def failed_books_result(self):
+            return ", ".join(
+                [
+                    f"to have skipped{self.get_comparator(k)} {v} failed book(s)"
+                    for k, v in self.model_dump().items()
+                    if k.startswith("skipped") and v is not None
+                ]
+            )
+
+        def ignored_books_result(self):
+            return ", ".join(
+                [
+                    f"to have ignored{self.get_comparator(k)} {v} book(s)"
+                    for k, v in self.model_dump().items()
+                    if k.startswith("ignored") and v is not None
+                ]
+            )
+
+        def retried_books_result(self):
+            return ", ".join(
+                [
+                    f"to have retried{self.get_comparator(k)} {v} failed book(s)"
+                    for k, v in self.model_dump().items()
+                    if k.startswith("retried") and v is not None
+                ]
+            )
+
+
+        def converted_books_result(self):
+            return ", ".join(
+                [
+                    f"to have converted{self.get_comparator(k)} {v} book(s)"
+                    for k, v in self.model_dump().items()
+                    if k.startswith("converted") and v is not None
+                ]
+            )
+
+        def get_comparator(self, k: str):
+            return (
+                k.split("_")[-1].replace("eq", "")
+                # .replace("gte", ">=")
+                .replace("gt", " >")
+                # .replace("lte", "<=")
+                # .replace("lt", "<")
+            )
 
     @classmethod
     def print(cls, *s: Any):
@@ -90,27 +156,27 @@ class testutils:
 
     @classmethod
     @contextmanager
-    def set_wait_time(cls, wait_time: int | str, delay: int = 0):
+    def set_wait_time(cls, wait_time: float | str, delay: float = 0):
         time.sleep(delay)
         orig_wait_time = cfg.WAIT_TIME
         cls.print(f"Setting WAIT_TIME to {wait_time}")
-        os.environ["WAIT_TIME"] = str(wait_time)
+        # os.environ["WAIT_TIME"] = str(wait_time)
         cfg.WAIT_TIME = float(wait_time)
         yield
         cfg.WAIT_TIME = orig_wait_time
-        os.environ["WAIT_TIME"] = str(orig_wait_time)
+        # os.environ["WAIT_TIME"] = str(orig_wait_time)
 
     @classmethod
     @contextmanager
-    def set_on_complete(cls, on_complete: OnComplete, delay: int = 0):
+    def set_on_complete(cls, on_complete: OnComplete, delay: float = 0):
         time.sleep(delay)
         orig_on_complete = cfg.ON_COMPLETE
         cls.print(f"Setting ON_COMPLETE to {on_complete}")
-        os.environ["ON_COMPLETE"] = on_complete
+        # os.environ["ON_COMPLETE"] = on_complete
         cfg.ON_COMPLETE = on_complete
         yield
         cfg.ON_COMPLETE = orig_on_complete
-        os.environ["ON_COMPLETE"] = orig_on_complete
+        # os.environ["ON_COMPLETE"] = orig_on_complete
 
     @classmethod
     @contextmanager
@@ -172,78 +238,68 @@ class testutils:
 
         time.sleep(delay)
         cls.print("Enabling autoflatten")
-        os.environ["FLATTEN_MULTI_DISC_BOOKS"] = "Y"
-        cfg.FLATTEN_MULTI_DISC_BOOKS = True
+        cfg.set_env_var("FLATTEN_MULTI_DISC_BOOKS", True)
 
     @classmethod
     def disable_autoflatten(cls, delay: int = 0):
 
         time.sleep(delay)
         cls.print("Disabling autoflatten")
-        os.environ["FLATTEN_MULTI_DISC_BOOKS"] = "N"
-        cfg.FLATTEN_MULTI_DISC_BOOKS = False
+        cfg.set_env_var("FLATTEN_MULTI_DISC_BOOKS", False)
 
     @classmethod
     def enable_convert_series(cls, delay: int = 0):
 
         time.sleep(delay)
         cls.print("Enabling convert series")
-        os.environ["CONVERT_SERIES"] = "Y"
-        cfg.CONVERT_SERIES = True
+        cfg.set_env_var("CONVERT_SERIES", True)
 
     @classmethod
     def disable_convert_series(cls, delay: int = 0):
         time.sleep(delay)
         cls.print("Disabling convert series")
-        os.environ["CONVERT_SERIES"] = "N"
-        cfg.CONVERT_SERIES = False
+        cfg.set_env_var("CONVERT_SERIES", False)
 
     @classmethod
     def enable_backups(cls, delay: int = 0):
 
         time.sleep(delay)
         cls.print("Enabling backups")
-        os.environ["BACKUP"] = "Y"
-        cfg.BACKUP = True
+        cfg.set_env_var("BACKUP", True)
 
     @classmethod
     def disable_backups(cls, delay: int = 0):
 
         time.sleep(delay)
         cls.print("Disabling backups")
-        os.environ["BACKUP"] = "N"
-        cfg.BACKUP = False
+        cfg.set_env_var("BACKUP", False)
 
     @classmethod
     def enable_debug(cls, delay: int = 0):
 
         time.sleep(delay)
         cls.print("Enabling debug")
-        os.environ["DEBUG"] = "Y"
-        cfg.DEBUG = True
+        cfg.set_env_var("DEBUG", True)
 
     @classmethod
     def disable_debug(cls, delay: int = 0):
 
         time.sleep(delay)
         cls.print("Disabling debug")
-        os.environ["DEBUG"] = "N"
-        cfg.DEBUG = False
+        cfg.set_env_var("DEBUG", False)
 
     @classmethod
     def enable_archiving(cls, delay: int = 0):
 
         time.sleep(delay)
         cls.print("Enabling archiving")
-        os.environ["ON_COMPLETE"] = "archive"
-        cfg.ON_COMPLETE = "archive"
+        cfg.set_env_var("ON_COMPLETE", "archive")
 
     @classmethod
     def disable_archiving(cls, delay: int = 0):
         time.sleep(delay)
         cls.print("Disabling archiving")
-        os.environ["ON_COMPLETE"] = "test_do_nothing"
-        cfg.ON_COMPLETE = "test_do_nothing"
+        cfg.set_env_var("ON_COMPLETE", "test_do_nothing")
 
     @classmethod
     def make_mock_file(cls, path: Path, size: int = 1024 * 5):
@@ -297,13 +353,13 @@ class testutils:
         return books
 
     @classmethod
-    def assert_only_processed_books(
+    def assert_processed_books(
         cls,
         out: str | CaptureFixture[str],
         *books: Audiobook,
-        found: list[found_books] | None = None,
-        converted: list[converted_books] | None = None,
-        ignoring: list[ignoring_books] | None = None,
+        check: list[check_output] | None = None,
+        # converted: list[converted_books] | None = None,
+        # ignoring: list[ignoring_books] | None = None,
     ) -> bool:
 
         if isinstance(out, CaptureFixture):
@@ -314,61 +370,235 @@ class testutils:
         ok = did_process_all and len(processed) == len(books)
         books_list = f"\n{listify([book.key for book in books])}" if books else ""
         processed_list = f"\n{listify(processed)}" if processed else ""
+        outs = out.split("CATS")[:-1] if "CATS" in out else [out]
         assert (
             ok
         ), f"Expected {len(books)} to be converted: {books_list}\n\nGot {len(processed)}: {processed_list}"
 
-        def assert_found(i: int, f: testutils.found_books, out_run: str = out):
+        def assert_found(i: int, ch: testutils.check_output, out_run: str = out):
+            if all(
+                f is None
+                for f in [
+                    ch.found_books_eq,
+                    ch.found_books_gt,
+                    # ch.found_books_gte,
+                    # ch.found_books_lt,
+                    # ch.found_books_lte,
+                ]
+            ):
+                return
+            all_founds = re.findall(r"(Found \d+.*? books?.*?)(?=\n)", out)
+            all_found_counts = [
+                int(
+                    re_group(
+                        re.search(r"Found (\d+) books?(?!.+but none\b)", x),
+                        1,
+                        default=0,
+                    )
+                )
+                for x in all_founds
+            ]
+            this_found = all_found_counts[i]
+            expected = ch.found_books_result()
+
+            zero_ok = any(
+                (
+                    ch.found_books_eq == 0,
+                    # ch.found_books_gte == 0,
+                    # ch.found_books_lt is not None,
+                    # ch.found_books_lte is not None,
+                )
+            )
+            if zero_ok:
+                assert (
+                    this_found == 0
+                ), f"Expected no books to be found, got {this_found}"
+            elif this_found == 0:
+                assert this_found > 0, f"Expected {expected}, but found none"
+            else:
+                try:
+                    if ch.found_books_eq is not None:
+                        assert this_found == ch.found_books_eq
+                    else:
+                        if ch.found_books_gt is not None:
+                            assert this_found > ch.found_books_gt
+                        # elif ch.found_books_gte is not None:
+                        #     assert this_found >= ch.found_books_gte
+                        # if ch.found_books_lt is not None:
+                        #     assert this_found < ch.found_books_lt
+                        # elif ch.found_books_lte is not None:
+                        #     assert this_found <= ch.found_books_lte
+                except AssertionError:
+                    raise AssertionError(f"Expected {expected}, got {this_found}")
+            if any(
+                (
+                    ch.found_books_eq is not None,
+                    ch.found_books_gt,
+                    # ch.found_books_gte,
+                    # ch.found_books_lt is not None,
+                    # ch.found_books_lte is not None,
+                )
+            ):
+                assert len(outs) == len(
+                    all_founds
+                ), f"Expected {len(
+                    outs
+                )} 'found books' prints in output, got {len(all_founds)}"
+
+        def assert_failed(i: int, ch: testutils.check_output, out_run: str = out):
+            if all(
+                c is None
+                for c in [
+                    ch.skipped_failed_eq,
+                    ch.skipped_failed_gt,
+                    # ch.failed_books_gte,
+                    # ch.failed_books_lt,
+                    # ch.failed_books_lte,
+                ]
+            ):
+                return
+
+            all_failed = len(re.findall(r"(\d+) that previously failed", out))
+            this_failed = int(re_group(re.search(r"(\d+) that previously failed", out_run), 1, default=0))
             try:
-                assert out_run.count(f"Found {f.books} book") == f.prints
+                if ch.skipped_failed_eq is not None:
+                    assert this_failed == ch.skipped_failed_eq
+                else:
+                    if ch.skipped_failed_gt is not None:
+                        assert this_failed > ch.skipped_failed_gt
+                    # elif ch.failed_books_gte is not None:
+                    #     assert this_failed >= ch.failed_books_gte
+                    # if ch.failed_books_lt is not None:
+                    #     assert this_failed < ch.failed_books_lt
+                    # elif ch.failed_books_lte is not None:
+                    #     assert this_failed <= ch.failed_books_lte
             except AssertionError:
                 # cls.print(out_run)
-                actual = re.findall(r"Found (\d+) books?", out)
-                expected = f.model_dump()
-                f_actual = testutils.found_books(
-                    books=int(actual[i]), prints=len(actual)
-                )
+                expected = ch.failed_books_result()
+                # actual = testutils.check_output(converted_eq=int(all_founds[i])).books_eq
                 raise AssertionError(
-                    f"Found books count mismatch - should be {expected}, got {f_actual}"
+                    f"Run {i + 1} - expected {expected} to have failed, got {this_failed} (total failed: {all_failed})"
                 )
 
-        def assert_converted(c: testutils.converted_books, out_run: str = out):
+
+        def assert_ignored(i: int, ch: testutils.check_output, out_run: str = out):
+            if all(
+                c is None
+                for c in [
+                    ch.ignored_books_eq,
+                    ch.ignored_books_gt,
+                    # ch.ignored_books_gte,
+                    # ch.ignored_books_lt,
+                    # ch.ignored_books_lte,
+                ]
+            ):
+                return
+
+            all_ignored = len(re.findall(r"ignoring (\d+)", out))
+            this_ignored = int(re_group(re.search(r"ignoring (\d+)", out_run), 1, default=0))
             try:
-                assert out_run.count("Converted") == c.books
+                if ch.ignored_books_eq is not None:
+                    assert this_ignored == ch.ignored_books_eq
+                else:
+                    if ch.ignored_books_gt is not None:
+                        assert this_ignored > ch.ignored_books_gt
+                    # elif ch.ignored_books_gte is not None:
+                    #     assert this_ignored >= ch.ignored_books_gte
+                    # if ch.ignored_books_lt is not None:
+                    #     assert this_ignored < ch.ignored_books_lt
+                    # elif ch.ignored_books_lte is not None:
+                    #     assert this_ignored <= ch.ignored_books_lte
             except AssertionError:
                 # cls.print(out_run)
-                actual = re.findall(r"Converted.*(?<!\\n)", out_run)
+                expected = ch.ignored_books_result()
+                # actual = testutils.check_output(converted_eq=int(all_founds[i])).books_eq
                 raise AssertionError(
-                    f"'Converted' print count mismatch - should be {c.books}, got {len(actual)}"
+                    f"Run {i + 1} - expected {expected} to be ignored, got {this_ignored} (total ignored: {all_ignored})"
                 )
 
-        def assert_ignoring(i: int, f: testutils.ignoring_books, out_run: str = out):
+        def assert_retried(
+            i: int, t: int, ch: testutils.check_output, out_run: str = out
+        ):
+            if all(
+                c is None
+                for c in [
+                    ch.retried_books_eq,
+                    ch.retried_books_gt,
+                    # ch.retried_books_gte,
+                    # ch.retried_books_lt,
+                    # ch.retried_books_lte,
+                ]
+            ):
+                return
+
+            all_retried = len(re.findall(r"trying again", out))
+            this_retried = len(re.findall(r"trying again", out_run))
             try:
-                count = re.findall(r"ignoring (\d+)", out_run)
-                assert len(count) == f.prints
-                assert int(count[i]) >= f.min_books
+                if ch.retried_books_eq is not None:
+                    assert this_retried == ch.retried_books_eq
+                else:
+                    if ch.retried_books_gt is not None:
+                        assert this_retried > ch.retried_books_gt
+                    # elif ch.retried_gte is not None:
+                    #     assert this_retried >= ch.retried_gte
+                    # if ch.retried_lt is not None:
+                    #     assert this_retried < ch.retried_lt
+                    # elif ch.retried_lte is not None:
+                    #     assert this_retried <= ch.retried_lte
             except AssertionError:
                 # cls.print(out_run)
-                actual = re.findall(r"ignoring (\d+)", out_run)
-                expected = f.model_dump()
-                f_actual = testutils.found_books(
-                    books=int(actual[i]), prints=len(actual)
-                )
+                expected = ch.retried_books_result()
+                # actual = testutils.check_output(retried_eq=int(all_founds[i])).books_eq
                 raise AssertionError(
-                    f"Found ignored books count mismatch - should be {expected}, got {f_actual}"
+                    f"Run {i + 1} of {t} - expected {expected} to retry, got {this_retried} (total retried: {all_retried})"
                 )
 
-        if found:
-            for i, (f, o) in enumerate(zip(found, out.split("CATS")[:-1])):
-                assert_found(i, f, o)
+        def assert_converted(
+            i: int, t: int, ch: testutils.check_output, out_run: str = out
+        ):
+            if all(
+                c is None
+                for c in [
+                    ch.converted_eq,
+                    ch.converted_gt,
+                    # ch.converted_gte,
+                    # ch.converted_lt,
+                    # ch.converted_lte,
+                ]
+            ):
+                return
 
-        if converted:
-            for c, o in zip(converted, out.split("CATS")[:-1]):
-                assert_converted(c, o)
+            all_converted = len(re.findall(r"Converted .* 🐾✨🥞", out))
+            this_converted = len(re.findall(r"Converted .* 🐾✨🥞", out_run))
+            try:
+                if ch.converted_eq is not None:
+                    assert this_converted == ch.converted_eq
+                else:
+                    if ch.converted_gt is not None:
+                        assert this_converted > ch.converted_gt
+                    # elif ch.converted_gte is not None:
+                    #     assert this_converted >= ch.converted_gte
+                    # if ch.converted_lt is not None:
+                    #     assert this_converted < ch.converted_lt
+                    # elif ch.converted_lte is not None:
+                    #     assert this_converted <= ch.converted_lte
+            except AssertionError:
+                # cls.print(out_run)
+                expected = ch.converted_books_result()
+                # actual = testutils.check_output(converted_eq=int(all_founds[i])).books_eq
+                raise AssertionError(
+                    f"Run {i + 1} of {t} - expected {expected} to be converted, got {this_converted} (total converted: {all_converted})"
+                )
 
-        if ignoring:
-            for i, (f, o) in enumerate(zip(ignoring, out.split("CATS")[:-1])):
-                assert_ignoring(i, f, o)
+
+
+        if check:
+            for i, (ch, o) in enumerate(zip(check, outs)):
+                assert_found(i, ch, o)
+                assert_failed(i, ch, o)
+                assert_ignored(i, ch, o)
+                assert_retried(i, len(outs), ch, o)
+                assert_converted(i, len(outs), ch, o)
 
         return ok
 

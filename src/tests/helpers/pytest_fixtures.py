@@ -177,6 +177,17 @@ def hardy_boys__flat_mp3():
 
 
 @pytest.fixture(scope="function")
+def all_hardy_boys():
+    return load_test_fixtures(
+        "tower_treasure__flat_mp3",
+        "house_on_the_cliff__flat_mp3",
+        "old_mill__multidisc_mp3",
+        "missing_chums__mixed_mp3",
+        match_filter="^(tower|house|missing|old)",
+    )
+
+
+@pytest.fixture(scope="function")
 def the_crusades_through_arab_eyes__flat_mp3():
     return load_test_fixture("the_crusades_through_arab_eyes__flat_mp3", exclusive=True)
 
@@ -477,7 +488,8 @@ def mock_inbox_being_copied_to():
     """Runs an async function that updates the inbox every second for `seconds` seconds by creating and deleting a test file."""
 
     # def wrapper(seconds: int = 5):
-    def update_inbox(files: int = 5):
+    def update_inbox(files: int = 5, delay: float = 0):
+        time.sleep(delay)
         testutils.print("Mocking inbox being copied to...")
         for i in range(1, files + 1):
             testutils.make_mock_file(TEST_DIRS.inbox / f"mock_book_{i}.mp3")
@@ -512,7 +524,7 @@ def reset_inbox_state(reset_match_filter, reset_failed):
     from src.lib.config import cfg
 
     inbox = InboxState()
-    inbox.destroy()
+    inbox.destroy()  # type: ignore
     clean_dirs([TEST_DIRS.archive, TEST_DIRS.converted, TEST_DIRS.working])
     os.environ["SLEEP_TIME"] = "0.1"
     os.environ["WAIT_TIME"] = "0.5"
@@ -527,7 +539,7 @@ def reset_inbox_state(reset_match_filter, reset_failed):
     os.environ["TEST"] = "Y"
 
     clean_dirs([TEST_DIRS.archive, TEST_DIRS.converted, TEST_DIRS.working])
-    inbox.destroy()
+    inbox.destroy()  # type: ignore
     cfg.PID_FILE.unlink(missing_ok=True)
 
 
@@ -604,7 +616,7 @@ def disable_archiving():
 @pytest.fixture(scope="function", autouse=False)
 def clean_inbox_state():
     inbox = InboxState()
-    inbox.destroy()
+    inbox.destroy()  # type: ignore
     inbox.scan()
     yield inbox
-    inbox.destroy()
+    inbox.destroy()  # type: ignore

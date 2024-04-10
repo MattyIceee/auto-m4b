@@ -1,6 +1,7 @@
 import shutil
 import subprocess
 import time
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
@@ -122,10 +123,6 @@ def print_banner():
     if not inbox.ready:
         nl()
 
-    if inbox.waited_for_changes:
-        print_notice(f"{en.INBOX_RECENTLY_MODIFIED}\n")
-        inbox.waited_for_changes = False
-
     time.sleep(1 if not cfg.TEST else 0)
 
     inbox.banner_printed = True
@@ -140,8 +137,6 @@ def print_book_series_header(
         parent = book
     elif not ((parent := book.series_parent) and parent.is_maybe_series_parent):
         return
-
-    # parent = book if book.is_maybe_series_parent else parent
 
     indicator = Tinta()
     if progress:
@@ -179,12 +174,13 @@ def print_book_done(b: int, book: Audiobook, elapsedtime: int):
 
 
 def print_footer(b: int):
+    divider("\n")
     if b:
         print_grey(en.DONE_CONVERTING)
     else:
         print_dark_grey(f"Waiting for books to be added to the inbox...")
 
-    if not cfg.NO_ASCII:
+    if not cfg.NO_CATS:
         print_dark_grey(BOOK_ASCII)
 
     divider()
@@ -193,17 +189,7 @@ def print_footer(b: int):
 
 @cachetools.func.ttl_cache(maxsize=1, ttl=SCAN_TTL)
 def audio_files_found():
-    inbox = InboxState()
-    if inbox.num_audio_files_deep == 0:
-        print_banner()
-        print_debug(
-            f"No audio files found in {cfg.inbox_dir}\n        Last updated at {inbox_last_updated_at(friendly=True)}, next check in {cfg.sleeptime_friendly}",
-            only_once=True,
-        )
-        inbox.scan()
-        inbox.ready = True
-        return False
-    return True
+    return InboxState().num_audio_files_deep > 0
 
 
 def fail_book(book: Audiobook, reason: str = "unknown"):
@@ -352,18 +338,18 @@ def check_failed_books():
     inbox = InboxState()
     if not inbox.failed_books:
         return
-    print_debug(f"Found failed books: {[k for k in inbox.failed_books.keys()]}")
+    # print_debug(f"Found failed books: {[k for k in inbox.failed_books.keys()]}")
     for book_name, item in inbox.failed_books.items():
         # ensure last_modified is a float
         failed_book = Audiobook(cfg.inbox_dir / book_name)
-        was_modified = (
-            last_updated_at(failed_book.inbox_dir, only_file_exts=cfg.AUDIO_EXTS)
-            > item.last_updated
-        )
-        if was_modified:
-            print_debug(
-                f"{book_name} has been modified since it failed last, checking if hash has changed"
-            )
+        # was_modified = (
+        #     last_updated_at(failed_book.inbox_dir, only_file_exts=cfg.AUDIO_EXTS)
+        #     > item.last_updated
+        # )
+        # if was_modified:
+        #     print_debug(
+        #         f"{book_name} has been modified since it failed last, checking if hash has changed"
+        #     )
         last_book_hash = item._curr_hash
         curr_book_hash = failed_book.hash()
         if last_book_hash is None:
@@ -372,12 +358,12 @@ def check_failed_books():
             )
         hash_changed = last_book_hash != curr_book_hash
         if hash_changed:
-            print_debug(
-                f"{book_name} hash changed since it failed last, removing it from failed books\n        was {last_book_hash}\n        now {curr_book_hash}"
-            )
+            # print_debug(
+            #     f"{book_name} hash changed since it failed last, removing it from failed books\n        was {last_book_hash}\n        now {curr_book_hash}"
+            # )
             inbox.set_needs_retry(book_name)
-        else:
-            print_debug(f"{book_name} hash is the same, keeping it in failed books")
+        # else:
+        #     print_debug(f"{book_name} hash is the same, keeping it in failed books")
 
 
 def copy_to_working_dir(book: Audiobook):
@@ -393,28 +379,29 @@ def copy_to_working_dir(book: Audiobook):
     book.set_active_dir("merge")
 
 
-def has_books_to_process():
+def books_to_process() -> tuple[int, Callable[[], None]]:
 
     inbox = InboxState()
 
+    check_failed_books()
+
     # If no books to convert, print, sleep, and exit
     if inbox.num_books == 0:  # replace 'books_count' with your variable
-        smart_print(f"No books to convert, next check in {cfg.sleeptime_friendly}\n")
-        return False
+        return 0, lambda: smart_print(
+            f"No books to convert, next check in {cfg.sleeptime_friendly}\n"
+        )
 
     if inbox.match_filter and not inbox.matched_books:
-        smart_print(
+        return 0, lambda: smart_print(
             f"Found {pluralize_with_count(inbox.num_books, 'book')} in the inbox, but none match [[{inbox.match_filter}]]",
             highlight_color=AMBER_COLOR,
         )
-        return False
 
     if not inbox.ok_books and inbox.num_failed:
-        smart_print(
-            f"Found {pluralize_with_count(inbox.num_failed, 'book')} in the inbox that failed to convert - waiting for {pluralize(inbox.num_failed, 'it', 'them')} to be fixed",
+        return 0, lambda: smart_print(
+            f"Found b{pluralize_with_count(inbox.num_failed, 'book')} in the inbox that failed to convert - waiting for {pluralize(inbox.num_failed, 'it', 'them')} to be fixed",
             highlight_color=AMBER_COLOR,
         )
-        return False
 
     skipping = (
         f"skipping {inbox.num_failed} that previously failed"
@@ -431,29 +418,28 @@ def has_books_to_process():
         note = wrap_brackets(
             f"ignoring {inbox.num_filtered}" if inbox.num_filtered else ""
         )
-        smart_print(
+        return 0, lambda: smart_print(
             f"Failed to convert {s} in the inbox matching [[{inbox.match_filter}]]{note}",
             highlight_color=AMBER_COLOR,
         )
-        return False
 
     if inbox.match_filter and inbox.matched_books:
         skipping = f", {skipping}" if skipping else ""
         ignoring = f"ignoring {inbox.num_filtered}" if inbox.num_filtered else ""
         note = wrap_brackets(ignoring, skipping)
-        smart_print(
+        return inbox.num_matched, lambda: smart_print(
             f"Found {pluralize_with_count(inbox.num_matched, 'book')} in the inbox matching [[{inbox.match_filter}]]{note}\n",
             highlight_color=AMBER_COLOR,
         )
     elif inbox.failed_books:
-        smart_print(
+        return inbox.num_ok, lambda: smart_print(
             f"Found {pluralize_with_count(inbox.num_ok, 'book')} to convert ({skipping})\n",
             highlight_color=AMBER_COLOR,
         )
     else:
-        smart_print(f"Found {pluralize_with_count(inbox.num_ok, 'book')} to convert\n")
-
-    return True
+        return inbox.num_ok, lambda: smart_print(
+            f"Found {pluralize_with_count(inbox.num_ok, 'book')} to convert\n"
+        )
 
 
 def can_process_multi_dir(book: Audiobook):
@@ -462,11 +448,6 @@ def can_process_multi_dir(book: Audiobook):
         help_msg = f"Please organize the files in a single folder and rename them so they sort alphabetically\nin the correct order"
         match book.structure:
             case "multi_book_series":
-                # print_error(f"{en.MULTI_ERR}, maybe this contains multiple books?")
-                # help_msg = "To convert these books, move each book folder to the root of the inbox"
-                # smart_print(f"{help_msg}\n")
-                # fail_book(book, f"{en.MULTI_ERR} (multiple books found) - {help_msg}")
-                # return False
                 if cfg.CONVERT_SERIES:
                     inbox.set_ok(book)
                 else:
@@ -942,29 +923,35 @@ def process_inbox():
 
     if not inbox.ready:
         print_debug("First run, scanning inbox...")
+        inbox.scan(set_ready=True)
+
+    print_banner()
 
     if not audio_files_found():
+        print_debug(
+            f"No audio files found in {cfg.inbox_dir}\n        Last updated at {inbox_last_updated_at(friendly=True)}, next check in {cfg.sleeptime_friendly}",
+            only_once=True,
+        )
         return
 
-    if not inbox.inbox_needs_processing() and inbox.ready:
+    if not inbox.inbox_needs_processing():
         print_debug("Inbox hash is the same, skipping this loop", only_once=True)
-        return
-
-    process_standalone_files()
-
-    check_failed_books()
-
-    if not has_books_to_process():
         inbox.done()
         return
+    elif info := books_to_process():
+        _count, msg = info
+        nl()
+        msg()
+
+    process_standalone_files()
 
     inbox.start()
 
     b = 0
     for item in inbox.items_to_process.values():
         b = process_book(b, item)
-        divider("\n")
-        if b < inbox.num_books - 1:
+        if b < min(inbox.num_ok, inbox.num_matched) - 1:
+            divider("\n")
             nl()
 
         if item.is_maybe_series_book and item.is_last_book_in_series:
