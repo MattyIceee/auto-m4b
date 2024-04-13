@@ -952,7 +952,7 @@ def process_inbox():
         return
     elif info := books_to_process():
         expected, msg = info
-        print_debug(f"Processing {expected} books")
+        print_debug(f"Processing {expected} book(s)")
         print_banner(after=lambda: [x() for x in (nl, msg)])
 
     process_standalone_files()
