@@ -13,9 +13,9 @@ def enable_or_disable_multi(request: pytest.FixtureRequest):
     flatten, convert = request.param
 
     if flatten:
-        testutils.enable_autoflatten()
+        testutils.enable_multidisc()
     else:
-        testutils.disable_autoflatten()
+        testutils.disable_multidisc()
 
     if convert:
         testutils.enable_convert_series()
@@ -37,12 +37,12 @@ def enable_or_disable_multi(request: pytest.FixtureRequest):
 )
 def test_display_flatten_and_convert_features(
     # tiny__flat_mp3: Audiobook,
-    # enable_autoflatten,
+    # enable_multidisc,
     # disable_convert_series,
     enable_or_disable_multi,
     features,
     nots,
-    reset_inbox_state,
+    reset_all,
     capfd: CaptureFixture[str],
 ):
     testutils.set_match_filter("--none--")

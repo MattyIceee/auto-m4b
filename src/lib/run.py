@@ -31,9 +31,10 @@ from src.lib.parsers import (
 from src.lib.strings import en
 from src.lib.term import (
     AMBER_COLOR,
-    BOOK_ASCII,
     box,
+    CATS_ASCII,
     divider,
+    found_banner_in_print_log,
     linebreak_path,
     nl,
     print_dark_grey,
@@ -104,28 +105,45 @@ def process_standalone_files():
         inbox.set_ok(folder_name)
 
 
-def print_banner():
+def print_banner(after: Callable[..., Any] | None = None):
+
+    # print_debug(f"Maybe printing banner, loop {InboxState().loop_counter}")
     inbox = InboxState()
 
-    if inbox.ready and any(
-        [not inbox.changed_since_last_run_ended, inbox.banner_printed]
-    ):
-        return
+    skip = found_banner_in_print_log() and any(
+        [inbox.loop_counter > 1 and not inbox.stale, inbox.banner_printed]
+    )
 
     current_local_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     dash = "-" * 25
 
-    print_mint(f"{dash}  ⌐◒-◒  auto-m4b • {current_local_time}  {dash}")
+    if not skip:
+        print_mint(f"{dash}  ⌐◒-◒  auto-m4b • {current_local_time}  {dash}")
 
-    print_grey(f"Watching for new books in {{{{{cfg.inbox_dir}}}}} ꨄ︎")
+    msg = (
+        "Found new"
+        if inbox.ok_and_matched_books and inbox.loop_counter > 1
+        else "Watching for"
+    )
+    if not skip:
+        print_grey(f"{msg} books in [[{cfg.inbox_dir}]] ꨄ︎")
 
-    if not inbox.ready:
+    if not skip and inbox.loop_counter == 1:
         nl()
 
-    time.sleep(1 if not cfg.TEST else 0)
+    time.sleep(cfg.WAIT_TIME if not cfg.TEST else 0)
 
-    inbox.banner_printed = True
+    if after:
+        # print_debug("Running after function")
+        after()
+
+    if not skip:
+        inbox.banner_printed = True
+        # print_debug("Set banner_printed to True")
+
+    # if skip:
+    #     print_debug(f"Skipping banner (loop {inbox.loop_counter})")
 
 
 def print_book_series_header(
@@ -181,10 +199,7 @@ def print_footer(b: int):
         print_dark_grey(f"Waiting for books to be added to the inbox...")
 
     if not cfg.NO_CATS:
-        print_dark_grey(BOOK_ASCII)
-
-    divider()
-    nl()
+        print_dark_grey(CATS_ASCII)
 
 
 @cachetools.func.ttl_cache(maxsize=1, ttl=SCAN_TTL)
@@ -399,7 +414,7 @@ def books_to_process() -> tuple[int, Callable[[], None]]:
 
     if not inbox.ok_books and inbox.num_failed:
         return 0, lambda: smart_print(
-            f"Found b{pluralize_with_count(inbox.num_failed, 'book')} in the inbox that failed to convert - waiting for {pluralize(inbox.num_failed, 'it', 'them')} to be fixed",
+            f"Found {pluralize_with_count(inbox.num_failed, 'book')} in the inbox that failed to convert - waiting for {pluralize(inbox.num_failed, 'it', 'them')} to be fixed",
             highlight_color=AMBER_COLOR,
         )
 
@@ -424,9 +439,8 @@ def books_to_process() -> tuple[int, Callable[[], None]]:
         )
 
     if inbox.match_filter and inbox.matched_books:
-        skipping = f", {skipping}" if skipping else ""
         ignoring = f"ignoring {inbox.num_filtered}" if inbox.num_filtered else ""
-        note = wrap_brackets(ignoring, skipping)
+        note = wrap_brackets(ignoring, skipping, sep=", ")
         return inbox.num_matched, lambda: smart_print(
             f"Found {pluralize_with_count(inbox.num_matched, 'book')} in the inbox matching [[{inbox.match_filter}]]{note}\n",
             highlight_color=AMBER_COLOR,
@@ -757,39 +771,39 @@ def cleanup_series_dir(parent: InboxItem | None):
         overwrite_mode="overwrite-silent",
     )
 
-    smart_print("\nCleaning up series folder...", end="")
-
     parent_book.set_active_dir("converted")
 
     if cfg.ON_COMPLETE == "test_do_nothing":
         print_notice(
             "Test mode: The original series folder will not be moved or deleted"
         )
+    else:
+        smart_print("\nCleaning up series folder...", end="")
 
-    elif parent_book.inbox_dir.exists():
-        if cfg.ON_COMPLETE == "archive":
-            _mv_or_cp_dir_contents(
-                verb,
-                parent_book.inbox_dir,
-                parent_book.archive_dir,
-                overwrite_mode="skip-silent",
-            )
-
-        elif cfg.ON_COMPLETE == "delete":
-            can_del = is_ok_to_delete(parent_book.inbox_dir)
-            if can_del or cfg.BACKUP:
-                rm_dir(
-                    parent_book.inbox_dir, ignore_errors=True, even_if_not_empty=True
+        if parent_book.inbox_dir.exists():
+            if cfg.ON_COMPLETE == "archive":
+                _mv_or_cp_dir_contents(
+                    verb,
+                    parent_book.inbox_dir,
+                    parent_book.archive_dir,
+                    overwrite_mode="skip-silent",
                 )
-            elif not can_del and not cfg.BACKUP:
-                print_notice(
-                    f"Notice: The book series folder [[{parent_book.inbox_dir}]] is not empty, it will not be deleted because backups are disabled"
-                )
-                return
-        InboxState().set_gone(parent_book)
-    print_mint(" ✓")
 
-    divider("\n")
+            elif cfg.ON_COMPLETE == "delete":
+                can_del = is_ok_to_delete(parent_book.inbox_dir)
+                if can_del or cfg.BACKUP:
+                    rm_dir(
+                        parent_book.inbox_dir,
+                        ignore_errors=True,
+                        even_if_not_empty=True,
+                    )
+                elif not can_del and not cfg.BACKUP:
+                    print_notice(
+                        f"Notice: The book series folder [[{parent_book.inbox_dir}]] is not empty, it will not be deleted because backups are disabled"
+                    )
+                    return
+            InboxState().set_gone(parent_book)
+        print_mint(" ✓")
 
 
 def archive_inbox_book(book: Audiobook):
@@ -921,38 +935,34 @@ def process_book(b: int, item: InboxItem):
 def process_inbox():
     inbox = InboxState()
 
-    if not inbox.ready:
+    if inbox.loop_counter == 1:
         print_debug("First run, scanning inbox...")
+        print_banner()
         inbox.scan(set_ready=True)
 
-    print_banner()
-
     if not audio_files_found():
+        print_banner()
         print_debug(
             f"No audio files found in {cfg.inbox_dir}\n        Last updated at {inbox_last_updated_at(friendly=True)}, next check in {cfg.sleeptime_friendly}",
             only_once=True,
         )
         return
 
-    if not inbox.inbox_needs_processing():
-        print_debug("Inbox hash is the same, skipping this loop", only_once=True)
-        inbox.done()
+    if not inbox.inbox_needs_processing() and inbox.loop_counter > 1:
         return
     elif info := books_to_process():
-        _count, msg = info
-        nl()
-        msg()
+        expected, msg = info
+        print_debug(f"Processing {expected} books")
+        print_banner(after=lambda: [x() for x in (nl, msg)])
 
     process_standalone_files()
 
     inbox.start()
 
     b = 0
-    for item in inbox.items_to_process.values():
+    for item in inbox.ok_and_matched_books.values():
         b = process_book(b, item)
-        if b < min(inbox.num_ok, inbox.num_matched) - 1:
-            divider("\n")
-            nl()
+        divider("\n", "\n")
 
         if item.is_maybe_series_book and item.is_last_book_in_series:
             cleanup_series_dir(item.series_parent)

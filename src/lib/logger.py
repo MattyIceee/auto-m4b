@@ -105,7 +105,7 @@ def log_global_results(
     #     log = f.read().replace("  ", "\t")
 
     # Remove each line from log if it starts with ^Date\s+
-    # log = "\n".join(line for line in log.split("\n") if not line.startswith("Date "))
+    # log = "\n".join(line for line in log.splitlines() if not line.startswith("Date "))
 
     # Remove blank lines from end of log file
     # log = log.rstrip("\n")

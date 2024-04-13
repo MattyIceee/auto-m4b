@@ -34,7 +34,7 @@ RED_HIGHLIGHT_COLOR = Tinta().inspect(name="red_accent")
 PINK_COLOR = Tinta().inspect(name="pink")
 
 
-BOOK_ASCII = """
+CATS_ASCII = """
         .--.                    .---.
  ___.---|░░|            .-.     |░░░|
 ⎧===|‾‾‾|░░|_           |_|   __|---|‾‾|
@@ -47,6 +47,8 @@ BOOK_ASCII = """
 '---^---'--^    `-'`----^-^--^--^---'--'
 """
 
+CATS_ASCII_LINES = [l for l in CATS_ASCII.splitlines() if l.strip()]
+
 
 def ansi_strip(string: str) -> str:
     # Strip ANSI escape codes from a string
@@ -58,7 +60,7 @@ def multiline_is_empty(multiline: str) -> bool:
     def is_empty(line: str):
         return not line or all(c in " \t\n" for c in ansi_strip(line))
 
-    return not multiline or all(is_empty(line) for line in multiline.split("\n"))
+    return not multiline or all(is_empty(line) for line in multiline.splitlines())
 
 
 def count_empty_leading_lines(multiline: str) -> int:
@@ -112,6 +114,25 @@ def was_prev_line_empty() -> bool:
 def was_prev_line_alert() -> bool:
     prev_text, _ = get_prev_text_and_end()
     return " *** " in prev_text
+
+
+def was_prev_line_divider() -> bool:
+    # starting from end of print log, find next non-empty line
+    for line, _ in reversed(PRINT_LOG):
+        if not multiline_is_empty(line):
+            return line.strip().startswith("-" * 10)
+    return False
+
+
+def is_banner(*lines: str) -> bool:
+    return any(
+        (l and ("auto-m4b •" in l or "ꨄ︎" in n))
+        for (l, n) in zip(list(lines), list(lines)[1:] + [""])
+    )
+
+
+def found_banner_in_print_log() -> bool:
+    return bool(next(((l, _) for l, _ in PRINT_LOG if is_banner(l)), False))
 
 
 def did_prev_start_with_newline() -> bool:
@@ -256,7 +277,7 @@ def border(book_name_len: int, l: str = dot, c: str = hline, r: str = dot):
 
 def box(*s: str, color: int | str = DEFAULT_COLOR):
     content = "".join(s)
-    lines = content.split("\n")
+    lines = content.splitlines()
     max_len = max(len(Tinta.strip_ansi(l)) for l in lines)
     border(max_len + 2, l="╭", c="╌", r="╮")
     for l in lines:
@@ -460,8 +481,12 @@ def tinted_file(*args):
     return s
 
 
-def divider(lead: str = "", color: int = DARK_GREY_COLOR, width: int = 90):
-    smart_print(lead + ("-" * width), color=color)
+def divider(
+    lead: str = "", trail: str = "", color: int = DARK_GREY_COLOR, width: int = 90
+):
+    if was_prev_line_divider():
+        return
+    smart_print(lead + ("-" * width) + trail, color=color)
 
 
 def linebreak_path(path: Path, *, indent: int = 0, limit: int = -1) -> str:
@@ -527,6 +552,12 @@ def max_term_width(indent: int = 0):
     return min(120, tw) - indent
 
 
-def wrap_brackets(*s: str) -> str:
-    inner = "".join(s)
-    return f" ({inner})" if inner else ""
+def wrap_brackets(*s: str, sep: str = "") -> str:
+    if not "".join(s).strip():
+        return ""
+
+    s = tuple(p for p in s if p.strip())
+
+    if len(s) == 1:
+        sep = ""
+    return f" ({sep.join(s)})"

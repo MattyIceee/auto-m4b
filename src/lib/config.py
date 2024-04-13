@@ -33,7 +33,7 @@ from src.lib.misc import (
     to_json,
 )
 from src.lib.strings import en
-from src.lib.term import nl, print_amber, print_banana, print_error
+from src.lib.term import nl, print_amber, print_banana, print_debug, print_error
 from src.lib.typing import ExifWriter, OverwriteMode
 
 DEFAULT_SLEEP_TIME: float = 10
@@ -101,8 +101,9 @@ parser.add_argument(
     type=int,
 )
 parser.add_argument(
-    "--match-name",
+    "--match",
     help="Only process books that contain this string in their filename. May be a regex pattern, but \\ must be escaped → '\\\\'. Default is None.",
+    dest="match_filter",
     type=str,
     default=None,
 )
@@ -137,6 +138,7 @@ def env_property(
     var_name: str | None = None,
     on_get: Callable[[D], D] | None = None,
     on_set: Callable[[D | None], D | None] | None = None,
+    del_on_none: bool = True,
 ):
     def decorator(func):
         if not ("self" in func.__code__.co_varnames):
@@ -148,20 +150,21 @@ def env_property(
         def getter(self: "Config", *args, **kwargs):
             if not key in self._env or self._env[key] is None:
                 env_value = os.getenv(var_name or key, default)
-                if is_maybe_path(env_value) or typ == Path:
-                    self._env[key] = pathify(key, env_value)
-                elif is_boolish(env_value) or typ == bool:
+                if is_boolish(env_value) or typ == bool:
                     self._env[key] = parse_bool(env_value)
                 elif is_floatish(env_value) or typ == float:
                     self._env[key] = parse_float(env_value)
                 elif is_intish(env_value) or typ == int:
                     self._env[key] = parse_int(env_value)
-                elif env_value is None:
-                    self._env.pop(key, None)
                 elif is_noneish(env_value):
-                    self._env[key] = None
-                elif env_value is None and default is not None:
-                    self._env[key] = default
+                    if default is not None:
+                        self._env[key] = default
+                    elif del_on_none:
+                        self._env.pop(key, None)
+                    else:
+                        self._env[key] = None
+                elif is_maybe_path(env_value) or typ == Path:
+                    self._env[key] = pathify(key, env_value)
                 else:
                     self._env[key] = str(env_value)
 
@@ -176,7 +179,7 @@ def env_property(
             if on_set:
                 value = on_set(value)
 
-            if value is None:
+            if value is None and del_on_none:
                 self._env.pop(key, None)
                 os.environ.pop(key, None)
             else:
@@ -193,7 +196,7 @@ class AutoM4bArgs:
     debug: bool | None
     test: bool | None
     max_loops: int
-    match_name: str | None
+    match_filter: str | None
 
     def __init__(
         self,
@@ -201,7 +204,7 @@ class AutoM4bArgs:
         debug: bool | None = None,
         test: bool | None = None,
         max_loops: int | None = None,
-        match_name: str | None = None,
+        match_filter: str | None = None,
     ):
         args = parser.parse_known_args()[0]
 
@@ -209,7 +212,7 @@ class AutoM4bArgs:
         self.debug = pick(debug, args.debug, None)
         self.test = pick(test, args.test, None)
         self.max_loops = pick(max_loops, args.max_loops, -1)
-        self.match_name = pick(match_name, args.match_name)
+        self.match_filter = pick(match_filter, args.match_filter)
 
     def __str__(self) -> str:
         return to_json(self.__dict__)
@@ -278,14 +281,17 @@ class Config:
         self.load_env(quiet=True)
 
     def startup(self, args: AutoM4bArgs | None = None):
+        from src.lib.inbox_state import InboxState
         from src.lib.term import print_dark_grey, print_grey, print_mint
+
+        start_time = time.perf_counter()
 
         with use_pid_file() as pid_exists:
             with self.load_env(args) as env_msg:
                 if self.SLEEP_TIME and not "pytest" in sys.modules:
                     time.sleep(min(2, self.SLEEP_TIME / 2))
 
-                if not pid_exists:
+                if not pid_exists and not InboxState().loop_counter > 1:
                     print_mint("\nStarting auto-m4b...")
                     print_grey(self.info_str)
                     if env_msg:
@@ -325,17 +331,19 @@ class Config:
         self.check_dirs()
         self.check_m4b_tool()
 
-    @cached_property
-    def MATCH_NAME(self) -> str | None:
-        """Only process books that contain this string in their filename. May be a regex pattern,
-        but \\ must be escaped → '\\\\'. Default is None. This is primarily for testing, but can
-        be used to filter books or directories."""
-        if self.args.match_name:
-            return self.args.match_name
-        match_name = self.get_env_var("MATCH_NAME", None)
-        if str(match_name).lower() in ["none", ""]:
-            return None
-        return match_name
+        elapsed_time = time.perf_counter() - start_time
+        print_debug(f"Startup took {elapsed_time:.2f}s")
+
+    @env_property(
+        typ=str,
+        default=None,
+        on_get=lambda v: v if str(v).lower() not in ["none", ""] else None,
+        on_set=lambda v: v if str(v).lower() not in ["none", ""] else None,
+        del_on_none=False,
+    )
+    def _MATCH_FILTER(self): ...
+
+    MATCH_FILTER = _MATCH_FILTER
 
     @env_property(
         typ=OnComplete,
@@ -343,7 +351,7 @@ class Config:
     )
     def _ON_COMPLETE(self): ...
 
-    ON_COMPLETE = _ON_COMPLETE
+    ON_COMPLETE = cast(OnComplete, _ON_COMPLETE)
 
     @env_property(
         var_name="OVERWRITE_EXISTING",
@@ -354,7 +362,7 @@ class Config:
     )
     def _OVERWRITE_MODE(self): ...
 
-    OVERWRITE_MODE = _OVERWRITE_MODE
+    OVERWRITE_MODE = cast(OverwriteMode, _OVERWRITE_MODE)
 
     @env_property(typ=bool, default=False)
     def _NO_CATS(self) -> bool: ...

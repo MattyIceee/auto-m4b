@@ -9,7 +9,7 @@ from typing import Any, cast, Literal, NamedTuple, overload, TYPE_CHECKING
 
 from src.lib.config import AUDIO_EXTS, cfg
 from src.lib.formatters import friendly_date, human_size
-from src.lib.misc import isorted, try_get_stat_mtime
+from src.lib.misc import isorted, sh, try_get_stat_mtime
 from src.lib.parsers import (
     is_maybe_multi_book_or_series,
     is_maybe_multi_disc,
@@ -305,14 +305,29 @@ def _mv_or_cp_dir_contents(
     ignore_files: list[str] = [],
     silent_files: list[str] = [],
     only_file_exts: list[str] = [],
+    keep_src_dir: bool = False,
 ):
+    """Moves or copies the contents of a source directory into a destination directory. For example:
 
+    `cp_dir_contents('/path/to/src', '/path/to_other/dst')` # or
+    `mv_dir_contents('/path/to/src', '/path/to_other/dst')`
+
+    ...will result in:
+
+    `/path/to_other/dst/file1`
+    `/path/to_other/dst/file2`
+    `/path/to_other/dst/file3`
+
+    If moving, and the source directory is empty after moving files, it will be removed.
+
+    Default overwrite mode is 'skip', which will raise an error if the destination directory already exists, because we shouldn't ever be automatically overwriting an entire directory.
+    """
     from src.lib.config import cfg
 
     if operation not in ["move", "copy"]:
         raise ValueError("Invalid operation")
 
-    rm_empty_src_dir = operation == "move"
+    rm_empty_src_dir = operation == "move" and not keep_src_dir
 
     overwrite_mode = overwrite_mode or cfg.OVERWRITE_MODE
 
@@ -480,6 +495,28 @@ def cp_dir(*args, **kwargs):
     _mv_or_copy_dir("copy", *args, **kwargs)
 
 
+def rename_dir(dir_path: Path, new_name: str | Path, ignore_errors: bool = False):
+    """Renames a directory. If the new name is a Path object, the directory is moved to the new path."""
+
+    dst = dir_path.parent / new_name if isinstance(new_name, str) else new_name
+    try:
+        check_src_dst(dir_path, "dir", dst, "dir", overwrite_mode="skip")
+    except Exception as e:
+        if ignore_errors:
+            return
+        raise e
+    if dst.exists() and (dst.is_file() or not dir_is_empty_ignoring_hidden_files(dst)):
+        if ignore_errors:
+            return
+        raise FileExistsError(
+            f"{dir_path} cannot be renamed to {new_name}, a file or folder with that name already exists"
+        )
+
+    _mv_or_cp_dir_contents(
+        "move", dir_path, dst, overwrite_mode="skip", keep_src_dir=False
+    )
+
+
 def mv_file_to_dir(
     source_file: Path,
     dst_dir: Path,
@@ -582,16 +619,16 @@ def flattening_files_in_dir_affects_order(path: Path) -> bool:
     return only_audio_files(files_flat_sorted) != only_audio_files(files_flat)
 
 
-def name_matches(name: Any, match_name: str | None = None) -> bool:
+def name_matches(name: Any, match_filter: str | None = None) -> bool:
     from src.lib.config import cfg
 
-    if cfg.MATCH_NAME:
-        match_name = cfg.MATCH_NAME
+    if cfg.MATCH_FILTER:
+        match_filter = cfg.MATCH_FILTER
 
-    if not match_name:
+    if not match_filter:
         return True
 
-    return re.search(match_name, str(name), re.I) is not None
+    return re.search(match_filter, str(name), re.I) is not None
 
 
 def find_base_dirs_with_audio_files(
@@ -1024,7 +1061,7 @@ def inbox_was_recently_modified(within_seconds: float = 0) -> bool:
 
 
 def hash_path(
-    path: Path, *, only_file_exts: list[str] = [], debug: bool = False
+    path: Path, *, only_file_exts: list[str] = [], debug: bool = False, n: int = 8
 ) -> str:
     """Makes a has of the dir's contents of filenames and file sizes in an array, sorted by filename
     then hashes the array"""
@@ -1042,9 +1079,8 @@ def hash_path(
         return f"{f.relative_to(path)}|{f.stat().st_size}"
 
     def hash_raw(*raw: str) -> str:
-        if len(raw) == 1:
-            return hashlib.md5(raw[0].encode()).hexdigest()
-        return hashlib.md5(":".join(raw).encode()).hexdigest()
+        _s = raw[0] if len(raw) == 1 else ":".join(raw)
+        return sh(hashlib.md5(_s.encode()).hexdigest(), n)
 
     if path.is_file():
         return hash_raw(make_hashable(path))

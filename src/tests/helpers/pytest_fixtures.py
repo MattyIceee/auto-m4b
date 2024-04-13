@@ -48,8 +48,8 @@ def reset_failed():
 def reset_match_filter():
     from src.lib.config import cfg
 
-    orig_env_match_filter = os.environ.get("MATCH_NAME", None)
-    orig_cfg_match_filter = cfg.MATCH_NAME
+    orig_env_match_filter = os.environ.get("MATCH_FILTER", None)
+    orig_cfg_match_filter = cfg.MATCH_FILTER
     yield
     if orig_env_match_filter is not None:
         InboxState().set_match_filter(orig_env_match_filter)
@@ -62,12 +62,20 @@ def indirect_fixture(request: pytest.FixtureRequest):
     return request.getfixturevalue(request.param)
 
 
+def rm_from_inbox(*names: str):
+    for name in names:
+        inbox = TEST_DIRS.inbox / name
+        shutil.rmtree(inbox, ignore_errors=True)
+        testutils.print(f"Cleaning up {inbox}")
+
+
 def load_test_fixture(
     name: str,
     *,
     exclusive: bool = False,
     override_name: str | None = None,
     match_filter: str | None = None,
+    cleanup_inbox: bool = False,
 ):
     src = FIXTURES_ROOT / name
     if not src.exists():
@@ -95,7 +103,10 @@ def load_test_fixture(
     converted_dir = TEST_DIRS.converted / (override_name or name)
     shutil.rmtree(converted_dir, ignore_errors=True)
 
-    return Audiobook(dst)
+    yield Audiobook(dst)
+
+    if cleanup_inbox:
+        rm_from_inbox(name)
 
 
 def load_test_fixtures(
@@ -103,118 +114,137 @@ def load_test_fixtures(
     exclusive: bool = False,
     override_names: list[str] | None = None,
     match_filter: str | None = None,
+    cleanup_inbox: bool = False,
+    request: pytest.FixtureRequest | None = None,
 ):
     if exclusive:
-        match_filter = match_filter or rf"^({'|'.join(override_names or names)})"
-    return [
-        load_test_fixture(name, override_name=override, match_filter=match_filter)
-        for (name, override) in zip(names, override_names or names)
-    ]
+        short_names = [
+            n if len(s[:1][0]) < 5 else s[:1][0]
+            for n, s in [
+                ("_".join(s[:2]), s)
+                for s in [n.split("_") for n in (override_names or names)]
+            ]
+        ]
+
+        match_filter = match_filter or rf"^({'|'.join(short_names)})"
+
+    fixtures: list[Audiobook] = []
+    for name, override in zip(names, override_names or names):
+        fixtures.extend(
+            load_test_fixture(name, match_filter=match_filter, override_name=override)
+        )
+
+    if cleanup_inbox:
+        if not request:
+            raise ValueError(
+                "cleanup_inbox requires `request` to be a pytest.FixtureRequest"
+            )
+        request.addfinalizer(lambda: rm_from_inbox(*names))
+
+    return fixtures
 
 
 @pytest.fixture(scope="function")
 def bitrate_vbr__mp3():
-    return load_test_fixture("bitrate_vbr__mp3", exclusive=True)
+    yield from load_test_fixture("bitrate_vbr__mp3", exclusive=True)
 
 
 @pytest.fixture(scope="function")
 def bitrate_cbr__mp3():
-    return load_test_fixture("bitrate_cbr__mp3", exclusive=True)
+    yield from load_test_fixture("bitrate_cbr__mp3", exclusive=True)
 
 
 @pytest.fixture(scope="function")
 def bitrate_nonstandard__mp3():
-    return load_test_fixture("bitrate_nonstandard__mp3", exclusive=True)
+    yield from load_test_fixture("bitrate_nonstandard__mp3", exclusive=True)
 
 
 @pytest.fixture(scope="function")
 def tiny__flat_mp3():
-    return load_test_fixture("tiny__flat_mp3", exclusive=True)
+    yield from load_test_fixture("tiny__flat_mp3", exclusive=True)
 
 
 @pytest.fixture(scope="function")
 def tower_treasure__flat_mp3():
-    return load_test_fixture("tower_treasure__flat_mp3", exclusive=True)
+    yield from load_test_fixture("tower_treasure__flat_mp3", exclusive=True)
 
 
 @pytest.fixture(scope="function")
 def house_on_the_cliff__flat_mp3():
-    return load_test_fixture("house_on_the_cliff__flat_mp3", exclusive=True)
+    yield from load_test_fixture("house_on_the_cliff__flat_mp3", exclusive=True)
 
 
 @pytest.fixture(scope="function")
 def old_mill__multidisc_mp3():
-    return load_test_fixture("old_mill__multidisc_mp3", exclusive=True)
+    yield from load_test_fixture("old_mill__multidisc_mp3", exclusive=True)
 
 
 @pytest.fixture(scope="function")
 def missing_chums__mixed_mp3():
     shutil.rmtree(TEST_DIRS.inbox / "missing_chums__mixed_mp3", ignore_errors=True)
-    return load_test_fixture("missing_chums__mixed_mp3", exclusive=True)
+    yield from load_test_fixture("missing_chums__mixed_mp3", exclusive=True)
 
 
 @pytest.fixture(scope="function")
 def tower_treasure__nested_mp3():
-    return load_test_fixture("tower_treasure__nested_mp3", exclusive=True)
-
-
-# @pytest.fixture(scope="function")
-# def tower_treasure__all():
-#     return [
-#         load_test_fixture("tower_treasure__flat_mp3"),
-#         load_test_fixture("old_mill__multidisc_mp3"),
-#         load_test_fixture("tower_treasure__nested_mp3"),
-#     ]
+    yield from load_test_fixture("tower_treasure__nested_mp3", exclusive=True)
 
 
 @pytest.fixture(scope="function")
-def hardy_boys__flat_mp3():
-    return load_test_fixtures(
+def hardy_boys__flat_mp3(request: pytest.FixtureRequest):
+    yield load_test_fixtures(
         "tower_treasure__flat_mp3",
         "house_on_the_cliff__flat_mp3",
-        match_filter="^(tower|house)",
+        exclusive=True,
+        request=request,
     )
 
 
 @pytest.fixture(scope="function")
-def all_hardy_boys():
-    return load_test_fixtures(
+def all_hardy_boys(request: pytest.FixtureRequest):
+    yield load_test_fixtures(
         "tower_treasure__flat_mp3",
         "house_on_the_cliff__flat_mp3",
         "old_mill__multidisc_mp3",
         "missing_chums__mixed_mp3",
-        match_filter="^(tower|house|missing|old)",
+        exclusive=True,
+        request=request,
     )
 
 
 @pytest.fixture(scope="function")
 def the_crusades_through_arab_eyes__flat_mp3():
-    return load_test_fixture("the_crusades_through_arab_eyes__flat_mp3", exclusive=True)
+    yield from load_test_fixture(
+        "the_crusades_through_arab_eyes__flat_mp3", exclusive=True
+    )
 
 
 @pytest.fixture(scope="function")
 def the_sunlit_man__flat_mp3():
-    return load_test_fixture("the_sunlit_man__flat_mp3", exclusive=True)
+    yield from load_test_fixture("the_sunlit_man__flat_mp3", exclusive=True)
 
 
 @pytest.fixture(scope="function")
 def conspiracy_theories__flat_mp3():
-    return load_test_fixture(
+    yield from load_test_fixture(
         "conspiracy_theories__flat_mp3",
         exclusive=True,
         override_name="The Great Courses - Conspiracies & Conspiracy Theories What We Should and Shouldn't Believe - and Why",
+        cleanup_inbox=True,
     )
 
 
 @pytest.fixture(scope="function")
 def secret_project_series__nested_flat_mixed():
-    return load_test_fixture("secret_project_series__nested_flat_mixed", exclusive=True)
+    yield from load_test_fixture(
+        "secret_project_series__nested_flat_mixed", exclusive=True
+    )
 
 
 @pytest.fixture(scope="function")
-def Chanur_Series(clean_inbox_state):
+def Chanur_Series(reset_inbox_state):
     series = "Chanur Series"
-    return load_test_fixtures(
+    yield load_test_fixtures(
         series,
         f"{series}/01 - Pride Of Chanur",
         f"{series}/02 - Chanur's Venture",
@@ -259,13 +289,13 @@ def the_hobbit__multidisc_mp3():
         for f in dirname.iterdir():
             if f.is_file() and f.suffix == ".mp3":
                 f.unlink(missing_ok=True)
-    return load_test_fixture("the_hobbit__multidisc_mp3", exclusive=True)
+    yield from load_test_fixture("the_hobbit__multidisc_mp3", exclusive=True)
 
 
 @pytest.fixture(scope="function", autouse=False)
 def the_shining__flat_mp3():
     # Contains out of order roman numerals
-    return load_test_fixture("the_shining__flat_mp3", exclusive=True)
+    yield from load_test_fixture("the_shining__flat_mp3", exclusive=True)
 
 
 @pytest.fixture(scope="function", autouse=False)
@@ -359,16 +389,8 @@ def not_an_audio_file():
 
 
 @pytest.fixture(scope="function", autouse=False)
-def mock_inbox(setup_teardown):
+def mock_inbox(setup_teardown, requires_empty_inbox):
     """Populate INBOX_FOLDER with mocked sample audiobooks."""
-
-    backup_inbox = Path(f"{TEST_DIRS.inbox}_backup")
-    # if inbox exists, move it to a backup folder
-    if TEST_DIRS.inbox.exists():
-        shutil.rmtree(backup_inbox, ignore_errors=True)
-        shutil.move(TEST_DIRS.inbox, backup_inbox)
-
-    TEST_DIRS.inbox.mkdir(parents=True, exist_ok=True)
 
     # make 4 sample audiobooks using nealy empty txt files (~5kb) as pretend mp3 files.
     for i in range(1, 5):
@@ -468,16 +490,6 @@ def mock_inbox(setup_teardown):
 
     yield TEST_DIRS.inbox
 
-    # restore contents of inbox if it was moved to a backup folder
-    if backup_inbox.exists():
-        for f in backup_inbox.glob("*"):
-            # if dst exists, remove src instead
-            if (TEST_DIRS.inbox / f.name).exists():
-                testutils.rm(f)
-            else:
-                shutil.move(f, TEST_DIRS.inbox)
-        shutil.rmtree(backup_inbox, ignore_errors=True)
-
     # remove everything in the inbox that starts with `mock_book_`
     for f in TEST_DIRS.inbox.glob("mock_book_*"):
         testutils.rm(f)
@@ -519,24 +531,26 @@ def global_test_log():
 
 
 @pytest.fixture(scope="function", autouse=False)
-def reset_inbox_state(reset_match_filter, reset_failed):
+def reset_all(reset_match_filter, reset_failed):
 
     from src.lib.config import cfg
 
     inbox = InboxState()
     inbox.destroy()  # type: ignore
     clean_dirs([TEST_DIRS.archive, TEST_DIRS.converted, TEST_DIRS.working])
-    os.environ["SLEEP_TIME"] = "0.1"
-    os.environ["WAIT_TIME"] = "0.5"
-    os.environ["TEST"] = "Y"
+    cfg.SLEEP_TIME = 0.1
+    cfg.WAIT_TIME = 0.5
+    cfg.TEST = True
+    cfg.ON_COMPLETE = "test_do_nothing"
 
     yield
 
-    inbox.reset()
-    os.environ.pop("MATCH_NAME", None)
-    os.environ["SLEEP_TIME"] = "0.1"
-    os.environ["WAIT_TIME"] = "0.5"
-    os.environ["TEST"] = "Y"
+    inbox.reset_inbox()
+    cfg.MATCH_FILTER = None
+    cfg.SLEEP_TIME = 0.1
+    cfg.WAIT_TIME = 0.5
+    cfg.TEST = True
+    cfg.ON_COMPLETE = "test_do_nothing"
 
     clean_dirs([TEST_DIRS.archive, TEST_DIRS.converted, TEST_DIRS.working])
     inbox.destroy()  # type: ignore
@@ -544,17 +558,17 @@ def reset_inbox_state(reset_match_filter, reset_failed):
 
 
 @pytest.fixture(scope="function", autouse=False)
-def enable_autoflatten():
-    testutils.enable_autoflatten()
+def enable_multidisc():
+    testutils.enable_multidisc()
     yield
-    testutils.disable_autoflatten()
+    testutils.disable_multidisc()
 
 
 @pytest.fixture(scope="function", autouse=False)
-def disable_autoflatten():
-    testutils.disable_autoflatten()
+def disable_multidisc():
+    testutils.disable_multidisc()
     yield
-    testutils.enable_autoflatten()
+    testutils.enable_multidisc()
 
 
 @pytest.fixture(scope="function", autouse=False)
@@ -614,9 +628,34 @@ def disable_archiving():
 
 
 @pytest.fixture(scope="function", autouse=False)
-def clean_inbox_state():
+def reset_inbox_state():
     inbox = InboxState()
     inbox.destroy()  # type: ignore
     inbox.scan()
     yield inbox
     inbox.destroy()  # type: ignore
+
+
+@pytest.fixture(scope="function", autouse=False)
+def requires_empty_inbox():
+    """Fixture that moves the inbox to a tmp folder, and restores it after the test."""
+
+    backup_inbox = Path(f"{TEST_DIRS.inbox}_backup")
+    # if inbox exists, move it to a backup folder
+    if TEST_DIRS.inbox.exists():
+        shutil.rmtree(backup_inbox, ignore_errors=True)
+        shutil.move(TEST_DIRS.inbox, backup_inbox)
+
+    TEST_DIRS.inbox.mkdir(parents=True, exist_ok=True)
+
+    yield TEST_DIRS.inbox
+
+    # restore contents of inbox if it was moved to a backup folder
+    if backup_inbox.exists():
+        for f in backup_inbox.glob("*"):
+            # if dst exists, remove src instead
+            if (TEST_DIRS.inbox / f.name).exists():
+                testutils.rm(f)
+            else:
+                shutil.move(f, TEST_DIRS.inbox)
+        shutil.rmtree(backup_inbox, ignore_errors=True)

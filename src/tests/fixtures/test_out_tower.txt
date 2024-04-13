@@ -4,7 +4,7 @@ TEST + DEBUG modes on
 10 CPU cores / 0.1s sleep / Max ch. length: 15-30m / m4b-tool v0.5-prerelease-25-g81b9542 (Docker)
 
 ------------------------  ⌐◒-◒  auto-m4b • 2024-04-02 21:35:02  -------------------------
-Watching for new books in /auto-m4b/src/tests/tmp/inbox ꨄ︎
+Watching for books in /auto-m4b/src/tests/tmp/inbox ꨄ︎
 
 Found 1 book in the inbox matching tower_treasure__flat_mp3 (ignoring 1)
 

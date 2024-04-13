@@ -5,10 +5,9 @@ from contextlib import contextmanager
 
 from src.lib import run
 from src.lib.config import AutoM4bArgs, cfg
-from src.lib.term import print_error, print_red
+from src.lib.inbox_state import InboxState
+from src.lib.term import nl, print_error, print_red, was_prev_line_empty
 from src.lib.typing import copy_kwargs_omit_first_arg
-
-LOOP_COUNT = 0
 
 
 def handle_err(e: Exception):
@@ -41,17 +40,20 @@ def use_error_handler():
 def app(**kwargs):
     args = AutoM4bArgs(**kwargs)
     infinite_loop = args.max_loops == -1
-    global LOOP_COUNT
-    LOOP_COUNT = 0
+    inbox = InboxState()
+    inbox.loop_counter += 1
     with use_error_handler():
         cfg.startup(args)
-        while infinite_loop or LOOP_COUNT < args.max_loops:
+        while infinite_loop or inbox.loop_counter <= args.max_loops:
             try:
                 run.process_inbox()
             finally:
-                LOOP_COUNT += 1
-                if infinite_loop or LOOP_COUNT < args.max_loops:
+                inbox.loop_counter += 1
+                if infinite_loop or inbox.loop_counter <= args.max_loops:
                     time.sleep(cfg.SLEEP_TIME)
+
+        if not was_prev_line_empty():
+            nl()
 
 
 if __name__ == "__main__":

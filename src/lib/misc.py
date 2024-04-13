@@ -103,6 +103,8 @@ def is_floatish(v: Any) -> bool:
         return True
     except ValueError:
         return False
+    except TypeError:
+        return False
 
 
 def parse_float(v: Any) -> float:
@@ -114,6 +116,8 @@ def is_intish(v: Any) -> bool:
         int(v)
         return True
     except ValueError:
+        return False
+    except TypeError:
         return False
 
 
@@ -219,6 +223,10 @@ def to_json(obj: dict[str, Any]) -> str:
     return json.dumps(
         {k: sanitize(v) for k, v in obj.items()}, indent=4, sort_keys=True
     )
+
+
+def sh(s: str, n: int = 8) -> str:
+    return s[-n:]
 
 
 def get_dir_name_from_path(p: Path) -> DirName | None:

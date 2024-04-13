@@ -6,6 +6,7 @@ from src.lib.term import (
     count_empty_leading_lines,
     count_empty_trailing_lines,
     linebreak_path,
+    wrap_brackets,
 )
 
 
@@ -97,3 +98,63 @@ def test_count_empty_leading_lines(line: str, empty_lines: int):
 )
 def test_count_empty_trailing_lines(line: str, empty_lines: int):
     assert count_empty_trailing_lines(line) == empty_lines
+
+
+@pytest.mark.parametrize(
+    "test_input, kwargs, expected",
+    [
+        ((""), {}, ""),
+        (("", ""), {}, ""),
+        (("", "", ""), {}, ""),
+        (("a"), {}, " (a)"),
+        (("a", "b"), {}, " (ab)"),
+        (("a", "b"), {"sep": " "}, " (a b)"),
+        (
+            ("", "skipping 2 that previously failed"),
+            {},
+            " (skipping 2 that previously failed)",
+        ),
+        (
+            ("", ", skipping 2 that previously failed"),
+            {},
+            " (, skipping 2 that previously failed)",
+        ),
+        (
+            ("", "skipping 2 that previously failed"),
+            {"sep": ", "},
+            " (skipping 2 that previously failed)",
+        ),
+        (
+            ("ignoring 1", "skipping 2 that previously failed"),
+            {},
+            " (ignoring 1skipping 2 that previously failed)",
+        ),
+        (
+            ("ignoring 1", ", skipping 2 that previously failed"),
+            {},
+            " (ignoring 1, skipping 2 that previously failed)",
+        ),
+        (
+            ("ignoring 1", "skipping 2 that previously failed"),
+            {"sep": ", "},
+            " (ignoring 1, skipping 2 that previously failed)",
+        ),
+        (
+            ("ignoring 1", ""),
+            {},
+            " (ignoring 1)",
+        ),
+        (
+            ("ignoring 1", " "),
+            {},
+            " (ignoring 1)",
+        ),
+        (
+            ("ignoring 1", ""),
+            {"sep": ", "},
+            " (ignoring 1)",
+        ),
+    ],
+)
+def test_wrap_brackets(test_input, kwargs, expected):
+    assert wrap_brackets(*test_input, **kwargs) == expected

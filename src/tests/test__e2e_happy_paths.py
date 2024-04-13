@@ -17,7 +17,7 @@ from src.tests.helpers.pytest_utils import testutils
 class test_happy_paths:
 
     @pytest.fixture(scope="function", autouse=True)
-    def setup(self, reset_inbox_state):
+    def setup(self, reset_all):
         yield
 
     @pytest.mark.parametrize(
@@ -36,10 +36,10 @@ class test_happy_paths:
             "kb/s", "kbps"
         )
         app(max_loops=1)
-        assert testutils.assert_processed_books(
+        assert testutils.assert_processed_output(
             capfd,
             book,
-            check=[testutils.check_output(found_books_eq=1, converted_eq=1)],
+            loops=[testutils.check_output(found_books_eq=1, converted_eq=1)],
         )
         assert testutils.assert_converted_book_and_collateral_exist(book, quality)
 
@@ -49,10 +49,10 @@ class test_happy_paths:
         capfd: CaptureFixture[str],
     ):
         app(max_loops=1)
-        assert testutils.assert_processed_books(
+        assert testutils.assert_processed_output(
             capfd,
             *all_hardy_boys[0:3],
-            check=[testutils.check_output(found_books_eq=4, converted_eq=3)],
+            loops=[testutils.check_output(found_books_eq=4, converted_eq=3)],
         )
 
     def test_backup_book_mp3(
@@ -61,12 +61,50 @@ class test_happy_paths:
         app(max_loops=1)
         out = testutils.get_stdout(capfd)
         assert "Making a backup copy" in out
-        assert testutils.assert_processed_books(
+        assert testutils.assert_processed_output(
             out,
             tiny__flat_mp3,
-            check=[testutils.check_output(found_books_eq=1, converted_eq=1)],
+            loops=[testutils.check_output(found_books_eq=1, converted_eq=1)],
         )
         assert tiny__flat_mp3.converted_dir.exists()
+
+    @pytest.mark.parametrize(
+        "starting_loop, match_filter",
+        [(0, "tiny"), (0, "--none--"), (2, "tiny"), (2, "--none--")],
+    )
+    @pytest.mark.order()
+    def test_friendly_message_when_inbox_is_empty(
+        self,
+        requires_empty_inbox,
+        tiny__flat_mp3: Audiobook,
+        starting_loop,
+        match_filter,
+        capfd: CaptureFixture[str],
+    ):
+
+        InboxState().loop_counter = starting_loop
+        testutils.set_match_filter(match_filter)
+        testutils.force_inbox_hash_change(age=-2)
+        app(max_loops=starting_loop + 1)
+        out = testutils.get_stdout(capfd)
+        converted = [tiny__flat_mp3] if match_filter == "tiny" else []
+        check = (
+            [testutils.check_output(found_books_eq=1)]
+            if match_filter == "tiny"
+            else [testutils.check_output(empty=True)]
+        )
+        assert testutils.assert_processed_output(out, *converted, loops=check)
+
+        watching_count = out.count("Watching for books in")
+        found_count = out.count("Found new books in")
+
+        if starting_loop <= 1:
+            assert watching_count == 1
+        elif match_filter == "tiny":
+            assert found_count == 1
+        else:
+            assert watching_count == 0
+            assert found_count == 0
 
     def test_match_filter_multiple_mp3s(
         self,
@@ -87,11 +125,11 @@ class test_happy_paths:
         assert tower_treasure__flat_mp3.converted_dir.exists()
         assert house_on_the_cliff__flat_mp3.converted_dir.exists()
         out = testutils.get_stdout(capfd)
-        assert testutils.assert_processed_books(
+        assert testutils.assert_processed_output(
             out,
             tower_treasure__flat_mp3,
             house_on_the_cliff__flat_mp3,
-            check=[testutils.check_output(found_books_eq=2, converted_eq=2)],
+            loops=[testutils.check_output(found_books_eq=2, converted_eq=2)],
         )
         found = int(re_group(re.search(r"Found (\d+) book", out), 1))
         ignoring = int(re_group(re.search(r"\(ignoring (\d+)\)", out), 1))
@@ -104,25 +142,25 @@ class test_happy_paths:
             == len(find_book_dirs_in_inbox()) + converted
         )
         # With archiving enabled, the inbox should have 2 fewer books.
-        # If archiving is disabled, the inbox should have the same number of books. ````gfv/.jh
+        # If archiving is disabled, the inbox should have the same number of books.
 
-    def test_autoflatten_multidisc_mp3(
+    def test_flatten_multidisc_mp3(
         self,
         old_mill__multidisc_mp3: Audiobook,
-        enable_autoflatten,
+        enable_multidisc,
         capfd: CaptureFixture[str],
     ):
 
         app(max_loops=1)
-        assert testutils.assert_processed_books(
+        assert testutils.assert_processed_output(
             capfd,
             old_mill__multidisc_mp3,
-            check=[testutils.check_output(found_books_eq=1, converted_eq=1)],
+            loops=[testutils.check_output(found_books_eq=1, converted_eq=1)],
         )
         assert old_mill__multidisc_mp3.converted_dir.exists()
 
     @pytest.mark.parametrize("backups_enabled", [False, True])
-    def test_convert_book_series_mp3(
+    def test_convert_series_mp3(
         self,
         Chanur_Series: list[Audiobook],
         enable_convert_series,
@@ -143,10 +181,10 @@ class test_happy_paths:
             assert len(child_books) == 5
             for book, quality in zip(child_books, qualities):
                 testutils.assert_converted_book_and_collateral_exist(book, quality)
-            assert testutils.assert_processed_books(
+            assert testutils.assert_processed_output(
                 out,
                 *child_books,
-                check=[testutils.check_output(found_books_eq=5, converted_eq=5)],
+                loops=[testutils.check_output(found_books_eq=5, converted_eq=5)],
             )
             assert out.count("Book Series •••••")
             assert series.converted_dir.exists()
@@ -200,7 +238,7 @@ class test_happy_paths:
         self,
         partial_flatten_backup_dirs: list[str],
         the_hobbit__multidisc_mp3: Audiobook,
-        enable_autoflatten,
+        enable_multidisc,
         enable_backups,
         capfd: CaptureFixture[str],
     ):
@@ -221,10 +259,10 @@ class test_happy_paths:
                 shutil.rmtree(the_hobbit__multidisc_mp3.backup_dir / d)
 
         app(max_loops=1)
-        assert testutils.assert_processed_books(
+        assert testutils.assert_processed_output(
             capfd,
             the_hobbit__multidisc_mp3,
-            check=[testutils.check_output(found_books_eq=1, converted_eq=1)],
+            loops=[testutils.check_output(found_books_eq=1, converted_eq=1)],
         )
         assert the_hobbit__multidisc_mp3.converted_dir.exists()
 

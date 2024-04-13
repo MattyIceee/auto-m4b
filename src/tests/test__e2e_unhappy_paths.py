@@ -1,7 +1,6 @@
 import asyncio
 import concurrent
 import concurrent.futures
-import functools
 import shutil
 import time
 from copy import deepcopy
@@ -12,6 +11,7 @@ from pytest import CaptureFixture
 
 from src.auto_m4b import app
 from src.lib.audiobook import Audiobook
+from src.lib.fs_utils import rename_dir
 from src.lib.inbox_state import InboxState
 from src.lib.strings import en
 from src.tests.conftest import TEST_DIRS
@@ -25,7 +25,7 @@ ORDER = 1
 class test_unhappy_paths:
 
     @pytest.fixture(scope="function", autouse=True)
-    def setup(self, reset_inbox_state: None):
+    def setup(self, reset_all: None):
         yield
 
     @pytest.mark.order(ORDER)
@@ -38,11 +38,11 @@ class test_unhappy_paths:
 
         testutils.set_match_filter("^(bitrate_nonstandard|the_crusades)")
         app(max_loops=1)
-        assert testutils.assert_processed_books(
+        assert testutils.assert_processed_output(
             capfd,
             bitrate_nonstandard__mp3,
             the_crusades_through_arab_eyes__flat_mp3,
-            check=[testutils.check_output(found_books_eq=2, converted_eq=2)],
+            loops=[testutils.check_output(found_books_eq=2, converted_eq=2)],
         )
         assert bitrate_nonstandard__mp3.converted_dir.exists()
         assert the_crusades_through_arab_eyes__flat_mp3.converted_dir.exists()
@@ -57,14 +57,14 @@ class test_unhappy_paths:
         # assert the message only appears once
         out = testutils.get_stdout(capfd)
         assert out.count(en.ROMAN_ERR) == 1
-        assert testutils.assert_processed_books(
-            out, check=[testutils.check_output(found_books_eq=1, converted_eq=0)]
+        assert testutils.assert_processed_output(
+            out, loops=[testutils.check_output(found_books_eq=1, converted_eq=0)]
         )
 
     ORDER += 1
 
     @pytest.mark.order(ORDER)
-    def test_match_name_has_no_matches(
+    def test_no_matches_found(
         self,
         tower_treasure__flat_mp3: Audiobook,
         capfd: CaptureFixture[str],
@@ -72,8 +72,8 @@ class test_unhappy_paths:
 
         testutils.set_match_filter("test-do-not-match")
         app(max_loops=4)
-        assert testutils.assert_processed_books(
-            capfd, check=[testutils.check_output(found_books_eq=0, converted_eq=0)]
+        assert testutils.assert_processed_output(
+            capfd, loops=[testutils.check_output(found_books_eq=0, converted_eq=0)]
         )
 
     ORDER += 1
@@ -93,24 +93,26 @@ class test_unhappy_paths:
         app(max_loops=2)
         out = testutils.get_stdout(capfd)
 
-        assert testutils.assert_processed_books(
+        assert testutils.assert_processed_output(
             out,
             tower_treasure__flat_mp3,
-            check=[testutils.check_output(found_books_eq=2, converted_eq=1)],
+            loops=[
+                testutils.check_output(found_books_eq=2, converted_eq=1),
+            ],
         )
         assert out.count(en.ROMAN_ERR) == 1
 
         testutils.fail_book(roman_numeral__mp3, from_now=30)
-        inbox.reset(match_filter)
+        inbox.reset_inbox(match_filter)
         time.sleep(1)
         testutils.force_inbox_hash_change(age=-2)
         app(max_loops=4)
         out = testutils.get_stdout(capfd)
 
-        assert testutils.assert_processed_books(
+        assert testutils.assert_processed_output(
             out,
             tower_treasure__flat_mp3,
-            check=[
+            loops=[
                 testutils.check_output(
                     found_books_eq=2, converted_eq=1, skipped_failed_eq=1
                 )
@@ -121,7 +123,7 @@ class test_unhappy_paths:
     ORDER += 1
 
     @pytest.mark.order(ORDER)
-    def test_ignore_failed_books_if_unchanged(
+    def test_ignore_failed_if_unchanged(
         self,
         roman_numeral__mp3: Audiobook,
         tower_treasure__flat_mp3: Audiobook,
@@ -131,28 +133,28 @@ class test_unhappy_paths:
     ):
 
         inbox = InboxState()
-        with testutils.set_wait_time(2):
+        with testutils.set_wait_time(0.5):
 
             testutils.set_match_filter("^(Roman|tower)")
             app(max_loops=1)
             out = testutils.get_stdout(capfd)
-            assert testutils.assert_processed_books(
+            assert testutils.assert_processed_output(
                 out,
                 tower_treasure__flat_mp3,
-                check=[testutils.check_output(found_books_eq=2, converted_eq=1)],
+                loops=[testutils.check_output(found_books_eq=2, converted_eq=1)],
             )
             assert out.count(en.ROMAN_ERR) == 1
             testutils.fail_book("Roman Numeral Book", from_now=30)
-            inbox.reset("^(Roman|tower|house)")
+            inbox.reset_inbox("^(Roman|tower|house)")
             time.sleep(1)
             testutils.force_inbox_hash_change(age=-2)
             app(max_loops=3)
             out = testutils.get_stdout(capfd)
-            assert testutils.assert_processed_books(
+            assert testutils.assert_processed_output(
                 out,
                 tower_treasure__flat_mp3,
                 house_on_the_cliff__flat_mp3,
-                check=[
+                loops=[
                     testutils.check_output(
                         found_books_eq=3, converted_eq=2, skipped_failed_eq=1
                     )
@@ -161,77 +163,83 @@ class test_unhappy_paths:
 
     ORDER += 1
 
-    async def run_app_for__failed_books_skip_when_new_books_added(self):
-        with testutils.set_wait_time(2):
-            testutils.print("Starting app...")
-            testutils.set_match_filter("chums")
-            app(max_loops=4, test=False)
-            testutils.print("Finished app")
-
-    def add_books__failed_books_skip_when_new_books_added(
-        self, *books: Audiobook, append: str = "", rstrip: str = ""
-    ):
-        time.sleep(3)
-        testutils.set_match_filter("^(chums|tower)")
-        for book in books:
-            testutils.rename_files(book, append=append, rstrip=rstrip)
-        (TEST_DIRS.inbox / "missing_chums__mixed_mp3").touch()
-
+    @pytest.mark.parametrize(
+        "archive",
+        [True, False],
+    )
+    @pytest.mark.order(ORDER)
     @pytest.mark.asyncio
-    async def test_failed_books_skip_when_new_books_added(
+    async def test_skips_failed_when_new_books_added(
         self,
         missing_chums__mixed_mp3: Audiobook,
         tower_treasure__flat_mp3: Audiobook,
+        disable_multidisc,
         enable_debug,
+        archive,
         capfd: CaptureFixture[str],
     ):
 
-        app_task = asyncio.create_task(
-            self.run_app_for__failed_books_skip_when_new_books_added()
-        )
+        from src.lib.config import cfg
 
-        rename1 = functools.partial(
-            self.add_books__failed_books_skip_when_new_books_added,
-            tower_treasure__flat_mp3,
-            append="-new1",
-            rstrip=r"-new\d",
-        )
+        txr_name = "txr_treasure__flat_mp3"
 
-        rename2 = functools.partial(
-            self.add_books__failed_books_skip_when_new_books_added,
-            tower_treasure__flat_mp3,
-            append="-new2",
-            rstrip=r"-new\d",
-        )
+        rename_dir(tower_treasure__flat_mp3.inbox_dir, txr_name)
 
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            await asyncio.get_running_loop().run_in_executor(executor, rename1)
-            await asyncio.get_running_loop().run_in_executor(executor, rename2)
+        async def async_app():
+            with testutils.set_wait_time(0.5):
+                with testutils.set_sleep_time(1):
+                    time.sleep(0)
+                    testutils.print("Starting app...")
+                    testutils.set_match_filter("^(missing|tower)")
+                    app(max_loops=8, test=False)
+                    testutils.print("Finished app")
 
-        await app_task
-        assert tower_treasure__flat_mp3.converted_dir.exists()
-        out = testutils.get_stdout(capfd)
-        assert out.count(en.MULTI_ERR) == 1
-        assert testutils.assert_processed_books(
-            out,
-            tower_treasure__flat_mp3,
-            check=[
-                testutils.check_output(found_books_eq=1, converted_eq=0),
-                testutils.check_output(
-                    found_books_eq=1, converted_eq=1, skipped_failed_eq=1
-                ),
-            ],
-        )
-        assert out.count(en.INBOX_RECENTLY_MODIFIED) == 1
-        assert out.count("Waiting for inbox to be modified") > 1
+        def renamer():
+            time.sleep(1)
+            testutils.rename_files(
+                tower_treasure__flat_mp3,
+                append="-new1",
+                rstrip=r"-new\d",
+                wait_time=0.5,
+            )
+            time.sleep(2)
+            rename_dir(cfg.inbox_dir / txr_name, tower_treasure__flat_mp3.basename)
+            testutils.rename_files(
+                tower_treasure__flat_mp3,
+                append="-new2",
+                rstrip=r"-new\d",
+                wait_time=0.5,
+            )
+
+        with testutils.set_on_complete("archive" if archive else "test_do_nothing"):
+            app_task = asyncio.create_task(async_app())
+
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                await asyncio.get_running_loop().run_in_executor(executor, renamer)
+
+            await app_task
+
+            out = testutils.get_stdout(capfd)
+
+            assert out.count(en.MULTI_ERR) == 1
+            assert out.count(en.INBOX_RECENTLY_MODIFIED) == 1
+            assert out.count(en.BOOK_RECENTLY_MODIFIED) == 0
+            assert out.count(en.DEBUG_WAITING_FOR_INBOX) > 0
+
+            assert testutils.assert_processed_output(
+                out,
+                tower_treasure__flat_mp3,
+                loops=[
+                    testutils.check_output(found_books_eq=1, converted_eq=0),
+                    testutils.check_output(
+                        found_books_eq=2, converted_eq=1, skipped_failed_eq=1
+                    ),
+                ],
+            )
+
+        shutil.rmtree(cfg.inbox_dir / txr_name, ignore_errors=True)
 
     ORDER += 1
-
-    async def run_app_for__retries_failed_books_when_changed(self):
-        with testutils.set_wait_time(3):
-            testutils.print("Starting app...")
-            app(max_loops=4)
-            testutils.print("Finished app")
 
     @pytest.mark.order(ORDER)
     @pytest.mark.asyncio
@@ -239,29 +247,35 @@ class test_unhappy_paths:
         self,
         old_mill__multidisc_mp3: Audiobook,
         capfd: CaptureFixture[str],
-        disable_autoflatten,
+        disable_multidisc,
     ):
         inbox_dir = old_mill__multidisc_mp3.inbox_dir
         converted_dir = old_mill__multidisc_mp3.converted_dir
         shutil.rmtree(converted_dir, ignore_errors=True)
 
-        app_task = asyncio.create_task(
-            self.run_app_for__retries_failed_books_when_changed()
-        )
+        async def async_app():
+            with testutils.set_sleep_time(1):
+                with testutils.set_wait_time(1, delay=0):
+                    testutils.print("Starting app...")
+                    app(max_loops=6)
+                    testutils.print("Finished app")
+
+        app_task = asyncio.create_task(async_app())
 
         with concurrent.futures.ThreadPoolExecutor() as executor:
             await asyncio.get_running_loop().run_in_executor(
-                executor, testutils.flatten_book, old_mill__multidisc_mp3, 5
+                executor, testutils.flatten_book, old_mill__multidisc_mp3, 3
             )
 
         out = testutils.get_stdout(capfd)
 
         await app_task
         assert out.count(en.MULTI_ERR) == 1
-        assert testutils.assert_processed_books(
+        assert out.count(en.INBOX_RECENTLY_MODIFIED) == 1
+        assert testutils.assert_processed_output(
             out,
             old_mill__multidisc_mp3,
-            check=[
+            loops=[
                 testutils.check_output(found_books_eq=1, converted_eq=0),
                 testutils.check_output(
                     found_books_eq=1,
@@ -283,34 +297,33 @@ class test_unhappy_paths:
         app(max_loops=10)
 
         out = testutils.get_stdout(capfd)
-        assert out.count("auto-m4b •") == 1
-        assert testutils.assert_processed_books(
+        assert testutils.assert_header_count(out, expected_eq=1)
+        assert testutils.assert_no_duplicate_banners(out.splitlines())
+        assert testutils.assert_processed_output(
             out,
-            check=[testutils.check_output(found_books_eq=0, converted_eq=0)],
+            loops=[testutils.check_output(found_books_eq=0, converted_eq=0)],
         )
 
     ORDER += 1
 
-    async def run_app_for__inbox_changes_not_detected(self):
-        testutils.print("Starting app...")
-        testutils.set_match_filter("tower")
-        app(max_loops=1)
-        testutils.print("Finished app")
-
     @pytest.mark.asyncio
     @pytest.mark.order(ORDER)
-    async def test_app_waits_for_recent_inbox_changes(
+    async def test_waits_for_recent_inbox_changes(
         self,
         tower_treasure__flat_mp3: Audiobook,
         mock_inbox_being_copied_to,
         capfd: CaptureFixture[str],
     ):
 
-        with testutils.set_wait_time(0.75):
+        async def async_app():
+            testutils.print("Starting app...")
+            testutils.set_match_filter("tower")
+            app(max_loops=1)
+            testutils.print("Finished app")
 
-            app_task = asyncio.create_task(
-                self.run_app_for__inbox_changes_not_detected()
-            )
+        with testutils.set_wait_time(1.25):
+
+            app_task = asyncio.create_task(async_app())
 
             with concurrent.futures.ThreadPoolExecutor() as executor:
                 await asyncio.get_running_loop().run_in_executor(
@@ -320,20 +333,21 @@ class test_unhappy_paths:
             await app_task
 
             out = testutils.get_stdout(capfd)
+
+            assert testutils.assert_processed_output(
+                out,
+                tower_treasure__flat_mp3,
+                loops=[testutils.check_output(found_books_eq=1, converted_eq=1)],
+            )
+
             assert out.count(en.INBOX_RECENTLY_MODIFIED) == 1
-            assert out.count("Skipping this book, it was recently") == 0
+            assert out.count(en.BOOK_RECENTLY_MODIFIED) == 0
 
     ORDER += 1
 
-    async def run_app_for__books_added_while_converting(self):
-        with testutils.set_wait_time(2):
-            testutils.print("Starting app...")
-            app(max_loops=2)
-            testutils.print("Finished app")
-
     @pytest.mark.asyncio
     @pytest.mark.order(ORDER)
-    async def test_books_added_while_converting_are_discovered(
+    async def test_detects_books_added_while_converting(
         self,
         tower_treasure__flat_mp3: Audiobook,
         house_on_the_cliff__flat_mp3: Audiobook,
@@ -357,11 +371,15 @@ class test_unhappy_paths:
                 "the_sunlit_man__flat_mp3", "tiny__flat_mp3", match_filter=match_filter
             )
 
+        async def async_app():
+            with testutils.set_wait_time(2):
+                testutils.print("Starting app...")
+                app(max_loops=2)
+                testutils.print("Finished app")
+
         with testutils.set_wait_time(1):
 
-            app_task = asyncio.create_task(
-                self.run_app_for__books_added_while_converting()
-            )
+            app_task = asyncio.create_task(async_app())
 
             with concurrent.futures.ThreadPoolExecutor() as executor:
                 await asyncio.get_running_loop().run_in_executor(
@@ -371,17 +389,18 @@ class test_unhappy_paths:
             await app_task
 
             out = testutils.get_stdout(capfd)
-            assert testutils.assert_processed_books(
+            assert testutils.assert_processed_output(
                 out,
                 tower_treasure__flat_mp3,
                 house_on_the_cliff__flat_mp3,
                 the_sunlit_man__flat_mp3,
                 tiny__flat_mp3,
-                check=[
+                loops=[
                     testutils.check_output(found_books_eq=2, converted_eq=2),
                     testutils.check_output(found_books_eq=2, converted_eq=2),
                 ],
             )
+            assert testutils.assert_header_count(out, expected_eq=2)
 
     ORDER += 1
 
@@ -425,16 +444,111 @@ class test_unhappy_paths:
     def test_multi_disc_fails(
         self,
         old_mill__multidisc_mp3: Audiobook,
+        disable_multidisc,
         capfd: CaptureFixture[str],
     ):
 
-        testutils.disable_autoflatten()
         shutil.rmtree(old_mill__multidisc_mp3.converted_dir, ignore_errors=True)
         time.sleep(2)
         app(max_loops=2)
         out = testutils.get_stdout(capfd)
         assert out.count(en.MULTI_ERR) == 1
-        assert not old_mill__multidisc_mp3.converted_dir.exists()
+        assert testutils.assert_processed_output(
+            out,
+            loops=[testutils.check_output(found_books_eq=1, converted_eq=0)],
+        )
+
+    ORDER += 1
+
+    @pytest.mark.parametrize("add_extra_books", [False, True])
+    @pytest.mark.order(ORDER)
+    def test_failed_notify_doesnt_repeat_after_convert(
+        self,
+        requires_empty_inbox,
+        tower_treasure__flat_mp3: Audiobook,
+        missing_chums__mixed_mp3: Audiobook,
+        old_mill__multidisc_mp3: Audiobook,
+        tiny__flat_mp3: Audiobook,
+        the_sunlit_man__flat_mp3: Audiobook,
+        disable_multidisc,
+        enable_archiving,
+        add_extra_books,
+        capfd: CaptureFixture[str],
+    ):
+
+        if not add_extra_books:
+            shutil.rmtree(tiny__flat_mp3.inbox_dir, ignore_errors=True)
+            shutil.rmtree(the_sunlit_man__flat_mp3.inbox_dir, ignore_errors=True)
+
+        testutils.set_match_filter("^(tower|missing|old)")
+        for d in [
+            _
+            for b in (
+                tower_treasure__flat_mp3,
+                missing_chums__mixed_mp3,
+                old_mill__multidisc_mp3,
+            )
+            for _ in (b.backup_dir, b.converted_dir)
+        ]:
+            shutil.rmtree(d, ignore_errors=True)
+
+        time.sleep(2)
+        app(max_loops=2)
+        out = testutils.get_stdout(capfd)
+        assert out.count(en.MULTI_ERR) == 2
+        assert testutils.assert_processed_output(
+            out,
+            tower_treasure__flat_mp3,
+            loops=[
+                testutils.check_output(found_books_eq=3, converted_eq=1),
+            ],
+        )
+
+    ORDER += 1
+
+    @pytest.mark.order(ORDER)
+    @pytest.mark.parametrize("loop_count", [0, 2])
+    def test_waits_for_fixed_if_all_failed(
+        self,
+        requires_empty_inbox,
+        missing_chums__mixed_mp3: Audiobook,
+        roman_numeral__mp3: Audiobook,
+        disable_multidisc,
+        loop_count,
+        capfd: CaptureFixture[str],
+    ):
+
+        testutils.set_match_filter(None)
+        testutils.fail_book(missing_chums__mixed_mp3)
+        testutils.fail_book(roman_numeral__mp3)
+
+        # Note: probably an impossible state to get into now, but just in case
+        testutils.force_inbox_up_to_date()
+        InboxState().loop_counter = loop_count
+
+        app(max_loops=1)
+        out = testutils.get_stdout(capfd)
+
+        if loop_count == 0:
+            assert testutils.assert_header_count(out, expected_eq=1)
+        else:
+            assert testutils.assert_header_count(out, expected_eq=0)
+
+        assert out.count(en.ROMAN_ERR) == 0
+        assert out.count(en.MULTI_ERR) == 0
+
+        check = (
+            [testutils.check_output(found_books_eq=2, converted_eq=0)]
+            if loop_count == 0
+            else [testutils.check_output(empty=True)]
+        )
+        assert testutils.assert_processed_output(
+            out,
+            loops=check,
+        )
+        assert out.count("waiting for them to be fixed") == (
+            1 if loop_count == 0 else 0
+        )
 
     ORDER += 1
 
@@ -443,26 +557,42 @@ class test_unhappy_paths:
         self,
         tiny__flat_mp3: Audiobook,
         old_mill__multidisc_mp3: Audiobook,
-        disable_autoflatten,
+        disable_multidisc,
         enable_debug,
         capfd: CaptureFixture[str],
     ):
         testutils.set_match_filter("^(tiny|old)")
-        time.sleep(2)
+        time.sleep(1)
         app(max_loops=1)
         out = testutils.get_stdout(capfd)
-        assert out.count("Inbox hash is the same") == 0
+        assert out.count(en.DEBUG_INBOX_HASH_UNCHANGED) == 0
         assert out.count(en.DONE_CONVERTING) == 1
         assert out.count(en.MULTI_ERR) == 1
         assert out.count(en.INBOX_RECENTLY_MODIFIED) == 0
 
-        time.sleep(1)
+        assert testutils.assert_processed_output(
+            out,
+            tiny__flat_mp3,
+            loops=[testutils.check_output(found_books_eq=2, converted_eq=1)],
+        )
+
+        InboxState().reset_loop_counter()
         app(max_loops=2)
         out = testutils.get_stdout(capfd)
-        assert out.count("Inbox hash is the same") == 1
-        assert out.count(en.DONE_CONVERTING) == 0
+        assert testutils.assert_count_inbox_hash_changed(out.splitlines(), 1)
+        assert out.count(en.DONE_CONVERTING) == 1
         assert out.count(en.MULTI_ERR) == 0
         assert out.count(en.INBOX_RECENTLY_MODIFIED) == 0
+
+        assert testutils.assert_processed_output(
+            out,
+            tiny__flat_mp3,
+            loops=[
+                testutils.check_output(
+                    found_books_eq=2, converted_eq=1, skipped_failed_eq=1
+                ),
+            ],
+        )
 
     ORDER += 1
 
@@ -485,8 +615,12 @@ class test_unhappy_paths:
         try:
             app(max_loops=5)
             out = testutils.get_stdout(capfd)
-            assert out.count("Watching for new books in") == 1
-            assert out.count("No audio files found") == 1
+            # assert out.count("Watching for books in") == 1
+            assert testutils.assert_count_no_audio_files_found(out.splitlines(), 1)
+            assert testutils.assert_processed_output(
+                out,
+                loops=[testutils.check_output(empty=True)],
+            )
         finally:
             # unhide inbox
             inbox_hidden.rename(TEST_DIRS.inbox)
