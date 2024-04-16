@@ -38,11 +38,11 @@ def use_error_handler():
 
 @copy_kwargs_omit_first_arg(AutoM4bArgs.__init__)
 def app(**kwargs):
-    args = AutoM4bArgs(**kwargs)
-    infinite_loop = args.max_loops == -1
-    inbox = InboxState()
-    inbox.loop_counter += 1
     with use_error_handler():
+        args = AutoM4bArgs(**kwargs)
+        infinite_loop = args.max_loops == -1
+        inbox = InboxState()
+        inbox.loop_counter += 1
         cfg.startup(args)
         while infinite_loop or inbox.loop_counter <= args.max_loops:
             try:

@@ -23,7 +23,7 @@ from src.lib.fs_utils import _mv_or_cp_dir_contents
 from src.lib.id3_utils import verify_and_update_id3_tags
 from src.lib.inbox_state import InboxItem, InboxState
 from src.lib.logger import log_global_results
-from src.lib.m4btool import m4btool
+from src.lib.m4btool import M4bTool
 from src.lib.misc import re_group
 from src.lib.parsers import (
     roman_numerals_affect_file_order,
@@ -122,7 +122,7 @@ def print_banner(after: Callable[..., Any] | None = None):
         print_mint(f"{dash}  ⌐◒-◒  auto-m4b • {current_local_time}  {dash}")
 
     msg = (
-        "Found new"
+        "Checking for"
         if inbox.ok_and_matched_books and inbox.loop_counter > 1
         else "Watching for"
     )
@@ -386,9 +386,9 @@ def copy_to_working_dir(book: Audiobook):
     smart_print("\nCopying files to working folder...", end="")
     cp_dir(book.inbox_dir, cfg.merge_dir, overwrite_mode="overwrite-silent")
     # copy book.cover_art to merge folder
-    if book.cover_art and not book.cover_art.exists():
+    if book.cover_art_file and not book.cover_art_file.exists():
         cp_file_to_dir(
-            book.cover_art, book.merge_dir, overwrite_mode="overwrite-silent"
+            book.cover_art_file, book.merge_dir, overwrite_mode="overwrite-silent"
         )
     print_mint(" ✓\n")
     book.set_active_dir("merge")
@@ -567,7 +567,7 @@ def flatten_nested_book(book: Audiobook):
         print_mint(" ✓\n")
 
 
-def print_book_info(book):
+def print_book_info(book: "Audiobook"):
     smart_print("\nFile/folder info:")
 
     lmt = 120
@@ -586,24 +586,28 @@ def print_book_info(book):
     print_list_item(f"File type: {book.orig_file_type}")
     print_list_item(f"Audio files: {book.num_files('inbox')}")
     print_list_item(f"Total size: {book.size('inbox', 'human')}")
-    if book.cover_art:
-        print_list_item(f"Cover art: {book.cover_art.name}")
+    if book.cover_art_file:
+        print_list_item(f"Cover art: {book.cover_art_file.name}")
 
     nl()
 
 
 def convert_book(book: Audiobook):
     starttime = time.time()
-    m4b_tool = m4btool(book)
+    m4btool = M4bTool(book)
 
     err: Literal[False] | str = False
 
-    cmd = m4b_tool.cmd()
+    # if book is m4a or m4b, need to pre-extract cover art
+    if book.orig_file_type in ["m4a", "m4b"]:
+        book.extract_cover_art()
 
-    m4b_tool.msg()
+    cmd = m4btool.build_cmd()
+
+    m4btool.print_msg()
 
     if cfg.DEBUG:
-        print_dark_grey(m4b_tool.esc_cmd())
+        print_dark_grey(m4btool.esc_cmd())
 
     proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     if proc.stderr:

@@ -17,7 +17,7 @@ from src.lib.term import (
 )
 
 
-class m4btool:
+class M4bTool:
     _cmd: list[Any]
 
     def __init__(self, book: Audiobook):
@@ -48,8 +48,10 @@ class m4btool:
         _(("--logfile", dockerize_volume(book.log_file)))
         _("--no-chapter-reindexing")
 
-        if not book.has_id3_cover and book.cover_art:
-            _(("--cover", dockerize_volume(book.cover_art)))
+        if (
+            book.orig_file_type in ["m4a", "m4b"] or not book.has_id3_cover
+        ) and book.cover_art_file:
+            _(("--cover", dockerize_volume(book.cover_art_file)))
 
         if cfg.USE_FILENAMES_AS_CHAPTERS:
             _("--use-filenames-as-chapters")
@@ -65,7 +67,7 @@ class m4btool:
 
         _(*build_id3_tags_args(book.title, book.author, book.year, book.comment))
 
-    def cmd(self, quotify: bool = False) -> list[str]:
+    def build_cmd(self, quotify: bool = False) -> list[str]:
         out = []
         for arg in self._cmd:
             if isinstance(arg, tuple):
@@ -78,7 +80,7 @@ class m4btool:
         return out
 
     def esc_cmd(self) -> str:
-        cmd = self.cmd(quotify=True)
+        cmd = self.build_cmd(quotify=True)
         if cfg.USE_DOCKER:
             cmd.insert(2, "-it")
         cmd = [c for c in cmd if c != "-q"]
@@ -88,7 +90,7 @@ class m4btool:
     def should_copy(self):
         return self.book.orig_file_type in ["m4a", "m4b"]
 
-    def msg(self):
+    def print_msg(self):
         starttime_friendly = friendly_date()
         if self.should_copy:
             smart_print(

@@ -933,8 +933,8 @@ def find_cover_art_file(path: Path) -> Path | None:
     if not img and all_images_in_dir:
         img = max(all_images_in_dir, key=lambda f: f.stat().st_size)
 
-    # if img less than 10kb, return None
-    if img and img.stat().st_size < 10240:
+    # if img less than 7kb, return None
+    if img and img.stat().st_size < 7168:
         return None
 
     return img

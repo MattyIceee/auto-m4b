@@ -3,7 +3,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, cast, Literal, TYPE_CHECKING
+from typing import Any, cast, Literal, overload, TYPE_CHECKING
 
 import ffmpeg
 from eyed3 import AudioFile
@@ -279,32 +279,134 @@ def verify_and_update_id3_tags(
     nl()
 
 
-def extract_id3_tag_py(file: Path | None, tag: str, *, throw=False) -> str:
+def ffprobe_file(file: Path, *, options: dict[str, Any] = {}, throw: bool = False):
     from src.lib.config import cfg
 
     if file is None:
-        return ""
+        return None
 
     if file and not file.exists():
         raise FileNotFoundError(
             f"Error: Cannot extract id3 tag, '{file}' does not exist"
         )
     try:
-        probe_result = ffmpeg.probe(str(file))
+        probe_result = ffmpeg.probe(str(file), cmd="ffprobe", **options)
     except ffmpeg.Error as e:
         from src.lib.logger import write_err_file
 
         write_err_file(file, e, "ffprobe")
         if throw:
             raise BadFileError(
-                f"Error: Could not extract id3 tag {tag} from {file}"
+                f"Error: Could run ffprobe on file '{file}' with options {options}"
             ) from e
-        print_error(f"Error: Could not extract id3 tag {tag} from {file}")
+        print_error(f"Error: Could run ffprobe on file '{file}' with options {options}")
         if cfg.DEBUG:
             print_debug(e.stderr)
-        return ""
+        return None
+
+    return cast(dict, probe_result)
+
+
+def ffmpeg_file(file: Path, *, options: dict[str, Any] = {}, throw: bool = False):
+    from src.lib.config import cfg
+
+    if file is None:
+        return None
+
+    if file and not file.exists():
+        raise FileNotFoundError(
+            f"Error: Cannot extract id3 tag, '{file}' does not exist"
+        )
     try:
-        return probe_result["format"]["tags"].get(tag, "")
+        ffmpeg_result = ffmpeg.run(str(file), cmd="ffmpeg", **options)
+    except ffmpeg.Error as e:
+        from src.lib.logger import write_err_file
+
+        write_err_file(file, e, "ffmpeg")
+        if throw:
+            raise BadFileError(
+                f"Error: Could run ffmpeg on file '{file}' with options {options}"
+            ) from e
+        print_error(f"Error: Could run ffmpeg on file '{file}' with options {options}")
+        if cfg.DEBUG:
+            print_debug(e.stderr)
+        return None
+
+    return cast(dict, ffmpeg_result)
+
+
+@overload
+def extract_cover_art(file: Path, save_to_file: Literal[False] = False) -> bytes: ...
+
+
+@overload
+def extract_cover_art(
+    file: Path, save_to_file: Literal[True], filename: str = "cover"
+) -> Path: ...
+
+
+def extract_cover_art(
+    file: Path, save_to_file: bool = False, filename: str = "cover"
+) -> bytes | Path:
+    from src.lib.config import cfg
+
+    out_file = file.parent / filename
+
+    try:
+        if ffresult := ffprobe_file(file):
+            # '-s': '320x240'}):
+            # find a stream that is jpg or png and has a disposition of attached_pic
+            for stream in ffresult["streams"]:
+                if stream.get("codec_name") in ["mjpeg", "png"] and stream.get(
+                    "disposition", {}
+                ).get("attached_pic"):
+                    content_type = stream.get("codec_name")
+                    common_steps = [
+                        "ffmpeg",
+                        "-hide_banner",
+                        "-loglevel",
+                        "0",
+                        "-i",
+                        str(file),
+                        "-map",
+                        f"0:{stream['index']}",
+                        "-c",
+                        "copy",
+                    ]
+                    if save_to_file:
+                        ext = "png" if content_type == "png" else "jpg"
+                        out_file = out_file.with_suffix(f".{ext}")
+                        subprocess.check_output(
+                            [
+                                *common_steps,
+                                out_file,
+                            ]
+                        )
+                        return out_file
+                    return subprocess.check_output(
+                        [
+                            *common_steps,
+                            "-f",
+                            "image2pipe",
+                            "-vcodec",
+                            "png" if content_type == "png" else "mjpeg",
+                            "-",
+                        ]
+                    )
+    except KeyError:
+        if cfg.DEBUG:
+            print_debug(f"Could not extract cover art from {file}'s streams")
+    return out_file.with_suffix(".jpg") if save_to_file else b""
+
+
+def extract_id3_tag_py(file: Path | None, tag: str, *, throw=False) -> str:
+
+    if not file:
+        return ""
+
+    try:
+        if ffresult := ffprobe_file(file):
+            return ffresult["format"]["tags"].get(tag, "")
     except KeyError:
         ...
         # if cfg.DEBUG:
@@ -723,6 +825,7 @@ def extract_metadata(book: "Audiobook", quiet: bool = False) -> "Audiobook":
         book.albumartist = book.fs_author
 
     # TODO: Author/Narrator and "Book name by Author" in folder name
+    # TODO: Handle Graphic Audio/GraphicAudio junk
 
     narrator_in_id3_artist = parse_narrator(book.id3_artist)
     narrator_in_id3_albumartist = parse_narrator(book.id3_albumartist)

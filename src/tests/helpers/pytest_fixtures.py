@@ -82,26 +82,34 @@ def load_test_fixture(
         raise FileNotFoundError(
             f"Fixture {name} not found. Does it exist in {FIXTURES_ROOT}?"
         )
-    dst = TEST_DIRS.inbox / (override_name or name)
-    dst.mkdir(parents=True, exist_ok=True)
+    if src.is_dir():
+        dst = TEST_DIRS.inbox / (override_name or name)
+        dst.mkdir(parents=True, exist_ok=True)
 
-    for f in src.glob("**/*"):
-        dst_f = dst / f.relative_to(src)
-        if f.is_file() and not dst_f.exists():
-            dst_f.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy(f, dst_f)
+        for f in src.glob("**/*"):
+            dst_f = dst / f.relative_to(src)
+            if f.is_file() and not dst_f.exists():
+                dst_f.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy(f, dst_f)
 
-    # if any files in dst are not in src, delete them
-    for f in dst.glob("**/*"):
-        src_f = src / f.relative_to(dst)
-        if f.is_file() and not src_f.exists():
-            f.unlink()
+        # if any files in dst are not in src, delete them
+        for f in dst.glob("**/*"):
+            src_f = src / f.relative_to(dst)
+            if f.is_file() and not src_f.exists():
+                f.unlink()
+    else:
+        dst = TEST_DIRS.inbox / (override_name or name)
+        if not dst.exists():
+            shutil.copy(src, dst)
 
     if exclusive or match_filter is not None:
         testutils.set_match_filter(match_filter or name)
 
-    converted_dir = TEST_DIRS.converted / (override_name or name)
-    shutil.rmtree(converted_dir, ignore_errors=True)
+    converted = TEST_DIRS.converted / (override_name or name)
+    if converted.is_dir():
+        shutil.rmtree(converted, ignore_errors=True)
+    else:
+        converted.unlink(missing_ok=True)
 
     yield Audiobook(dst)
 
@@ -152,6 +160,26 @@ def bitrate_vbr__mp3():
 @pytest.fixture(scope="function")
 def bitrate_cbr__mp3():
     yield from load_test_fixture("bitrate_cbr__mp3", exclusive=True)
+
+
+@pytest.fixture(scope="function")
+def single_no_cover__mp3():
+    yield from load_test_fixture("single_no_cover__mp3", exclusive=True)
+
+
+@pytest.fixture(scope="function")
+def single_no_cover__m4b():
+    yield from load_test_fixture("single_no_cover__m4b", exclusive=True)
+
+
+@pytest.fixture(scope="function")
+def single_with_cover__mp3():
+    yield from load_test_fixture("single_with_cover__mp3", exclusive=True)
+
+
+@pytest.fixture(scope="function")
+def single_with_cover__m4b():
+    yield from load_test_fixture("single_with_cover__m4b", exclusive=True)
 
 
 @pytest.fixture(scope="function")

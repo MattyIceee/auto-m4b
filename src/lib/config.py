@@ -79,19 +79,25 @@ WORKING_DIRS = [
 
 OnComplete = Literal["archive", "delete", "test_do_nothing"]
 
-parser = argparse.ArgumentParser()
+parser = argparse.ArgumentParser(exit_on_error=False)
 parser.add_argument("--env", help="Path to .env file", type=Path)
 parser.add_argument(
     "--debug",
-    help="Enable/disable debug mode (--debug off to disable)",
+    help="Enable/disable debug mode (--debug=off to disable)",
     action="store",
-    type=lambda x: False if x.lower() == "off" else True,
+    nargs="?",
+    const=True,
+    default=False,
+    type=lambda x: False if str(x).lower() == "off" else True,
 )
 parser.add_argument(
     "--test",
     help="Enable/disable test mode (--test off to disable)",
     action="store",
-    type=lambda x: False if x.lower() == "off" else True,
+    nargs="?",
+    const=True,
+    default=False,
+    type=lambda x: False if str(x).lower() == "off" else True,
 )
 parser.add_argument(
     "-l",
@@ -336,7 +342,6 @@ class Config:
 
     @env_property(
         typ=str,
-        default=None,
         on_get=lambda v: v if str(v).lower() not in ["none", ""] else None,
         on_set=lambda v: v if str(v).lower() not in ["none", ""] else None,
         del_on_none=False,
@@ -630,12 +635,17 @@ class Config:
         docker_exe = self.docker_path or "docker"
         docker_image_exists = has_docker and bool(
             subprocess.check_output(
-                [docker_exe, "images", "-q", "sandreas/m4b-tool:latest"]
+                [docker_exe, "images", "-q", "sandreas/m4b-tool:latest"],
+                timeout=10,
             ).strip()
         )
         docker_ready = has_docker and docker_image_exists
         current_version = (
-            (subprocess.check_output(["m4b-tool", "--version"]).decode().strip())
+            (
+                subprocess.check_output(["m4b-tool", "--version"], timeout=10)
+                .decode()
+                .strip()
+            )
             if not docker_ready
             else (
                 subprocess.check_output(
@@ -646,7 +656,8 @@ class Config:
                         "sandreas/m4b-tool:latest",
                         "m4b-tool",
                         "--version",
-                    ]
+                    ],
+                    timeout=10,
                 )
                 .decode()
                 .strip()
@@ -732,6 +743,10 @@ class Config:
             self._env = {}
         for k, v in self._env.items():
             self.set_env_var(k, v)
+
+        if self.args.match_filter:
+            self.MATCH_FILTER = self.args.match_filter
+
         yield "" if quiet else msg
 
     @overload

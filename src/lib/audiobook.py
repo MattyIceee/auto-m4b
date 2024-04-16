@@ -26,7 +26,7 @@ from src.lib.fs_utils import (
     hash_path_audio_files,
     last_updated_at,
 )
-from src.lib.id3_utils import extract_metadata
+from src.lib.id3_utils import extract_cover_art, extract_metadata
 from src.lib.misc import get_dir_name_from_path
 from src.lib.parsers import count_distinct_roman_numerals, extract_path_info
 from src.lib.typing import AudiobookFmt, DirName, SizeFmt
@@ -87,6 +87,14 @@ class Audiobook(BaseModel):
 
     def extract_metadata(self, quiet: bool = False):
         return extract_metadata(self, quiet)
+
+    def extract_cover_art(self):
+        if self.cover_art_file:
+            return self.cover_art_file
+        extract_cover_art(self.sample_audio1, save_to_file=True)
+        self._inbox_cover_art_file = cast(Path, find_cover_art_file(self.path))
+        cp_file_to_dir(self._inbox_cover_art_file, self.merge_dir)
+        return self.cover_art_file
 
     @property
     def inbox_dir(self):
@@ -264,16 +272,18 @@ class Audiobook(BaseModel):
         return f"{round(khz, 1)} kHz"
 
     @cached_property
-    def _src_cover_art(self):
+    def _inbox_cover_art_file(self):
         return find_cover_art_file(self.path)
 
     @property
-    def cover_art(self):
-        if not self._src_cover_art:
+    def cover_art_file(self):
+        if not self._inbox_cover_art_file:
             return None
-        merge_cover = self.merge_dir / self._src_cover_art.relative_to(self.inbox_dir)
+        merge_cover = self.merge_dir / self._inbox_cover_art_file.relative_to(
+            self.inbox_dir
+        )
         if not merge_cover.exists():
-            cp_file_to_dir(self._src_cover_art, self.merge_dir)
+            cp_file_to_dir(self._inbox_cover_art_file, self.merge_dir)
         return merge_cover
 
     @property

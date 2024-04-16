@@ -8,6 +8,7 @@ from src.auto_m4b import app
 from src.lib.audiobook import Audiobook
 from src.lib.config import OnComplete
 from src.lib.fs_utils import find_book_dirs_in_inbox
+from src.lib.id3_utils import extract_cover_art
 from src.lib.inbox_state import InboxState
 from src.lib.misc import re_group
 from src.tests.helpers.pytest_utils import testutils
@@ -96,15 +97,15 @@ class test_happy_paths:
         assert testutils.assert_processed_output(out, *converted, loops=check)
 
         watching_count = out.count("Watching for books in")
-        found_count = out.count("Found new books in")
+        checking_count = out.count("Checking for books in")
 
         if starting_loop <= 1:
             assert watching_count == 1
         elif match_filter == "tiny":
-            assert found_count == 1
+            assert checking_count == 1
         else:
             assert watching_count == 0
-            assert found_count == 0
+            assert checking_count == 0
 
     def test_match_filter_multiple_mp3s(
         self,
@@ -297,3 +298,54 @@ class test_happy_paths:
                         else:
                             assert tower_treasure__flat_mp3.inbox_dir.exists()
                         assert not tower_treasure__flat_mp3.archive_dir.exists()
+
+    def test_cover_art_is_tagged(
+        self,
+        single_with_cover__mp3: Audiobook,
+        single_with_cover__m4b: Audiobook,
+        single_no_cover__mp3: Audiobook,
+        single_no_cover__m4b: Audiobook,
+        capfd: CaptureFixture[str],
+    ):
+        testutils.set_match_filter("^single_")
+        app(max_loops=1)
+        assert testutils.assert_processed_output(
+            capfd,
+            single_no_cover__mp3,
+            single_no_cover__m4b,
+            single_with_cover__mp3,
+            single_with_cover__m4b,
+            loops=[testutils.check_output(found_books_eq=4, converted_eq=4)],
+        )
+
+        # get id3 tags from the converted books
+        no_cover_mp3_tag = extract_cover_art(
+            single_no_cover__mp3.converted_file,
+            save_to_file=True,
+            filename="test_cover.jpg",
+        )
+        no_cover_m4b_tag = extract_cover_art(
+            single_no_cover__m4b.converted_file,
+            save_to_file=True,
+            filename="test_cover.jpg",
+        )
+        with_cover_mp3_tag = extract_cover_art(
+            single_with_cover__mp3.converted_file,
+            save_to_file=True,
+            filename="test_cover.jpg",
+        )
+        with_cover_m4b_tag = extract_cover_art(
+            single_with_cover__m4b.converted_file,
+            save_to_file=True,
+            filename="test_cover.jpg",
+        )
+
+        # check that the cover art files exist and are greater than 10kb
+        for f in [
+            no_cover_mp3_tag,
+            no_cover_m4b_tag,
+            with_cover_mp3_tag,
+            with_cover_m4b_tag,
+        ]:
+            assert f.exists()
+            assert f.stat().st_size > 10000
