@@ -91,10 +91,14 @@ class Audiobook(BaseModel):
     def extract_cover_art(self):
         if self.cover_art_file:
             return self.cover_art_file
-        extract_cover_art(self.sample_audio1, save_to_file=True)
-        self._inbox_cover_art_file = cast(Path, find_cover_art_file(self.path))
-        cp_file_to_dir(self._inbox_cover_art_file, self.merge_dir)
-        return self.cover_art_file
+        try:
+            extract_cover_art(self.sample_audio1, save_to_file=True)
+            self._inbox_cover_art_file = cast(Path, find_cover_art_file(self.path))
+            cp_file_to_dir(self._inbox_cover_art_file, self.merge_dir)
+            return self.cover_art_file
+        except Exception:
+            # no cover art found, probably
+            return None
 
     @property
     def inbox_dir(self):

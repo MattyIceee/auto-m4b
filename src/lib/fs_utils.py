@@ -372,7 +372,7 @@ def _mv_or_cp_dir_contents(
             print_grey(f"     - {file}")
 
     if not any(src_dir.iterdir()):
-        print_notice(f"No files found in {src_dir}, skipping")
+        # print_notice(f"No files found in {src_dir}, skipping")
         return
 
     def ok_to_mv_or_cp(src_file: Path, dst_file: Path) -> bool:
