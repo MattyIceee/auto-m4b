@@ -301,51 +301,34 @@ class test_happy_paths:
 
     def test_cover_art_is_tagged(
         self,
-        single_with_cover__mp3: Audiobook,
-        single_with_cover__m4b: Audiobook,
-        single_no_cover__mp3: Audiobook,
-        single_no_cover__m4b: Audiobook,
+        basic_with_cover__single_mp3: Audiobook,
+        basic_with_cover__single_m4b: Audiobook,
+        basic_no_cover__single_mp3: Audiobook,
+        basic_no_cover__single_m4b: Audiobook,
         capfd: CaptureFixture[str],
     ):
-        testutils.set_match_filter("^single_")
+        testutils.set_match_filter(r"^basic_\w+_cover")
         app(max_loops=1)
         assert testutils.assert_processed_output(
             capfd,
-            single_no_cover__mp3,
-            single_no_cover__m4b,
-            single_with_cover__mp3,
-            single_with_cover__m4b,
+            basic_no_cover__single_mp3,
+            basic_no_cover__single_m4b,
+            basic_with_cover__single_mp3,
+            basic_with_cover__single_m4b,
             loops=[testutils.check_output(found_books_eq=4, converted_eq=4)],
         )
 
-        # get id3 tags from the converted books
-        no_cover_mp3_tag = extract_cover_art(
-            single_no_cover__mp3.converted_file,
-            save_to_file=True,
-            filename="test_cover.jpg",
-        )
-        no_cover_m4b_tag = extract_cover_art(
-            single_no_cover__m4b.converted_file,
-            save_to_file=True,
-            filename="test_cover.jpg",
-        )
-        with_cover_mp3_tag = extract_cover_art(
-            single_with_cover__mp3.converted_file,
-            save_to_file=True,
-            filename="test_cover.jpg",
-        )
-        with_cover_m4b_tag = extract_cover_art(
-            single_with_cover__m4b.converted_file,
-            save_to_file=True,
-            filename="test_cover.jpg",
-        )
-
-        # check that the cover art files exist and are greater than 10kb
-        for f in [
-            no_cover_mp3_tag,
-            no_cover_m4b_tag,
-            with_cover_mp3_tag,
-            with_cover_m4b_tag,
+        # extract cover art and check that it is > 10kb
+        for b in [
+            basic_no_cover__single_mp3,
+            basic_no_cover__single_m4b,
+            basic_with_cover__single_mp3,
+            basic_with_cover__single_m4b,
         ]:
-            assert f.exists()
-            assert f.stat().st_size > 10000
+            img = extract_cover_art(
+                b.converted_file,
+                save_to_file=True,
+                filename="test_cover.jpg",
+            )
+            assert img.exists()
+            assert img.stat().st_size > 10000

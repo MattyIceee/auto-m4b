@@ -4,31 +4,41 @@ import string
 from dataclasses import dataclass
 from itertools import combinations
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import Literal, TYPE_CHECKING
 
 import cachetools
 import cachetools.func
 
-from src.lib.misc import isorted, re_group
+from src.lib.misc import get_numbers_in_string, isorted, re_group
 from src.lib.term import print_debug
 from src.lib.typing import MEMO_TTL
 
 # TODO: Author ignores like "GraphicAudio"
 # TODO: Add test coverage for narrator with /
 # fmt: off
-author_pattern = r"^(?P<author>.*?)[\W\s]*[-_–—\(]"
-book_title_pattern = r"(?<=[-_–—])[\W\s]*(?P<book_title>[\w\s]+?)\s*(?=\d{4}|\(|\[|$)"
-year_pattern = r"(?P<year>\d{4})"
-narrator_pattern = r"(?:read.?by|narrated.?by|narrator)\W+(?P<narrator>(?:[\w'\.-]+,?(?:[\s._-]|$)){1,}\w+(?=\W|$)).*?"
-narrator_slash_pattern = r"(?P<author>.+)\/(?P<narrator>.+)"
-lastname_firstname_pattern = r"^(?P<lastname>.*?), (?P<firstname>.*)$"
-firstname_lastname_pattern = r"^(?P<firstname>.*?).*\s(?P<lastname>\S+)$"
-part_number_pattern = r",?[-_–—.\s]*?(?:part|ch(?:\.|apter))?[-_–—.\s]*?\W*(\d+)(?:$|[-_–—.\s]*?(?:of|-)[-_–—.\s]*?(\d+)\W*$)"
-part_number_ignore_pattern = r"(?:\bbook\b|\bvol(?:ume)?)\s*\d+$"
-roman_numeral_pattern = r"((?:^|(?<=[\W_]))[IVXLCDM]+(?:$|(?=[\W_])))"
-multi_disc_pattern = r"(?:^|(?<=[\W_-]))(dis[ck]|cd)(\b|\s|[_.-])*#?(\b|\s|[_.-])*(?:\b|[\W_-])*(\d+)"
-book_series_pattern = r"(^\d+|(?:^|(?<=[\W_-]))(bo{0,2}k|vol(?:ume)?|#)(?:\b|[\W_-])*(\d+)|(?<=[\W_-])Series.*/.+)"
-multi_part_pattern = r"(?:^|(?<=[\W_-]))(pa?r?t|ch(?:\.|apter))(?:\b|[\W_-])*(\d+)"
+_name_substr = r"(?:[\w'\.]+,?(?:[\s._-]|$)){1,}\w+(?=\W|$)"
+_div = r"[-_–—.\s]*?"
+author_fs_pattern = re.compile(r"^(?P<author>.*?)[\W\s]*[-_–—\(]", re.I)
+author_tag_pattern = re.compile(rf"(?:written.?by|author:)\W+(?P<author>{_name_substr}).*?", re.I)
+book_title_pattern = re.compile(r"(?<=[-_–—])[\W\s]*(?P<book_title>[\w\s]+?)\s*(?=\d{4}|\(|\[|$)", re.I)
+year_pattern = re.compile(r"(?P<year>\d{4})", re.I)
+narrator_pattern = re.compile(rf"(?:read.?by|narrated.?by|narrator|performed.?by)\W+(?P<narrator>{_name_substr}).*?", re.I)
+narrator_slash_pattern = re.compile(r"(?P<author>.+)\/(?P<narrator>.+)", re.I)
+lastname_firstname_pattern = re.compile(r"^(?P<lastname>.*?), (?P<firstname>.*)$", re.I)
+firstname_lastname_pattern = re.compile(r"^(?P<firstname>.*?).*\s(?P<lastname>\S+)$", re.I)
+part_number_pattern = re.compile(rf",?{_div}(?:part|ch(?:\.|apter))?{_div}\W*(\d+)(?:$|{_div}(?:of|-){_div}(\d+)\W*$)", re.I)
+part_number_ignore_pattern = re.compile(r"(?:\bbook\b|\bvol(?:ume)?)\s*\d+$", re.I)
+path_junk_pattern = re.compile(r"^[ \,.\)\}\]_-]*|[ \,.\)\}\]_-]*$", re.I)
+path_garbage_pattern = re.compile(r"^[ \,.\)\}\]]*", re.I)
+path_strip_l_t_alphanum_pattern = re.compile(r"^[^a-zA-Z0-9]+|[^a-zA-Z0-9]+$", re.I)
+roman_numeral_pattern = re.compile(r"((?:^|(?<=[\W_]))[IVXLCDM]+(?:$|(?=[\W_])))", re.I)
+roman_strip_pattern = re.compile(r"(?<=\w)(?=[\W_.-])|(?<=[\W_.-])(?=\w)|(?<=[a-z])(?=[A-Z])")
+multi_disc_pattern = re.compile(r"(?:^|(?<=[\W_-]))(dis[ck]|cd)(\b|\s|[_.-])*#?(\b|\s|[_.-])*(?:\b|[\W_-])*(\d+)", re.I)
+book_series_pattern = re.compile(r"(^\d+|(?:^|(?<=[\W_-]))(bo{0,2}k|vol(?:ume)?|#)(?:\b|[\W_-])*(\d+)|(?<=[\W_-])Series.*/.+)", re.I)
+multi_part_pattern = re.compile(r"(?:^|(?<=[\W_-]))(pa?r?t|ch(?:\.|apter))(?:\b|[\W_-])*(\d+)", re.I)
+graphic_audio_pattern = re.compile(r"graphic\s*audio", re.I)
+narrator_slash_pattern = re.compile(r"(?P<author>.*)/(?P<narrator>.*)", re.I)
+narrator_in_artist_pattern = re.compile(rf"(?P<author>.*)\W+{narrator_pattern}", re.I)
 # fmt: on
 
 
@@ -50,7 +60,7 @@ class romans:
     @classmethod
     def find_all(cls, s: str) -> list[str]:
         """Finds all possible valid roman numerals from 1 to 99 in a string"""
-        possible_matches: list[str] = re.findall(roman_numeral_pattern, s, re.I)
+        possible_matches: list[str] = roman_numeral_pattern.findall(s)
         return [p for p in possible_matches if p and cls.is_roman_numeral(p)]
 
     @classmethod
@@ -58,9 +68,7 @@ class romans:
         """Strips roman numerals from a string"""
 
         # split on word boundaries, and any boundary between lowercase/uppercase or letter/non-letter
-        split = re.split(
-            r"(?<=\w)(?=[\W_.-])|(?<=[\W_.-])(?=\w)|(?<=[a-z])(?=[A-Z])", s
-        )
+        split = roman_strip_pattern.split(s)
         return "".join([p for p in split if not cls.is_roman_numeral(p)])
 
 
@@ -68,14 +76,19 @@ if TYPE_CHECKING:
     from src.lib.audiobook import Audiobook
 
 
+def to_words(s: str) -> list[str]:
+    return [w.strip() for w in re.split(r"[\s_.]", s) if w.strip()]
+
+
 def swap_firstname_lastname(name: str) -> str:
     lastname = ""
     firstname = ""
 
-    if "," in name:
-        m = re.match(lastname_firstname_pattern, name)
-    else:
-        m = re.match(firstname_lastname_pattern, name)
+    if name.count(",") > 1 or name.count(" ") == 0 or len(to_words(name)) > 4:
+        # ignore false negatives
+        return name
+
+    m = lastname_firstname_pattern.match(name)
 
     if m:
         lastname = m.group("lastname")
@@ -106,27 +119,31 @@ def find_greatest_common_string(s: list[str]) -> str:
     return max(valid_prefixes, key=len, default="")
 
 
-def strip_part_number(string: str) -> str:
+def contains_partno(s: str) -> bool:
+    matches_part_number = part_number_pattern.search(s)
+    matches_ignore_if = part_number_ignore_pattern.search(s)
 
-    matches_part_number = re.search(part_number_pattern, string, re.I)
-    matches_ignore_if = re.search(part_number_ignore_pattern, string, re.I)
+    return bool(matches_part_number and not matches_ignore_if)
+
+
+def strip_part_number(s: str) -> str:
 
     # if it matches both the part number and ignore, return original string
-    if matches_part_number and not matches_ignore_if:
-        return re.sub(part_number_pattern, "", string, flags=re.I)
+    if contains_partno(s):
+        return part_number_pattern.sub("", s)
     else:
-        return string
+        return s
 
 
 def extract_path_info(book: "Audiobook", quiet: bool = False) -> "Audiobook":
     # Replace single occurrences of . with spaces
 
     dir_author = swap_firstname_lastname(
-        re_group(re.search(author_pattern, book.basename), "author")
+        re_group(author_fs_pattern.search(book.basename), "author")
     )
 
-    dir_title = re_group(re.search(book_title_pattern, book.basename), "book_title")
-    dir_year = re_group(re.search(year_pattern, book.basename), "year")
+    dir_title = re_group(book_title_pattern.search(book.basename), "book_title")
+    dir_year = re_group(year_pattern.search(book.basename), "year")
     dir_narrator = parse_narrator(book.basename)
 
     # remove suffix/extension from files
@@ -136,20 +153,19 @@ def extract_path_info(book: "Audiobook", quiet: bool = False) -> "Audiobook":
     orig_file_name = find_greatest_common_string(files)
 
     orig_file_name = strip_part_number(orig_file_name)
-    orig_file_name = re.sub(r"(part|chapter|ch\.)\s*$", "", orig_file_name, flags=re.I)
+    # TODO: dupe? Probably remove
+    # orig_file_name = re.sub(r"(part|chapter|ch\.)\s*$", "", orig_file_name, flags=re.I)
     orig_file_name = orig_file_name.rstrip().rstrip(string.punctuation)
 
     # strip underscores
     orig_file_name = orig_file_name.replace("_", " ")
 
     # strip leading and trailing -._ spaces and punctuation
-    orig_file_name = re.sub(r"^[ \,.\)\}\]_-]*|[ \,.\)\}\]_-]*$", "", orig_file_name)
+    orig_file_name = path_junk_pattern.sub("", orig_file_name)
 
-    file_author = swap_firstname_lastname(
-        re_group(re.search(author_pattern, orig_file_name), "author")
-    )
-    file_title = re_group(re.search(book_title_pattern, orig_file_name), "book_title")
-    file_year = re_group(re.search(year_pattern, orig_file_name), "year")
+    file_author = parse_author(orig_file_name, "fs")
+    file_title = re_group(book_title_pattern.search(orig_file_name), "book_title")
+    file_year = re_group(year_pattern.search(orig_file_name), "year")
 
     meta = {
         "author": dir_author,
@@ -176,8 +192,8 @@ def extract_path_info(book: "Audiobook", quiet: bool = False) -> "Audiobook":
 
     def strip_garbage_chars(path: str) -> str:
         try:
-            return re.sub(
-                r"^[ \,.\)\}\]]*", "", re.sub(path, "", book.basename, flags=re.I)
+            return path_garbage_pattern.sub(
+                "", re.sub(path, "", book.basename, flags=re.I)
             )
         except re.error as e:
             print_debug(f"Error calling strip_garbage_chars: {e}")
@@ -190,7 +206,7 @@ def extract_path_info(book: "Audiobook", quiet: bool = False) -> "Audiobook":
         book.dir_extra_junk = strip_garbage_chars(d)
         book.file_extra_junk = strip_garbage_chars(f)
 
-    book.orig_file_name = re.sub(r"^[^a-zA-Z0-9]+|[^a-zA-Z0-9]+$", "", orig_file_name)
+    book.orig_file_name = path_strip_l_t_alphanum_pattern.sub("", orig_file_name)
 
     return book
 
@@ -249,18 +265,80 @@ def get_year_from_date(date: str | None) -> str:
     return re_group(re.search(r"\d{4}", date or ""), default="")
 
 
-def parse_narrator(s: str) -> str:
-    return re_group(re.search(narrator_pattern, s, re.I), "narrator").strip()
+def parse_author(s: str, target: Literal["fs", "tag"]) -> str:
+
+    pat = author_tag_pattern if target == "tag" else author_fs_pattern
+    author = re_group(pat.search(s), "author", default=s).strip()
+    if author.count("/") > 0:
+        author = re_group(narrator_slash_pattern.search(author), "author")
+    if author.count(",") > 1 or len(to_words(author)) > 5:
+        return ""
+    if parse_narrator(author, default=""):
+        return ""
+    return swap_firstname_lastname(author)
+
+
+def has_graphic_audio(s: str) -> bool:
+    return bool(graphic_audio_pattern.search(s))
+
+
+def parse_narrator(s: str, *, default: str | None = None) -> str:
+    narrator = re_group(
+        narrator_pattern.search(s),
+        "narrator",
+        default=s if default is None else default,
+    ).strip()
+    if narrator.count("/") > 0:
+        narrator = re_group(narrator_slash_pattern.search(narrator), "narrator")
+    if narrator.count(",") > 1 or len(to_words(narrator)) > 5:
+        return "Full Cast"
+    return swap_firstname_lastname(narrator)
+
+
+def get_title_partno_score(
+    title_1: str, title_2: str, album_1: str, sortalbum_1: str
+) -> tuple[bool, int, bool]:
+    score = 0
+    t1_part = contains_partno(title_1)
+    t2_part = contains_partno(title_2)
+    t1 = get_numbers_in_string(title_1)
+    t2 = get_numbers_in_string(title_2)
+    a1 = get_numbers_in_string(album_1)
+    sa1 = get_numbers_in_string(sortalbum_1)
+
+    if len(t1) > len(a1):
+        score -= 1
+
+    if len(t1) > len(sa1):
+        score -= 1
+
+    if t1 != t2:
+        score -= 1
+        if t1_part:
+            score -= 1
+        if t2_part:
+            score -= 1
+    else:
+        # if the numbers in both titles match, it's likely that the number is part of the book's name
+        score += 1
+        if not t1_part and not t2_part:
+            score += 2
+
+    contains_only_part = (
+        strip_part_number(title_1) == "" and strip_part_number(title_2) == ""
+    )
+
+    return score > 0, score, contains_only_part
 
 
 @cachetools.func.ttl_cache(maxsize=32, ttl=MEMO_TTL)
 def is_maybe_multi_book_or_series(s: str) -> bool:
-    return not is_maybe_multi_disc(s) and bool(re.search(book_series_pattern, s, re.I))
+    return not is_maybe_multi_disc(s) and bool(book_series_pattern.search(s))
 
 
 @cachetools.func.ttl_cache(maxsize=32, ttl=MEMO_TTL)
 def is_maybe_multi_disc(s: str) -> bool:
-    return bool(re.search(multi_disc_pattern, s, re.I))
+    return bool(multi_disc_pattern.search(s))
 
 
 @cachetools.func.ttl_cache(maxsize=32, ttl=MEMO_TTL)
@@ -268,5 +346,5 @@ def is_maybe_multi_part(s: str) -> bool:
     return (
         not is_maybe_multi_disc(s)
         and not is_maybe_multi_book_or_series(s)
-        and bool(re.search(multi_part_pattern, s, re.I))
+        and bool(multi_part_pattern.search(s))
     )

@@ -24,7 +24,7 @@ LOG_HEADERS = [
     "Time",
 ]
 LOG_JUSTIFY = ["l", "l", "l", "r", "r", "r", "r", "r", "r", "r"]
-log_pattern = r"(?P<date>^\d.*?)\s*(?P<result>SUCCESS|FAILED|UNKNOWN)\s*(?P<book_name>.+?(?=\d{1,3} kb/s|\d{2}\.\d kHz))\s*(?P<bitrate>~?\d+ kb/s)?\s*(?P<samplerate>[\d.]+ kHz)?\s*(?P<file_type>\.\w+)?\s*(?P<num_files>\d+ files?)?\s*(?P<size>[\d.]+\s*[bBkKMGi]+)?\s*(?P<duration>[\dhms:-]*)?\s*(?P<elapsed>\S+)?"
+log_pattern = re.compile(r"(?P<date>^\d.*?)\s*(?P<result>SUCCESS|FAILED|UNKNOWN)\s*(?P<book_name>.+?(?=\d{1,3} kb/s|\d{2}\.\d kHz))\s*(?P<bitrate>~?\d+ kb/s)?\s*(?P<samplerate>[\d.]+ kHz)?\s*(?P<file_type>\.\w+)?\s*(?P<num_files>\d+ files?)?\s*(?P<size>[\d.]+\s*[bBkKMGi]+)?\s*(?P<duration>[\dhms:-]*)?\s*(?P<elapsed>\S+)?")
 # TEST:
 # 2023-10-22 18:37:58-0700   FAILED    The Law of Attraction by Esther and Jerry Hicks    129 kb/s      44.1 kHz   .wma    85 files   336M         -
 
@@ -63,7 +63,7 @@ def log_global_results(
                 log_data.append(cells)
             else:
                 # book name probably got goofed, we need to regex it out
-                parsed = re.search(log_pattern, line.strip())
+                parsed = log_pattern.search(line.strip())
                 if parsed:
                     log_data.append(
                         [

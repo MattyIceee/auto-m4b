@@ -125,7 +125,7 @@ def load_test_fixtures(
     cleanup_inbox: bool = False,
     request: pytest.FixtureRequest | None = None,
 ):
-    if exclusive:
+    if exclusive and not match_filter:
         short_names = [
             n if len(s[:1][0]) < 5 else s[:1][0]
             for n, s in [
@@ -133,8 +133,7 @@ def load_test_fixtures(
                 for s in [n.split("_") for n in (override_names or names)]
             ]
         ]
-
-        match_filter = match_filter or rf"^({'|'.join(short_names)})"
+        match_filter = rf"^({'|'.join(short_names)})"
 
     fixtures: list[Audiobook] = []
     for name, override in zip(names, override_names or names):
@@ -163,28 +162,33 @@ def bitrate_cbr__mp3():
 
 
 @pytest.fixture(scope="function")
-def single_no_cover__mp3():
-    yield from load_test_fixture("single_no_cover__mp3", exclusive=True)
+def basic_no_cover__single_mp3():
+    yield from load_test_fixture("basic_no_cover__single_mp3", exclusive=True)
 
 
 @pytest.fixture(scope="function")
-def single_no_cover__m4b():
-    yield from load_test_fixture("single_no_cover__m4b", exclusive=True)
+def basic_no_cover__single_m4b():
+    yield from load_test_fixture("basic_no_cover__single_m4b", exclusive=True)
 
 
 @pytest.fixture(scope="function")
-def single_with_cover__mp3():
-    yield from load_test_fixture("single_with_cover__mp3", exclusive=True)
+def basic_with_cover__single_mp3():
+    yield from load_test_fixture("basic_with_cover__single_mp3", exclusive=True)
 
 
 @pytest.fixture(scope="function")
-def single_with_cover__m4b():
-    yield from load_test_fixture("single_with_cover__m4b", exclusive=True)
+def basic_with_cover__single_m4b():
+    yield from load_test_fixture("basic_with_cover__single_m4b", exclusive=True)
 
 
 @pytest.fixture(scope="function")
 def bitrate_nonstandard__mp3():
     yield from load_test_fixture("bitrate_nonstandard__mp3", exclusive=True)
+
+
+@pytest.fixture(scope="function")
+def graphic_audio__single_m4b():
+    yield from load_test_fixture("graphic_audio__single_m4b", exclusive=True)
 
 
 @pytest.fixture(scope="function")
@@ -271,14 +275,21 @@ def secret_project_series__nested_flat_mixed():
 
 @pytest.fixture(scope="function")
 def Chanur_Series(reset_inbox_state):
-    series = "Chanur Series"
+    series = "chanur_series__series_mp3"
+    override_series = "Chanur Series"
+
+    files = lambda s: [
+        s,
+        f"{s}/01 - Pride Of Chanur",
+        f"{s}/02 - Chanur's Venture",
+        f"{s}/03 - Kif Strikes Back",
+        f"{s}/04 - Chanur's Homecoming",
+        f"{s}/05 - Chanur's Legacy",
+    ]
+
     yield load_test_fixtures(
-        series,
-        f"{series}/01 - Pride Of Chanur",
-        f"{series}/02 - Chanur's Venture",
-        f"{series}/03 - Kif Strikes Back",
-        f"{series}/04 - Chanur's Homecoming",
-        f"{series}/05 - Chanur's Legacy",
+        *files(series),
+        override_names=files(override_series),
         exclusive=True,
         match_filter=("^(chanur)"),
     )

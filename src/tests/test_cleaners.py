@@ -47,6 +47,8 @@ def test_strip_disc_number(test_str: str, expected: str):
         ("pt 08", ""),
         ("pt. 42", ""),
         ("Part 1", ""),
+        ("Part 06", ""),
+        ("Part 009", ""),
         ("pt1", ""),
         ("PT 2", ""),
         ("(Part 4)", ""),
@@ -69,6 +71,10 @@ def test_strip_disc_number(test_str: str, expected: str):
         ),
         (
             "The Last Guardian, PT.01",
+            "The Last Guardian",
+        ),
+        (
+            "The Last Guardian, pt 1",
             "The Last Guardian",
         ),
     ],

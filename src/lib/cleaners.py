@@ -67,3 +67,8 @@ def clean_string(s: str, strip_disc_no: bool = True, strip_part_no: bool = True)
     if strip_part_no:
         s = strip_part_number(s)
     return s
+
+
+def strip_leading_articles(s: str) -> str:
+    """Strips leading articles from a string"""
+    return re.sub(r"^((?:a|an|the)[\s_.]+\b)", "", s, flags=re.I).strip()

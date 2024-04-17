@@ -17,6 +17,7 @@ columnar = "*"
 python-ffmpeg = "*"
 cachetools = "*"
 types-cachetools = "*"
+rapidfuzz = "*"
 
 [dev-packages]
 ruff = "*"

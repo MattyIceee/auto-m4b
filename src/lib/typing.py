@@ -34,6 +34,7 @@ InboxDirStructure = Literal[
     "empty",  # no audio files found
 ]
 InboxDirMap = Sequence[tuple[Path]] | Sequence[tuple[Path, Sequence[Path]]]
+ScoredProp = Literal["title", "author", "narrator"]
 TagSource = Literal[
     "title",
     "album",
@@ -41,6 +42,11 @@ TagSource = Literal[
     "common_title",
     "common_album",
     "common_sortalbum",
+    "artist",
+    "albumartist",
+    "common_artist",
+    "common_albumartist",
+    "comment",
     "unknown",
 ]
 ENV_DIRS = [

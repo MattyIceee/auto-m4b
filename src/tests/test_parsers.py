@@ -5,8 +5,14 @@ import pytest
 from src.lib.audiobook import Audiobook
 from src.lib.ffmpeg_utils import get_bitrate_py, is_variable_bitrate
 from src.lib.formatters import human_bitrate
-from src.lib.id3_utils import extract_id3_tag_py, write_id3_tags_eyed3
-from src.lib.parsers import extract_path_info, romans
+from src.lib.id3_utils import extract_id3_tags, write_id3_tags_eyed3
+from src.lib.parsers import (
+    extract_path_info,
+    has_graphic_audio,
+    parse_author,
+    parse_narrator,
+    romans,
+)
 from src.lib.typing import BadFileError
 from src.tests.helpers.pytest_utils import testutils
 
@@ -28,7 +34,68 @@ def test_eyed3_load_fails_for_non_audio_file(not_an_audio_file: Audiobook):
 def test_id3_extract_fails_for_corrupt_file(corrupt_audiobook: Audiobook):
 
     with pytest.raises(BadFileError):
-        extract_id3_tag_py(corrupt_audiobook.sample_audio1, "title", throw=True)
+        extract_id3_tags(corrupt_audiobook.sample_audio1, "title", throw=True)
+
+
+@pytest.mark.parametrize(
+    "test_dict, expected",
+    [
+        (
+            {
+                "comment": "Written by Sarah J. Maas - Performed by Melody Muze as Feyre, Anthony Palmini as Rhysand, Colleen Delany as Narrator; Jon Vertullo as Cassian, and Amanda Forstrom as Morrigan; with Shawn K. Jain, Nora Achrati, Karenna Foley, Gabriel Michael, Natalie Van Sistine, Eva Wilhelm, Henry W. Kramer, Bianca Bryan, Renee Dorian, Matthew Bassett, Rob McFadyen, Ryan Carlo Dalusung, Yasmin Tuazon, Matthew Schleigh, Nanette Savard, Dan Delgado, Michael John Casey, Alejandro Ruiz, and Samantha Cooper"
+            },
+            {
+                "author": "Sarah J. Maas",
+                "narrator": "Full Cast",
+            },
+        ),
+    ],
+)
+def test_parse_id3_tags(test_dict: dict[str, str], expected: dict[str, str]):
+
+    for tag, test_str in test_dict.items():
+        if "narrator" in expected:
+            assert parse_narrator(test_str) == expected["narrator"]
+        if "author" in expected:
+            assert parse_author(test_str, target="tag") == expected["author"]
+
+
+def test_ignore_graphic_audio(
+    graphic_audio__single_m4b: Audiobook, capfd: pytest.CaptureFixture
+):
+
+    b = graphic_audio__single_m4b
+    b.extract_metadata()
+    for prop in [
+        "author",
+        "artist",
+        "albumartist",
+        "narrator",
+        "title",
+        "album",
+        "sortalbum",
+        "composer",
+    ]:
+        assert not has_graphic_audio(getattr(b, prop))
+
+    assert b.title == "A Court of Thorns and Roses: A Court of Frost and Starlight"
+    assert b.album == b.title
+    assert b.sortalbum == b.title.removeprefix("A ")
+    assert b.author == "Sarah J. Maas"
+    assert b.artist == b.author
+    assert b.albumartist == b.author
+    assert b.narrator == "Full Cast"
+
+    assert """Sampling A Court Of Thorns And Roses [03.1] A Court Of Frost And Starlight.m4b for book metadata and quality info:
+- Title: A Court of Thorns and Roses: A Court of Frost and Starlight
+- Author: Sarah J. Maas
+- Narrator: Full Cast
+- Date: 2023
+- Quality: 64 kb/s @ 44.1 kHz
+- Duration: 0h:00m:33s
+- No cover art""" in testutils.get_stdout(
+        capfd
+    )
 
 
 @pytest.mark.parametrize(
@@ -46,7 +113,10 @@ def test_parse_id3_narrator(
 ):
 
     write_id3_tags_eyed3(blank_audiobook.sample_audio1, {"comment": test_str})
-    assert extract_id3_tag_py(blank_audiobook.sample_audio1, "comment") == test_str
+    assert (
+        extract_id3_tags(blank_audiobook.sample_audio1, "comment")["comment"]
+        == test_str
+    )
 
     book = Audiobook(blank_audiobook.sample_audio1).extract_metadata()
     assert book.id3_comment == test_str
