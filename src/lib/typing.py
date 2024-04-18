@@ -1,7 +1,7 @@
 import functools
 from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import Any, cast, Concatenate, Literal, ParamSpec, TypeVar
+from typing import Any, cast, Concatenate, Literal, NamedTuple, ParamSpec, TypeVar
 
 import numpy as np
 
@@ -47,8 +47,11 @@ TagSource = Literal[
     "common_artist",
     "common_albumartist",
     "comment",
+    "composer",
     "unknown",
 ]
+AdditionalTags = Literal["cover", "track", "encoded by", "date", "genre", "publisher"]
+NameParserTarget = Literal["fs", "generic", "comment"]
 ENV_DIRS = [
     "INBOX_FOLDER",
     "CONVERTED_FOLDER",
@@ -69,6 +72,9 @@ SCAN_TTL = 10  # 10 seconds
 
 
 class BadFileError(Exception): ...
+
+
+AuthorNarrator = NamedTuple("AuthorNarrator", [("author", str), ("narrator", str)])
 
 
 # Source: https://stackoverflow.com/a/71968448/1214800

@@ -4,28 +4,41 @@ import string
 from dataclasses import dataclass
 from itertools import combinations
 from pathlib import Path
-from typing import Literal, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 import cachetools
 import cachetools.func
+import regex as rex
 
 from src.lib.misc import get_numbers_in_string, isorted, re_group
 from src.lib.term import print_debug
-from src.lib.typing import MEMO_TTL
+from src.lib.typing import AuthorNarrator, MEMO_TTL, NameParserTarget
 
-# TODO: Author ignores like "GraphicAudio"
 # TODO: Add test coverage for narrator with /
 # fmt: off
-_name_substr = r"(?:[\w'\.]+,?(?:[\s._-]|$)){1,}\w+(?=\W|$)"
+_titlecase_word = r"[A-Z][\p{Ll}\.'-]*"
+_author_prefixes = r"[Ww]ritten.?[Bb]y|[Aa]uthor"
+_narrator_prefixes = r"(?:[Rr]ead|[Nn]arrated|[Pp]erformed).?[Bb]y|[Nn]arrator"
+def _name_substr(ignore_if_trailing: str = '', max_l_of_comma: int = 4, max_r_of_comma: int = 4):
+    if ignore_if_trailing:
+        ignore_if_trailing = f"(?!{ignore_if_trailing})"
+    # (?:[Ww]ritten.?[Bb]y|[Pp]erformed.?[Bb]y|[Rr]ead.?[Bb]y)\W+(?P<name>(?:(?:(?<= )(?: ?[A-Z][a-z\.-]*){1,4})),? ?(?:(?: ?[A-Z][a-z\.-]*){1,4}(?!Performed by)))
+    return rf"(?:(?:(?:^|(?<= ))(?: ?{_titlecase_word}){{1,{max_l_of_comma}}})),? ?(?:(?: ?{_titlecase_word}){{1,{max_r_of_comma}}}{ignore_if_trailing})"
 _div = r"[-_–—.\s]*?"
+wordsplit_pat = re.compile(r"[\s_.]")
+
 author_fs_pattern = re.compile(r"^(?P<author>.*?)[\W\s]*[-_–—\(]", re.I)
-author_tag_pattern = re.compile(rf"(?:written.?by|author:)\W+(?P<author>{_name_substr}).*?", re.I)
-book_title_pattern = re.compile(r"(?<=[-_–—])[\W\s]*(?P<book_title>[\w\s]+?)\s*(?=\d{4}|\(|\[|$)", re.I)
-year_pattern = re.compile(r"(?P<year>\d{4})", re.I)
-narrator_pattern = re.compile(rf"(?:read.?by|narrated.?by|narrator|performed.?by)\W+(?P<narrator>{_name_substr}).*?", re.I)
+author_comment_pattern = rex.compile(rf"(?:{_author_prefixes})\W+(?P<author>{_name_substr(_narrator_prefixes)})", rex.V1)
+author_generic_pattern = rex.compile(rf"(?P<author>{_name_substr()})", rex.V1)
+narrator_comment_pattern = rex.compile(rf"(?:{_narrator_prefixes})\W+(?P<narrator>{_name_substr(_author_prefixes)})", rex.V1)
+narrator_generic_pattern = rex.compile(rf"(?P<narrator>{_name_substr()})", rex.V1)
 narrator_slash_pattern = re.compile(r"(?P<author>.+)\/(?P<narrator>.+)", re.I)
+narrator_in_artist_pattern = re.compile(rf"(?P<author>.*)\W+{narrator_comment_pattern}", re.I)
+graphic_audio_pattern = re.compile(r"graphic\s*audio", re.I)
 lastname_firstname_pattern = re.compile(r"^(?P<lastname>.*?), (?P<firstname>.*)$", re.I)
 firstname_lastname_pattern = re.compile(r"^(?P<firstname>.*?).*\s(?P<lastname>\S+)$", re.I)
+
+book_title_pattern = re.compile(r"(?<=[-_–—])[\W\s]*(?P<book_title>[\w\s]+?)\s*(?=\d{4}|\(|\[|$)", re.I)
 part_number_pattern = re.compile(rf",?{_div}(?:part|ch(?:\.|apter))?{_div}\W*(\d+)(?:$|{_div}(?:of|-){_div}(\d+)\W*$)", re.I)
 part_number_ignore_pattern = re.compile(r"(?:\bbook\b|\bvol(?:ume)?)\s*\d+$", re.I)
 path_junk_pattern = re.compile(r"^[ \,.\)\}\]_-]*|[ \,.\)\}\]_-]*$", re.I)
@@ -33,12 +46,12 @@ path_garbage_pattern = re.compile(r"^[ \,.\)\}\]]*", re.I)
 path_strip_l_t_alphanum_pattern = re.compile(r"^[^a-zA-Z0-9]+|[^a-zA-Z0-9]+$", re.I)
 roman_numeral_pattern = re.compile(r"((?:^|(?<=[\W_]))[IVXLCDM]+(?:$|(?=[\W_])))", re.I)
 roman_strip_pattern = re.compile(r"(?<=\w)(?=[\W_.-])|(?<=[\W_.-])(?=\w)|(?<=[a-z])(?=[A-Z])")
+
+year_pattern = re.compile(r"(?P<year>\d{4})", re.I)
+
 multi_disc_pattern = re.compile(r"(?:^|(?<=[\W_-]))(dis[ck]|cd)(\b|\s|[_.-])*#?(\b|\s|[_.-])*(?:\b|[\W_-])*(\d+)", re.I)
 book_series_pattern = re.compile(r"(^\d+|(?:^|(?<=[\W_-]))(bo{0,2}k|vol(?:ume)?|#)(?:\b|[\W_-])*(\d+)|(?<=[\W_-])Series.*/.+)", re.I)
 multi_part_pattern = re.compile(r"(?:^|(?<=[\W_-]))(pa?r?t|ch(?:\.|apter))(?:\b|[\W_-])*(\d+)", re.I)
-graphic_audio_pattern = re.compile(r"graphic\s*audio", re.I)
-narrator_slash_pattern = re.compile(r"(?P<author>.*)/(?P<narrator>.*)", re.I)
-narrator_in_artist_pattern = re.compile(rf"(?P<author>.*)\W+{narrator_pattern}", re.I)
 # fmt: on
 
 
@@ -265,34 +278,87 @@ def get_year_from_date(date: str | None) -> str:
     return re_group(re.search(r"\d{4}", date or ""), default="")
 
 
-def parse_author(s: str, target: Literal["fs", "tag"]) -> str:
+def get_name_from_str(s: str, max_words=6) -> str:
+    if len(to_words(s)) > max_words:
+        s = " ".join(to_words(s)[:max_words])
+    if s.count(","):
+        # drop the second comma and anything after it
+        s = ",".join(s.split(",")[:2])
+    # remove parens and anything inside them
+    s = re.sub(r"\(.*?\)", "", s)
+    return s.strip()
 
-    pat = author_tag_pattern if target == "tag" else author_fs_pattern
-    author = re_group(pat.search(s), "author", default=s).strip()
-    if author.count("/") > 0:
-        author = re_group(narrator_slash_pattern.search(author), "author")
-    if author.count(",") > 1 or len(to_words(author)) > 5:
-        return ""
-    if parse_narrator(author, default=""):
-        return ""
-    return swap_firstname_lastname(author)
+
+def parse_names(
+    s: str, target: NameParserTarget, *, default: str | None = None
+) -> AuthorNarrator:
+    if default is None:
+        default = s
+    if not s or graphic_audio_pattern.search(s):
+        return AuthorNarrator(default, default)
+    author = s
+    narrator = s
+    if any([w for w in to_words(s)[:6] if "/" in w]):
+        m = narrator_slash_pattern.search(s)
+        author = re_group(m, "author")
+        narrator = re_group(m, "narrator")
+
+    match target:
+        case "generic":
+            author_pattern = author_generic_pattern
+            narrator_pattern = narrator_generic_pattern
+        case "fs":
+            author_pattern = author_fs_pattern
+            narrator_pattern = narrator_generic_pattern
+        case "comment":
+            author_pattern = author_comment_pattern
+            narrator_pattern = narrator_comment_pattern
+
+    author_default = (
+        default if not re_group(narrator_pattern.search(narrator), "narrator") else ""
+    )
+    narrator_default = (
+        default if not re_group(author_pattern.search(author), "author") else ""
+    )
+
+    author = re_group(
+        author_pattern.search(author), "author", default=author_default
+    ).strip()
+    narrator = re_group(
+        narrator_pattern.search(narrator), "narrator", default=narrator_default
+    ).strip()
+
+    if not author and not narrator:
+        return AuthorNarrator(default, default)
+
+    if author and author in narrator:
+        narrator = re.sub(author, "", narrator)
+    elif narrator and narrator in author:
+        author = re.sub(narrator, "", author)
+
+    author = get_name_from_str(author)
+    narrator = get_name_from_str(narrator)
+
+    return AuthorNarrator(
+        author=swap_firstname_lastname(author),
+        narrator=swap_firstname_lastname(narrator),
+    )
+
+
+def parse_author(
+    s: str, target: NameParserTarget, *, default: str | None = None
+) -> str:
+    return parse_names(s, target, default=default).author
 
 
 def has_graphic_audio(s: str) -> bool:
     return bool(graphic_audio_pattern.search(s))
 
 
-def parse_narrator(s: str, *, default: str | None = None) -> str:
-    narrator = re_group(
-        narrator_pattern.search(s),
-        "narrator",
-        default=s if default is None else default,
-    ).strip()
-    if narrator.count("/") > 0:
-        narrator = re_group(narrator_slash_pattern.search(narrator), "narrator")
-    if narrator.count(",") > 1 or len(to_words(narrator)) > 5:
-        return "Full Cast"
-    return swap_firstname_lastname(narrator)
+def parse_narrator(
+    s: str, target: NameParserTarget, *, default: str | None = None
+) -> str:
+    return parse_names(s, target, default=default).narrator or default or ""
 
 
 def get_title_partno_score(

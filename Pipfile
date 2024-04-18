@@ -18,6 +18,8 @@ python-ffmpeg = "*"
 cachetools = "*"
 types-cachetools = "*"
 rapidfuzz = "*"
+bidict = "*"
+regex = "*"
 
 [dev-packages]
 ruff = "*"

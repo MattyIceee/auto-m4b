@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -99,27 +100,130 @@ def test_ignore_graphic_audio(
 
 
 @pytest.mark.parametrize(
-    "test_str, expected_narrator",
+    "test_dict, expected_author",
     [
         (
-            "Mysterious Benedict Society#1    Read by Del Roy                           Unabridged  13 hrs 17 min           Listening Library/Random House Audio",
-            "Del Roy",
+            {
+                "comment": "Written by Sarah J. Maas - Performed by Melody Muze as Feyre, Anthony Palmini as Rhysand"
+            },
+            "Sarah J. Maas",
         ),
-        ("Read by Nicola Barber; Unabr", "Nicola Barber"),
+        (
+            {
+                "artist": "GraphicAudio LLC",
+                "comment": "Written by Sarah J. Maas - Performed by Melody Muze as Feyre, Anthony Palmini as Rhysand",
+            },
+            "Sarah J. Maas",
+        ),
+        (
+            {
+                "artist": "Sarah J. Maas",
+                "comment": "Performed by Melody Muze as Feyre, Anthony Palmini as Rhysand",
+            },
+            "Sarah J. Maas",
+        ),
+        (
+            {
+                "albumartist": "Sarah J. Maas",
+                "comment": "Performed by Melody Muze as Feyre, Anthony Palmini as Rhysand",
+            },
+            "Sarah J. Maas",
+        ),
+        (
+            {
+                "artist": "Melody Muze",
+                "albumartist": "Sarah J. Maas",
+                "comment": "Performed by Melody Muze as Feyre, Anthony Palmini as Rhysand",
+            },
+            "Sarah J. Maas",
+        ),
+        (
+            {
+                "comment": "When we rescued the first fluffy-eared princess, I didn't realize how lucky we’d been. She was a kind soul, and gentle-everything you’d imagine a sweet princess to be. Though atop the second tower, the next stripey-tailed princess bore a rage as wild as the sun. Her body burned hot like a furnace. But it was our job to help her return to normal-well, not our main job. Our journey took us from cold mountains to wild seas on a pirate ship. Our quest? To save the third-and last-princess, so we could halt The Witch King in his tracks."
+            },
+            "",
+        ),
+        (
+            {"artist": "Melody Muze", "albumartist": "Sarah J. Maas", "comment": ""},
+            "Sarah J. Maas",
+        ),
+        (
+            {"artist": "Sarah J. Maas", "albumartist": "Melody Muze", "comment": ""},
+            "Melody Muze",
+        ),
+        (
+            {
+                "artist": "James Allen/Andrew Farell (Narrator)",
+                "comment": "",
+            },
+            "James Allen",
+        ),
     ],
 )
-def test_parse_id3_narrator(
-    test_str: str, expected_narrator: str, blank_audiobook: Audiobook
+def test_parse_id3_author(
+    test_dict: dict[str, str],
+    expected_author: str,
+    blank_audiobook: Audiobook,
+    mock_id3_tags: Callable[..., list[dict[str, str]]],
 ):
 
-    write_id3_tags_eyed3(blank_audiobook.sample_audio1, {"comment": test_str})
-    assert (
-        extract_id3_tags(blank_audiobook.sample_audio1, "comment")["comment"]
-        == test_str
+    _got_tags = mock_id3_tags(
+        (blank_audiobook.sample_audio1, test_dict),
+        (blank_audiobook.sample_audio2, test_dict),
     )
 
     book = Audiobook(blank_audiobook.sample_audio1).extract_metadata()
-    assert book.id3_comment == test_str
+    assert book.author == expected_author
+
+
+@pytest.mark.parametrize(
+    "test_dict, expected_narrator",
+    [
+        (
+            {
+                "comment": "Mysterious Benedict Society#1    Read by Del Roy                           Unabridged  13 hrs 17 min           Listening Library/Random House Audio"
+            },
+            "Del Roy",
+        ),
+        ({"comment": "Read by Nicola Barber; Unabr"}, "Nicola Barber"),
+        (
+            {"artist": "Melody Muze", "albumartist": "Sarah J. Maas", "comment": ""},
+            "Melody Muze",
+        ),
+        (
+            {"artist": "Sarah J. Maas", "albumartist": "Melody Muze", "comment": ""},
+            "Sarah J. Maas",
+        ),
+        (
+            {
+                "artist": "H. D. Carlton",
+                "comment": "Death walks alongside me...but the reaper is no match for me. I'm trapped in a world full of monsters dressed as men, and those who aren't as they seem. They won't keep me forever. I no longer recognize the person I've become.",
+                "composer": "Teddy Hamilton, Michelle Sparks",
+            },
+            "Teddy Hamilton, Michelle Sparks",
+        ),
+        (
+            {
+                "artist": "James Allen/Andrew Farell (Narrator)",
+                "comment": "",
+            },
+            "Andrew Farell",
+        ),
+    ],
+)
+def test_parse_id3_narrator(
+    test_dict: dict[str, str],
+    expected_narrator: str,
+    blank_audiobook: Audiobook,
+    mock_id3_tags: Callable[..., list[dict[str, str]]],
+):
+
+    _got_tags = mock_id3_tags(
+        (blank_audiobook.sample_audio1, test_dict),
+        (blank_audiobook.sample_audio2, test_dict),
+    )
+
+    book = Audiobook(blank_audiobook.sample_audio1).extract_metadata()
     assert book.narrator == expected_narrator
 
 
