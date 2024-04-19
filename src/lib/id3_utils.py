@@ -1,3 +1,5 @@
+import datetime
+import functools
 import re
 import shutil
 import subprocess
@@ -7,8 +9,10 @@ from typing import Any, cast, Literal, overload, TYPE_CHECKING
 
 import bidict
 import ffmpeg
-from eyed3 import AudioFile
-from eyed3.id3 import Tag
+from columnar import columnar
+from eyed3 import AudioFile, core
+from eyed3.core import Date
+from eyed3.id3 import ID3_V2_3, ID3_V2_4, Tag
 from rapidfuzz import fuzz
 from tinta import Tinta
 
@@ -18,6 +22,7 @@ from src.lib.misc import compare_trim, fix_ffprobe, get_numbers_in_string
 fix_ffprobe()
 
 from src.lib.parsers import (
+    common_str_pattern,
     contains_partno,
     find_greatest_common_string,
     get_title_partno_score,
@@ -25,6 +30,8 @@ from src.lib.parsers import (
     has_graphic_audio,
     parse_author,
     parse_narrator,
+    parse_year,
+    startswith_num_pattern,
     to_words,
 )
 from src.lib.term import (
@@ -62,6 +69,33 @@ def write_id3_tags_exiftool(file: Path, exiftool_args: list[str]) -> None:
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
+
+
+# Patch eyed3 to support recording date, per https://github.com/nicfit/eyeD3/issues/517
+def _setRecordingDate(tag: Tag, date: str | core.Date | None) -> None:
+    if date in (None, ""):
+        for fid in (b"TDRC", b"TYER", b"TDAT", b"TIME"):
+            tag._setDate(fid, None)
+    elif tag.version == ID3_V2_4 or tag.version == ID3_V2_3:
+        try:
+            tag._setDate(b"TDRC", date)
+        except ValueError:
+            pass
+    else:
+        if not isinstance(date, core.Date):
+            parsed_date = core.Date.parse(date)
+        else:
+            parsed_date = date
+
+        year = parsed_date.year
+        month = parsed_date.month
+        day = parsed_date.day
+
+        if year is not None:
+            tag._setDate(b"TYER", str(year))
+        if None not in (month, day):
+            date_str = "%s%s" % (str(day).rjust(2, "0"), str(month).rjust(2, "0"))
+            tag._setDate(b"TDAT", date_str)
 
 
 def write_id3_tags_eyed3(file: Path, book: "Audiobook | dict[str, Any]") -> None:
@@ -107,7 +141,8 @@ def write_id3_tags_eyed3(file: Path, book: "Audiobook | dict[str, Any]") -> None
         audiofile.tag.album = album
         audiofile.tag.album_artist = albumartist
         audiofile.tag.composer = composer
-        audiofile.tag.release_date = date
+        audiofile.tag.comments.set(comment)  # type: ignore
+
         # if track_num is not None and not a tuple of (int, int), throw error
         if (
             not isinstance(track_num, tuple)
@@ -118,7 +153,20 @@ def write_id3_tags_eyed3(file: Path, book: "Audiobook | dict[str, Any]") -> None
                 f"Error: track_num must be a tuple of (int, int), not {track_num}"
             )
         audiofile.tag.track_num = track_num
-        audiofile.tag.comments.set(comment)  # type: ignore
+
+        year = get_year_from_date(date)
+        try:
+            d = datetime.datetime.strptime(date, "%Y-%m-%d")
+        except ValueError:
+            d = None
+        year = year or d.year if d else None
+        if year or d:
+            date_obj = Date(d.year, d.month, d.day) if d else Date(year)
+            _setRecordingDate(audiofile.tag, date_obj)
+            audiofile.tag.recording_date = date_obj
+            audiofile.tag.release_date = date_obj
+            audiofile.tag.original_release_date = date_obj
+            assert audiofile.tag.getBestDate() == date_obj
 
         audiofile.tag.save()
     else:
@@ -592,6 +640,330 @@ class NarratorScoreCard(BaseScoreCard):
         )
 
 
+class DateScoreCard(BaseScoreCard):
+    date_is_date: int = 0
+    fs_contains_date: int = 0
+
+    props: list[TagSource] = ["date", "year", "fs"]
+
+    def __str__(self):
+        return (
+            f"DateScoreCard\n"
+            f" - date_is_date: {self.date_is_date}\n"
+            f" - fs_contains_date: {self.fs_contains_date}\n"
+        )
+
+
+KEY_MAP = {
+    "_aar": "albumartist",
+    "_ar": "artist",
+    "_al": "album",
+    "_comment": "comment",
+    "_sal": "sortalbum",
+    "_t": "title",
+    "_fs": "fs",
+    # add more mappings here if needed
+}
+
+
+def custom_sort(key: str, next_key: str) -> int:
+    underscored = key.startswith("_")
+    next_underscored = next_key.startswith("_")
+    # next_group = not next_key.startswith("_") and re.sub(r"(^[a-z])", "", next_key)
+    mapped_key = (
+        None
+        if not underscored
+        else next((KEY_MAP[i] for i in KEY_MAP if key.startswith(i)), None)
+    )
+    next_mapped_key = (
+        None
+        if not next_underscored
+        else next((KEY_MAP[i] for i in KEY_MAP if next_key.startswith(i)), None)
+    )
+
+    # if neither have mapped keys, just compare them as is
+    if not mapped_key and not next_mapped_key:
+        return -1 if key < next_key else int(key > next_key)
+
+    group = mapped_key if mapped_key else re.sub(r"([^a-z]*)$", "", key)
+    next_group = (
+        next_mapped_key if next_mapped_key else re.sub(r"([^a-z]*)$", "", next_key)
+    )
+    # next_group = not next_key.startswith("_") and re.sub(r"(^[a-z])", "", next_key)
+    groups_match = group == next_group
+
+    # groups don't match, so compare them
+    if not groups_match:
+        return -1 if group < next_group else int(group > next_group)
+
+    # otherwise we can assume same group, so we have to compare more granularly
+    if underscored and not next_underscored:
+        return 1
+    elif not underscored and next_underscored:
+        return -1
+
+    return -1 if key < next_key else int(key > next_key)
+
+
+class MetadataProps:
+
+    def __init__(
+        self,
+        book: "Audiobook",
+        sample_audio2_tags: dict[TagSource | AdditionalTags, str],
+    ):
+
+        common_filename = (
+            find_greatest_common_string(
+                [book.sample_audio1.name, book.sample_audio2.name]
+            )
+            if book.sample_audio2
+            else book.sample_audio1.name
+        )
+        self.fs_basename = book.basename
+        self.fs_filename_c = common_filename
+        self.fs_name = str(Path(book.basename) / common_filename)
+        self.fs_name_lower = self.fs_name.lower()
+        self.fs_year = parse_year(self.fs_name)
+
+        self.title1 = book.id3_title
+        self.title2 = sample_audio2_tags.get("title", "")
+        self.title_c = find_greatest_common_string([self.title1, self.title2])
+
+        self.album1 = book.id3_album
+        self.album2 = sample_audio2_tags.get("album", "")
+        self.album_c = find_greatest_common_string([self.album1, self.album2])
+
+        self.sortalbum1 = book.id3_sortalbum
+        self.sortalbum2 = sample_audio2_tags.get("sortalbum", "")
+        self.sortalbum_c = find_greatest_common_string(
+            [self.sortalbum1, self.sortalbum2]
+        )
+
+        self.artist1 = book.id3_artist
+        self.artist2 = sample_audio2_tags.get("artist", "")
+        self.artist_c = find_greatest_common_string([self.artist1, self.artist2])
+
+        self.albumartist1 = book.id3_albumartist
+        self.albumartist2 = sample_audio2_tags.get("albumartist", "")
+        self.albumartist_c = find_greatest_common_string(
+            [self.albumartist1, self.albumartist2]
+        )
+
+        self.date = book.id3_date
+        self.year = get_year_from_date(self.date)
+        self.comment = book.id3_comment
+        self.composer = book.id3_composer
+
+        self.author_in_comment = parse_author(self.comment, "comment", default="")
+        self.narrator_in_comment = parse_narrator(self.comment, "comment", default="")
+
+        self._t_is_partno, self._t_partno_score, self._t_is_only_part_no = (
+            get_title_partno_score(
+                self.title1, self.title2, self.album1, self.sortalbum1
+            )
+        )
+
+        # Title
+        self._t1_numbers = ""
+        self._t2_numbers = ""
+        self._t1_startswith_num = False
+        self._t2_startswith_num = False
+        self._t1_is_in_fs_name = False
+        self._t1_fuzzy_fs_name = 0
+        self._t1_eq_t2 = False
+        self._t1_is_missing = not self.title1
+        if self.title1:
+            self._t1_numbers = get_numbers_in_string(self.title1)
+            self._t2_numbers = get_numbers_in_string(self.title2)
+            self._t1_startswith_num = startswith_num_pattern.match(self.title1)
+            self._t2_startswith_num = startswith_num_pattern.match(self.title2)
+            self._t1_is_in_fs_name = self.title1.lower() in self.fs_name_lower
+            self._t1_fuzzy_fs_name = fuzz.token_sort_ratio(
+                self.title1.lower(), self.fs_name_lower
+            )
+            self._t1_eq_t2 = self.title1 == self.title2
+
+        self._t2_is_in_fs_name = False
+        self._t2_is_missing = not self.title2
+        if self.title2:
+            self._t2_is_in_fs_name = self.title2.lower() in self.fs_name_lower
+
+        # Album
+        self._al1_eq_al2 = False
+        self._al1_fuzzy_fs_name = 0
+        self._al1_is_in_fs_name = False
+        self._al1_is_in_title = False
+        self._al1_numbers = ""
+        self._al1_startswith_num = False
+        self._al1_is_missing = not self.album1
+        if self.album1:
+            self._al1_eq_al2 = self.album1 == self.album2
+            self._al1_fuzzy_fs_name = fuzz.token_sort_ratio(
+                self.album1.lower(), self.fs_name_lower
+            )
+            self._al1_is_in_fs_name = self.album1.lower() in self.fs_name_lower
+            self._al1_is_in_title = self.album1.lower() in self.title1.lower()
+            self._al1_numbers = get_numbers_in_string(self.album1)
+            self._al1_startswith_num = startswith_num_pattern.match(self.album1)
+
+        self._al2_is_in_fs_name = False
+        self._al2_is_in_title = False
+        self._al2_numbers = ""
+        self._al2_startswith_num = False
+        self._al2_is_missing = not self.album2
+        if self.album2:
+            self._al2_is_in_fs_name = self.album2.lower() in self.fs_name_lower
+            self._al2_is_in_title = self.album2.lower() in self.title2.lower()
+            self._al2_numbers = get_numbers_in_string(self.album2)
+            self._al2_startswith_num = startswith_num_pattern.match(self.album2)
+
+        # Sort Album
+        self._sal1_eq_sal2 = False
+        self._sal1_fuzzy_fs_name = 0
+        self._sal1_is_in_fs_name = False
+        self._sal1_is_in_title = False
+        self._sal1_numbers = ""
+        self._sal1_startswith_num = False
+        self._sal1_is_missing = not self.sortalbum1
+        if self.sortalbum1:
+            self._sal1_eq_sal2 = self.sortalbum1 == self.sortalbum2
+            self._sal1_fuzzy_fs_name = fuzz.token_sort_ratio(
+                self.sortalbum1.lower(), self.fs_name_lower
+            )
+            self._sal1_is_in_fs_name = self.sortalbum1.lower() in self.fs_name_lower
+            self._sal1_is_in_title = self.sortalbum1.lower() in self.title1.lower()
+            self._sal1_numbers = get_numbers_in_string(self.sortalbum1)
+            self._sal1_startswith_num = startswith_num_pattern.match(self.sortalbum1)
+
+        self._sal2_is_in_fs_name = False
+        self._sal2_is_in_title = False
+        self._sal2_numbers = ""
+        self._sal2_startswith_num = False
+        self._sal2_is_missing = not self.sortalbum2
+        if self.sortalbum2:
+            self._sal2_is_in_fs_name = self.sortalbum2.lower() in self.fs_name_lower
+            self._sal2_is_in_title = self.sortalbum2.lower() in self.title2.lower()
+            self._sal2_numbers = get_numbers_in_string(self.sortalbum2)
+            self._sal2_startswith_num = startswith_num_pattern.match(self.sortalbum2)
+
+        # Artist
+        self._ar1_is_in_fs_name = False
+        self._ar1_fuzzy_fs_name = 0
+        self._ar1_is_graphic_audio = False
+        self._ar1_is_maybe_narrator = False
+        self._ar1_is_maybe_author = False
+        self._ar1_eq_comment_narrator = False
+        self._ar1_eq_ar2 = False
+        self._ar1_is_missing = not self.artist1
+        if self.artist1:
+            self._ar1_eq_ar2 = self.artist1 == self.artist2
+            self._ar1_is_in_fs_name = self.artist1.lower() in self.fs_name_lower
+            self._ar1_fuzzy_fs_name = fuzz.token_sort_ratio(
+                self.artist1.lower(), self.fs_name_lower
+            )
+            self._ar1_is_graphic_audio = has_graphic_audio(self.artist1)
+            self._ar1_is_maybe_narrator = parse_narrator(self.artist1, "generic")
+            self._ar1_is_maybe_author = parse_author(self.artist1, "generic")
+
+        self._ar2_is_in_fs_name = False
+        self._ar2_is_graphic_audio = False
+        self._ar2_is_missing = not self.artist2
+        if self.artist2:
+            self._ar2_is_in_fs_name = self.artist2.lower() in self.fs_name_lower
+            self._ar2_is_graphic_audio = has_graphic_audio(self.artist2)
+
+        # Album Artist
+        self._aar1_is_in_fs_name = False
+        self._aar1_fuzzy_fs_name = 0
+        self._aar1_is_graphic_audio = False
+        self._aar1_is_maybe_narrator = False
+        self._aar1_is_maybe_author = False
+        self._aar1_eq_aar2 = False
+        if self.albumartist1:
+            self._aar1_eq_aar2 = self.albumartist1 == self.albumartist2
+            self._aar1_is_in_fs_name = self.albumartist1.lower() in self.fs_name_lower
+            self._aar1_fuzzy_fs_name = fuzz.token_sort_ratio(
+                self.albumartist1.lower(), self.fs_name_lower
+            )
+            self._aar1_is_graphic_audio = has_graphic_audio(self.albumartist1)
+            self._aar1_is_maybe_narrator = parse_narrator(self.albumartist1, "generic")
+            self._aar1_is_maybe_author = parse_author(self.albumartist1, "generic")
+            if self.narrator_in_comment:
+                self._aar1_neq_comment_narrator = (
+                    self.narrator_in_comment != self.albumartist1
+                )
+
+        self._aar2_is_missing = not self.albumartist2
+        if self.albumartist2:
+            self._aar2_is_in_fs_name = self.albumartist2.lower() in self.fs_name_lower
+            self._aar2_is_graphic_audio = has_graphic_audio(self.albumartist2)
+
+        # Comment
+        self._ar1_eq_comment_author = False
+        self._ar1_eq_comment_narrator = False
+        self._aar1_eq_comment_author = False
+        self._aar1_eq_comment_narrator = False
+        self._comment_author_eq_comment_narrator = False
+
+        # Complex
+        self._ar_eq_aar = bool(
+            self.artist1 and self.albumartist1 and self.artist1 == self.albumartist1
+        )
+        self._ar_but_no_aar = bool(self.artist1 and not self.albumartist1)
+        self._aar_but_no_ar = bool(self.albumartist1 and not self.artist1)
+        self._ar_has_slash = bool("/" in self.artist1)
+        self._aar_has_slash = bool("/" in self.albumartist1)
+
+        if self.author_in_comment:
+            self._comment_author_eq_comment_narrator = (
+                self.narrator_in_comment == self.author_in_comment
+            )
+            if self.artist1:
+                self._ar1_eq_comment_author = self.author_in_comment == self.artist1
+            if self.albumartist1:
+                self._aar1_eq_comment_author = (
+                    self.author_in_comment == self.albumartist1
+                )
+
+        if self.narrator_in_comment:
+            if self.artist1:
+                self._ar1_eq_comment_narrator = self.narrator_in_comment == self.artist1
+            if self.albumartist1:
+                self._aar1_eq_comment_narrator = (
+                    self.narrator_in_comment == self.albumartist1
+                )
+
+        str(self)
+
+    def table(self):
+        data = [
+            [f" - {k}", v]
+            for k, v in [
+                (k, getattr(self, k))
+                for k in sorted(
+                    [k for k in dir(self) if not k.startswith("__")],
+                    key=functools.cmp_to_key(custom_sort),
+                )
+            ]
+            if not callable(v)
+        ]
+
+        return columnar(
+            data,
+            headers=["key", "value"],
+            terminal_width=1000,
+            preformatted_headers=True,
+            no_borders=True,
+            max_column_width=800,
+            wrap_max=0,  # don't wrap
+        )
+
+    def __str__(self):
+
+        return f"MetadataScore\n" f"{self.table()}\n"
+
+
 class MetadataScore:
     def __init__(
         self,
@@ -602,89 +974,18 @@ class MetadataScore:
         self.title = TitleScoreCard()
         self.author = AuthorScoreCard()
         self.narrator = NarratorScoreCard()
+        self.date = DateScoreCard()
 
-        common_filename = (
-            find_greatest_common_string(
-                [book.sample_audio1.name, book.sample_audio2.name]
-            )
-            if book.sample_audio2
-            else book.sample_audio1.name
-        )
-        self._basename = book.basename
-        self._filename = common_filename
-        self._folder_and_filename = str(Path(book.basename) / common_filename)
-
-        self._title1 = book.id3_title
-        self._title2 = sample_audio2_tags.get("title", "")
-        self._artist1 = book.id3_artist
-        self._artist2 = sample_audio2_tags.get("artist", "")
-        self._albumartist1 = book.id3_albumartist
-        self._albumartist2 = sample_audio2_tags.get("albumartist", "")
-        self._album1 = book.id3_album
-        self._album2 = sample_audio2_tags.get("album", "")
-        self._sortalbum1 = book.id3_sortalbum
-        self._sortalbum2 = sample_audio2_tags.get("sortalbum", "")
-        self._comment = book.id3_comment
-        self._composer1 = book.id3_composer
-
-        self._common_title = find_greatest_common_string([self._title1, self._title2])
-        self._common_artist = find_greatest_common_string(
-            [self._artist1, self._artist2]
-        )
-        self._common_albumartist = find_greatest_common_string(
-            [self._albumartist1, self._albumartist2]
-        )
-        self._common_album = find_greatest_common_string([self._album1, self._album2])
-        self._common_sortalbum = find_greatest_common_string(
-            [self._sortalbum1, self._sortalbum2]
-        )
-
-        self._numbers_in_title1 = get_numbers_in_string(self._title1)
-        self._numbers_in_title2 = get_numbers_in_string(self._title2)
-        self._numbers_in_album1 = get_numbers_in_string(self._album1)
-        self._numbers_in_album2 = get_numbers_in_string(self._album2)
-        self._numbers_in_sortalbum1 = get_numbers_in_string(self._sortalbum1)
-        self._numbers_in_sortalbum2 = get_numbers_in_string(self._sortalbum2)
-
-        self._title1_starts_with_number = re.match(r"^\d+", self._title1)
-        self._title2_starts_with_number = re.match(r"^\d+", self._title2)
-        self._album1_starts_with_number = re.match(r"^\d+", self._album1)
-        self._album2_starts_with_number = re.match(r"^\d+", self._album2)
-        self._sortalbum1_starts_with_number = re.match(r"^\d+", self._sortalbum1)
-        self._sortalbum2_starts_with_number = re.match(r"^\d+", self._sortalbum2)
-
-        self._author_in_comment = parse_author(self._comment, "comment", default="")
-        self._narrator_in_comment = parse_narrator(self._comment, "comment", default="")
+        self._p = MetadataProps(book, sample_audio2_tags)
 
     def __str__(self):
 
         return (
             f"MetadataScore\n"
-            f" - title 1:           {self._title1}\n"
-            f" - title 2:           {self._title2}\n"
-            f" - title c:           {self._common_title}\n"
-            f" - artist 1:          {self._artist1}\n"
-            f" - artist 2:          {self._artist2}\n"
-            f" - artist c:          {self._common_artist}\n"
-            f" - albumartist 1:     {self._albumartist1}\n"
-            f" - albumartist 2:     {self._albumartist2}\n"
-            f" - albumartist c:     {self._common_albumartist}\n"
-            f" - album 1:           {self._album1}\n"
-            f" - album 2:           {self._album2}\n"
-            f" - album c:           {self._common_album}\n"
-            f" - sortalbum 1:       {self._sortalbum1}\n"
-            f" - sortalbum 2:       {self._sortalbum2}\n"
-            f" - sortalbum c:       {self._common_sortalbum}\n"
-            f" - #s in title 1:     {self._numbers_in_title1}\n"
-            f" - #s in title 2:     {self._numbers_in_title2}\n"
-            f" - #s in album 1:     {self._numbers_in_album1}\n"
-            f" - #s in album 2:     {self._numbers_in_album2}\n"
-            f" - #s in sortalbum 1: {self._numbers_in_sortalbum1}\n"
-            f" - #s in sortalbum 2: {self._numbers_in_sortalbum2}\n"
-            f"\n"
             f" - title is likely:   {self.calc_title_scores()}\n"
             f" - author is likely:  {self.calc_author_scores()}\n"
             f" - narrator is likely:  {self.calc_narrator_scores()}\n"
+            f" - date is likely:  {self.calc_date_scores()}\n"
         )
 
     def __repr__(self):
@@ -710,11 +1011,14 @@ class MetadataScore:
 
         val: str = ""
         if from_tag == "comment":
-            val = getattr(self, f"_{key}_in_comment")
-        elif from_tag.startswith("common_"):
-            val = getattr(self, f"_{from_tag}")
+            val = getattr(self._p, f"{key}_in_comment")
+        elif common_str_pattern.match(from_tag):
+            val = getattr(self._p, common_str_pattern.sub("", from_tag) + "_c")
         else:
-            val = getattr(self, f"_{from_tag}1")
+            try:
+                val = getattr(self._p, f"{from_tag}1")
+            except AttributeError:
+                val = getattr(self._p, from_tag)
 
         val = clean_string(val if val else fallback)
         match key:
@@ -728,93 +1032,63 @@ class MetadataScore:
 
         self.title.reset()
 
-        fs_name_lower = self._folder_and_filename.lower()
-
         # Title weights
-        t1_is_in_fs_name = self._title1.lower() in fs_name_lower
-        t1_fuzzy_fs_name = fuzz.token_sort_ratio(self._title1.lower(), fs_name_lower)
-        t1_is_missing = not self._title1
-        t2_is_in_fs_name = self._title2.lower() in fs_name_lower
-        t2_is_missing = not self._title2
-        t1_eq_t2 = self._title1 == self._title2
-        title_is_partno, partno_score, title_is_only_part_no = get_title_partno_score(
-            self._title1, self._title2, self._album1, self._sortalbum1
-        )
-
-        self.title.title_is_title += int(t1_is_in_fs_name)
-        self.title.title_is_title += int(t2_is_in_fs_name)
-        self.title.title_is_title += int(t1_fuzzy_fs_name)
-        self.title.title_is_title -= 100 * int(t1_is_missing)
-        self.title.title_is_title -= 10 * int(t2_is_missing)
+        self.title.title_is_title += int(self._p._t1_is_in_fs_name)
+        self.title.title_is_title += int(self._p._t2_is_in_fs_name)
+        self.title.title_is_title += int(self._p._t1_fuzzy_fs_name)
+        self.title.title_is_title -= 100 * int(self._p._t1_is_missing)
+        self.title.title_is_title -= 10 * int(self._p._t2_is_missing)
         self.title.common_title_is_title = (
-            0 if t2_is_missing else self.title.title_is_title
+            0 if self._p._t2_is_missing else self.title.title_is_title
         )
-        self.title.common_title_is_title += int(10 if not t1_eq_t2 else -10)
-        self.title.title_is_title += int(10 if t1_eq_t2 else -10)
+        self.title.common_title_is_title += int(10 if not self._p._t1_eq_t2 else -10)
+        self.title.title_is_title += int(10 if self._p._t1_eq_t2 else -10)
 
-        if title_is_partno:
-            if title_is_only_part_no:
-                self.title.title_is_title -= partno_score * 100
+        if self._p._t_is_partno:
+            if self._p._t_is_only_part_no:
+                self.title.title_is_title -= self._p._t_partno_score * 100
             else:
-                title1_contains_partno = contains_partno(self._title1)
-                title2_contains_partno = contains_partno(self._title2)
+                title1_contains_partno = contains_partno(self._p.title1)
+                title2_contains_partno = contains_partno(self._p.title2)
                 if title1_contains_partno or title2_contains_partno:
                     self.title.common_title_is_title = max(
                         self.title.title_is_title,
                         self.title.common_title_is_title,
                     )
-                    self.title.title_is_title -= partno_score * 5
+                    self.title.title_is_title -= self._p._t_partno_score * 5
 
         else:
-            self.title.title_is_title += partno_score
+            self.title.title_is_title += self._p._t_partno_score
 
         # Album weights
-        al1_is_in_fs_name = self._album1.lower() in fs_name_lower
-        al1_fuzzy_fs_name = fuzz.token_sort_ratio(self._album1.lower(), fs_name_lower)
-        al1_is_missing = not self._album1
-        al1_is_in_title = self._album1.lower() in self._title1.lower()
-        al2_is_in_fs_name = self._album2.lower() in fs_name_lower
-        al2_is_missing = not self._album2
-        al2_is_in_title = self._album2.lower() in self._title2.lower()
-        al1_eq_al2 = self._album1 == self._album2
-
-        self.title.album_is_title += int(al1_is_in_fs_name)
-        self.title.album_is_title += int(al2_is_in_fs_name)
-        self.title.album_is_title += int(al1_fuzzy_fs_name)
-        self.title.album_is_title += int(al1_is_in_title)
-        self.title.album_is_title += int(al2_is_in_title)
-        self.title.album_is_title -= 10 * int(al1_is_missing)
-        self.title.album_is_title -= int(al2_is_missing)
+        self.title.album_is_title += int(self._p._al1_is_in_fs_name)
+        self.title.album_is_title += int(self._p._al2_is_in_fs_name)
+        self.title.album_is_title += int(self._p._al1_fuzzy_fs_name)
+        self.title.album_is_title += int(self._p._al1_is_in_title)
+        self.title.album_is_title += int(self._p._al2_is_in_title)
+        self.title.album_is_title -= 10 * int(self._p._al1_is_missing)
+        self.title.album_is_title -= int(self._p._al2_is_missing)
         self.title.common_album_is_title = (
-            0 if al2_is_missing else self.title.album_is_title
+            0 if self._p._al2_is_missing else self.title.album_is_title
         )
-        self.title.common_album_is_title += int(10 if not al1_eq_al2 else -10)
-        self.title.album_is_title += int(10 if al1_eq_al2 else -10)
+        self.title.common_album_is_title += int(10 if not self._p._al1_eq_al2 else -10)
+        self.title.album_is_title += int(10 if self._p._al1_eq_al2 else -10)
 
         # Sortalbum weights
-        sal1_is_in_title = self._sortalbum1.lower() in self._title1.lower()
-        sal1_is_missing = not self._sortalbum1
-        sal1_is_in_fs_name = self._sortalbum1.lower() in fs_name_lower
-        sal1_fuzzy_fs_name = fuzz.token_sort_ratio(
-            self._sortalbum1.lower(), fs_name_lower
-        )
-        sal2_is_in_title = self._sortalbum2.lower() in self._title2.lower()
-        sal2_is_missing = not self._sortalbum2
-        sal2_is_in_fs_name = self._sortalbum2.lower() in fs_name_lower
-        sal1_eq_sal2 = self._sortalbum1 == self._sortalbum2
-
-        self.title.sortalbum_is_title += int(sal1_is_in_fs_name)
-        self.title.sortalbum_is_title += int(sal2_is_in_fs_name)
-        self.title.sortalbum_is_title += int(sal1_fuzzy_fs_name)
-        self.title.sortalbum_is_title += int(sal1_is_in_title)
-        self.title.sortalbum_is_title += int(sal2_is_in_title)
-        self.title.sortalbum_is_title -= 10 * int(sal1_is_missing)
-        self.title.sortalbum_is_title -= int(sal2_is_missing)
+        self.title.sortalbum_is_title += int(self._p._sal1_is_in_fs_name)
+        self.title.sortalbum_is_title += int(self._p._sal2_is_in_fs_name)
+        self.title.sortalbum_is_title += int(self._p._sal1_fuzzy_fs_name)
+        self.title.sortalbum_is_title += int(self._p._sal1_is_in_title)
+        self.title.sortalbum_is_title += int(self._p._sal2_is_in_title)
+        self.title.sortalbum_is_title -= 10 * int(self._p._sal1_is_missing)
+        self.title.sortalbum_is_title -= int(self._p._sal2_is_missing)
         self.title.common_sortalbum_is_title = (
-            0 if sal2_is_missing else self.title.sortalbum_is_title
+            0 if self._p._sal2_is_missing else self.title.sortalbum_is_title
         )
-        self.title.common_sortalbum_is_title += int(10 if not sal1_eq_sal2 else -10)
-        self.title.sortalbum_is_title += int(10 if sal1_eq_sal2 else -10)
+        self.title.common_sortalbum_is_title += int(
+            10 if not self._p._sal1_eq_sal2 else -10
+        )
+        self.title.sortalbum_is_title += int(10 if self._p._sal1_eq_sal2 else -10)
 
     def calc_author_scores(self):
         self.author.reset()
@@ -825,119 +1099,79 @@ class MetadataScore:
         common_albumartist_is_author = 0
         comment_contains_author = 0
 
-        fs_name_lower = self._folder_and_filename.lower()
-
-        if self._comment:
-            comment_contains_author += 20 * int(bool(self._author_in_comment))
+        if self._p.comment:
+            comment_contains_author += 20 * int(bool(self._p.author_in_comment))
 
         # Artist weights
-        if self._artist1:
-            a1_is_in_fs_name = self._artist1.lower() in fs_name_lower
-            artist_is_author += int(a1_is_in_fs_name)
+        if self._p.artist1:
+            artist_is_author += int(self._p._ar1_is_in_fs_name)
+            artist_is_author += int(self._p._ar1_fuzzy_fs_name)
+            artist_is_author -= 500 * int(self._p._ar1_is_graphic_audio)
+            artist_is_author -= int(10 if self._p._ar1_is_maybe_narrator else -10)
+            artist_is_author += int(10 if self._p._ar1_is_maybe_author else -10)
 
-            a1_fuzzy_fs_name = fuzz.token_sort_ratio(
-                self._artist1.lower(), fs_name_lower
-            )
-            artist_is_author += int(a1_fuzzy_fs_name)
-
-            a1_is_graphic_audio = has_graphic_audio(self._artist1)
-            artist_is_author -= 500 * int(a1_is_graphic_audio)
-
-            a1_is_maybe_narrator = parse_narrator(self._artist1, "generic")
-            artist_is_author -= int(10 if a1_is_maybe_narrator else -10)
-
-            a1_is_maybe_author = parse_author(self._artist1, "generic")
-            artist_is_author += int(10 if a1_is_maybe_author else -10)
-
-            if self._author_in_comment:
+            if self._p.author_in_comment:
                 artist_is_author += int(
-                    fuzz.ratio(self._author_in_comment, self._artist1)
+                    fuzz.ratio(self._p.author_in_comment, self._p.artist1)
                 )
-            if self._narrator_in_comment:
-                a1_neq_comment_narrator = self._narrator_in_comment != self._artist1
-                artist_is_author += 10 * int(1 if a1_neq_comment_narrator else -1)
-
+            if self._p.narrator_in_comment:
+                artist_is_author += 10 * int(
+                    -1 if self._p._ar1_eq_comment_narrator else 1
+                )
         else:
             artist_is_author = -404
 
-        if self._artist2:
-            a2_is_in_fs_name = self._artist2.lower() in fs_name_lower
-            artist_is_author += int(a2_is_in_fs_name)
+        if self._p.artist2:
+            artist_is_author += int(self._p._ar2_is_in_fs_name)
+            artist_is_author -= 10 * int(self._p._ar2_is_missing)
+            artist_is_author -= 250 * int(self._p._ar2_is_graphic_audio)
 
-            a2_is_missing = not self._artist2
-            artist_is_author -= 10 * int(a2_is_missing)
-
-            a2_is_graphic_audio = has_graphic_audio(self._artist2)
-            artist_is_author -= 250 * int(a2_is_graphic_audio)
-
-        if self._artist1 and self._artist2:
-            a1_eq_a2 = self._artist1 == self._artist2
+        if self._p.artist1 and self._p.artist2:
             common_artist_is_author = artist_is_author
-            common_artist_is_author += int(10 if not a1_eq_a2 else -10)
-            artist_is_author += int(10 if a1_eq_a2 else -10)
+            common_artist_is_author += int(10 if not self._p._ar1_eq_ar2 else -10)
+            artist_is_author += int(10 if self._p._ar1_eq_ar2 else -10)
 
         # Album Artist weights
-        if self._albumartist1:
-            aa1_is_in_fs_name = self._albumartist1.lower() in fs_name_lower
-            albumartist_is_author += int(aa1_is_in_fs_name)
+        if self._p.albumartist1:
+            albumartist_is_author += int(self._p._aar1_is_in_fs_name)
+            albumartist_is_author += int(self._p._aar1_fuzzy_fs_name)
+            albumartist_is_author -= 500 * int(self._p._aar1_is_graphic_audio)
+            albumartist_is_author -= int(10 if self._p._aar1_is_maybe_narrator else -10)
+            albumartist_is_author += int(10 if self._p._aar1_is_maybe_author else -10)
 
-            aa1_fuzzy_fs_name = fuzz.token_sort_ratio(
-                self._albumartist1.lower(), fs_name_lower
-            )
-            albumartist_is_author += int(aa1_fuzzy_fs_name)
-
-            aa1_is_graphic_audio = has_graphic_audio(self._albumartist1)
-            albumartist_is_author -= 500 * int(aa1_is_graphic_audio)
-
-            aa1_is_maybe_narrator = parse_narrator(self._albumartist1, "generic")
-            albumartist_is_author -= int(10 if aa1_is_maybe_narrator else -10)
-
-            aa1_is_maybe_author = parse_author(self._albumartist1, "generic")
-            albumartist_is_author += int(10 if aa1_is_maybe_author else -10)
-
-            if self._author_in_comment:
+            if self._p.author_in_comment:
                 albumartist_is_author += int(
-                    fuzz.ratio(self._author_in_comment, self._albumartist1)
+                    fuzz.ratio(self._p.author_in_comment, self._p.albumartist1)
                 )
 
-            if self._narrator_in_comment:
-                aa1_neq_comment_narrator = (
-                    self._narrator_in_comment != self._albumartist1
+            if self._p.narrator_in_comment:
+                albumartist_is_author += 10 * int(
+                    -1 if self._p._aar1_eq_comment_narrator else 1
                 )
-                albumartist_is_author += 10 * int(1 if aa1_neq_comment_narrator else -1)
-
         else:
             albumartist_is_author = -404
 
-        if self._albumartist2:
-            aa2_is_in_fs_name = self._albumartist2.lower() in fs_name_lower
-            albumartist_is_author += int(aa2_is_in_fs_name)
+        if self._p.albumartist2:
+            albumartist_is_author += int(self._p._aar2_is_in_fs_name)
+            albumartist_is_author -= 10 * int(self._p._aar2_is_missing)
+            albumartist_is_author -= 250 * int(self._p._aar2_is_graphic_audio)
 
-            aa2_is_missing = not self._albumartist2
-            albumartist_is_author -= 10 * int(aa2_is_missing)
-
-            aa2_is_graphic_audio = has_graphic_audio(self._albumartist2)
-            albumartist_is_author -= 250 * int(aa2_is_graphic_audio)
-
-        if self._albumartist1 and self._albumartist2:
-
-            aa1_eq_aa2 = self._albumartist1 == self._albumartist2
+        if self._p.albumartist1 and self._p.albumartist2:
             common_albumartist_is_author = albumartist_is_author
-            common_albumartist_is_author += int(10 if not aa1_eq_aa2 else -10)
-            albumartist_is_author += int(10 if aa1_eq_aa2 else -10)
-
-        if self._artist1 == self._albumartist1:
-            artist_is_author += 1
-
-        if self._artist2 == self._albumartist2:
-            artist_is_author += 1
-
-        if self._author_in_comment and self._narrator_in_comment:
-            comment_author_neq_comment_narrator = (
-                self._narrator_in_comment != self._author_in_comment
+            common_albumartist_is_author += int(
+                10 if not self._p._aar1_eq_aar2 else -10
             )
+            albumartist_is_author += int(10 if self._p._aar1_eq_aar2 else -10)
+
+        if self._p.artist1 == self._p.albumartist1:
+            artist_is_author += 1
+
+        if self._p.artist2 == self._p.albumartist2:
+            artist_is_author += 1
+
+        if self._p.author_in_comment and self._p.narrator_in_comment:
             comment_contains_author += 10 * int(
-                1 if comment_author_neq_comment_narrator else -1
+                -1 if self._p._comment_author_eq_comment_narrator else 1
             )
 
         # Update the scores
@@ -957,124 +1191,83 @@ class MetadataScore:
         common_albumartist_is_narrator = 0
         comment_contains_narrator = 0
 
-        fs_name_lower = self._folder_and_filename.lower()
-
-        if self._comment:
-            comment_contains_narrator += 40 * int(bool(self._narrator_in_comment))
+        if self._p.comment:
+            comment_contains_narrator += 40 * int(bool(self._p.narrator_in_comment))
 
         # If artist and album artist are the same, they're probably author, not narrator.
         # If either is missing, then the one that is present is probably the author.
 
         # Sometimes we get some false positives, where artist is narrator and composer is the author, but
         # we can only pick one.
-        a_eq_aa = bool(
-            self._artist1 and self._albumartist1 and self._artist1 == self._albumartist1
-        )
-        a_but_no_aa = bool(self._artist1 and not self._albumartist1)
-        aa_but_no_a = bool(self._albumartist1 and not self._artist1)
-        a_has_slash = bool("/" in self._artist1)
-        aa_has_slash = bool("/" in self._albumartist1)
-
-        if any([a_eq_aa, a_but_no_aa, aa_but_no_a]):
-            artist_is_narrator = 7 if a_has_slash else -99
-            albumartist_is_narrator = 7 if aa_has_slash else -99
+        if any([self._p._ar_eq_aar, self._p._ar_but_no_aar, self._p._aar_but_no_ar]):
+            artist_is_narrator = 7 if self._p._ar_has_slash else -99
+            albumartist_is_narrator = 7 if self._p._aar_has_slash else -99
 
         else:
             # Artist weights
-            if self._artist1:
-                a1_is_in_fs_name = self._artist1.lower() in fs_name_lower
-                artist_is_narrator += int(a1_is_in_fs_name)
+            if self._p.artist1:
+                artist_is_narrator += int(self._p._ar1_is_in_fs_name)
+                artist_is_narrator += int(self._p._ar1_fuzzy_fs_name)
+                artist_is_narrator -= 500 * int(self._p._ar1_is_graphic_audio)
+                artist_is_narrator -= int(10 if self._p._ar1_is_maybe_narrator else -10)
+                artist_is_narrator += int(10 if self._p._ar1_is_maybe_author else -10)
 
-                a1_fuzzy_fs_name = fuzz.token_sort_ratio(
-                    self._artist1.lower(), fs_name_lower
-                )
-                artist_is_narrator += int(a1_fuzzy_fs_name)
-
-                a1_is_graphic_audio = has_graphic_audio(self._artist1)
-                artist_is_narrator -= 500 * int(a1_is_graphic_audio)
-
-                a1_is_maybe_narrator = parse_narrator(self._artist1, "generic")
-                artist_is_narrator -= int(10 if a1_is_maybe_narrator else -10)
-
-                a1_is_maybe_author = parse_author(self._artist1, "generic")
-                artist_is_narrator += int(10 if a1_is_maybe_author else -10)
-
-                if self._narrator_in_comment:
+                if self._p.narrator_in_comment:
                     artist_is_narrator += int(
-                        fuzz.ratio(self._narrator_in_comment, self._artist1)
+                        fuzz.ratio(self._p.narrator_in_comment, self._p.artist1)
                     )
-                if self._author_in_comment:
-                    a1_neq_comment_author = self._author_in_comment != self._artist1
-                    artist_is_narrator += 10 * int(1 if a1_neq_comment_author else -1)
+                if self._p.author_in_comment:
+                    artist_is_narrator += 10 * int(
+                        -1 if self._p._ar1_eq_comment_author else 1
+                    )
 
             else:
                 artist_is_narrator = -404
 
-            if self._artist2:
-                a2_is_in_fs_name = self._artist2.lower() in fs_name_lower
-                artist_is_narrator += int(a2_is_in_fs_name)
+            if self._p.artist2:
+                artist_is_narrator += int(self._p._ar2_is_in_fs_name)
+                artist_is_narrator -= 10 * int(self._p._ar2_is_missing)
+                artist_is_narrator -= 250 * int(self._p._ar2_is_graphic_audio)
 
-                a2_is_missing = not self._artist2
-                artist_is_narrator -= 10 * int(a2_is_missing)
-
-                a2_is_graphic_audio = has_graphic_audio(self._artist2)
-                artist_is_narrator -= 250 * int(a2_is_graphic_audio)
-
-            if self._artist1 and self._artist2:
-                a1_eq_a2 = self._artist1 == self._artist2
+            if self._p.artist1 and self._p.artist2:
                 common_artist_is_narrator = artist_is_narrator
-                common_artist_is_narrator += int(10 if not a1_eq_a2 else -10)
-                artist_is_narrator += int(10 if a1_eq_a2 else -10)
+                common_artist_is_narrator += int(10 if not self._p._ar1_eq_ar2 else -10)
+                artist_is_narrator += int(10 if self._p._ar1_eq_ar2 else -10)
 
             # Album Artist weights
-            if self._albumartist1:
-                aa1_is_in_fs_name = self._albumartist1.lower() in fs_name_lower
-                albumartist_is_narrator += int(aa1_is_in_fs_name)
-
-                aa1_fuzzy_fs_name = fuzz.token_sort_ratio(
-                    self._albumartist1.lower(), fs_name_lower
+            if self._p.albumartist1:
+                albumartist_is_narrator += int(self._p._aar1_is_in_fs_name)
+                albumartist_is_narrator += int(self._p._aar1_fuzzy_fs_name)
+                albumartist_is_narrator -= 500 * int(self._p._aar1_is_graphic_audio)
+                albumartist_is_narrator -= int(
+                    10 if self._p._aar1_is_maybe_narrator else -10
                 )
-                albumartist_is_narrator += int(aa1_fuzzy_fs_name)
 
-                aa1_is_graphic_audio = has_graphic_audio(self._albumartist1)
-                albumartist_is_narrator -= 500 * int(aa1_is_graphic_audio)
-
-                aa1_is_maybe_narrator = parse_narrator(self._albumartist1, "generic")
-                albumartist_is_narrator -= int(10 if aa1_is_maybe_narrator else -10)
-
-                if self._narrator_in_comment:
+                if self._p.narrator_in_comment:
                     albumartist_is_narrator += int(
-                        fuzz.ratio(self._narrator_in_comment, self._albumartist1)
+                        fuzz.ratio(self._p.narrator_in_comment, self._p.albumartist1)
                     )
-                if self._author_in_comment:
-                    aa1_neq_comment_author = (
-                        self._author_in_comment != self._albumartist1
-                    )
+                if self._p.author_in_comment:
                     albumartist_is_narrator += 10 * int(
-                        1 if aa1_neq_comment_author else -1
+                        -1 if self._p._aar1_eq_comment_author else 1
                     )
-
             else:
                 albumartist_is_narrator = -404
 
-            if self._albumartist2:
-                aa2_is_in_fs_name = self._albumartist2.lower() in fs_name_lower
-                albumartist_is_narrator += int(aa2_is_in_fs_name)
+            if self._p.albumartist2:
+                albumartist_is_narrator += int(self._p._aar2_is_in_fs_name)
+                albumartist_is_narrator -= 10 * int(self._p._aar2_is_missing)
+                albumartist_is_narrator -= 250 * int(self._p._aar2_is_graphic_audio)
 
-                aa2_is_missing = not self._albumartist2
-                albumartist_is_narrator -= 10 * int(aa2_is_missing)
-
-                aa2_is_graphic_audio = has_graphic_audio(self._albumartist2)
-                albumartist_is_narrator -= 250 * int(aa2_is_graphic_audio)
-
-            if self._albumartist1 and self._albumartist2:
-                aa1_eq_aa2 = self._albumartist1 == self._albumartist2
+            if self._p.albumartist1 and self._p.albumartist2:
                 common_albumartist_is_narrator = albumartist_is_narrator
-                common_albumartist_is_narrator += int(10 if not aa1_eq_aa2 else -10)
-                albumartist_is_narrator += int(10 if aa1_eq_aa2 else -10)
+                common_albumartist_is_narrator += int(
+                    10 if not self._p._aar1_eq_aar2 else -10
+                )
+                albumartist_is_narrator += int(10 if self._p._aar1_eq_aar2 else -10)
 
-        if self._composer1 and self._composer1 != self._artist1:
-            composer_is_narrator = 5 * int(len(to_words(self._composer1)))
+        if self._p.composer and self._p.composer != self._p.artist1:
+            composer_is_narrator = 5 * int(len(to_words(self._p.composer)))
 
         self.narrator.artist_is_narrator = artist_is_narrator
         self.narrator.albumartist_is_narrator = albumartist_is_narrator
@@ -1082,6 +1275,30 @@ class MetadataScore:
         self.narrator.common_albumartist_is_narrator = common_albumartist_is_narrator
         self.narrator.comment_contains_narrator = comment_contains_narrator
         self.narrator.composer_is_narrator = composer_is_narrator
+
+    def calc_date_scores(self):
+        self.date.reset()
+
+        date_is_date = 0
+        fs_contains_date = 0
+
+        if self._p.date and not self._p.fs_year:
+            date_is_date += 10
+        elif self._p.fs_year and not self._p.date:
+            fs_contains_date += 10
+        elif self._p.date and self._p.fs_year:
+            if int(self._p.year) < int(self._p.fs_year):
+                date_is_date += 1
+            else:
+                fs_contains_date += 1
+
+        self.date.date_is_date = date_is_date
+        self.date.fs_contains_date = fs_contains_date
+
+        # if book.date:
+        #     li(f"Date: {book.date}")
+        # # extract 4 digits from date
+        # book.year = get_year_from_date(book.date)
 
 
 def extract_metadata(book: "Audiobook", quiet: bool = False) -> "Audiobook":
@@ -1091,6 +1308,8 @@ def extract_metadata(book: "Audiobook", quiet: bool = False) -> "Audiobook":
             f"Sampling [[{book.sample_audio1.name}]] for book metadata and quality info:",
             highlight_color=PATH_COLOR,
         )
+
+    li = print_list_item if not quiet else lambda *_: None
 
     # read id3 tags of audio file
     sample_audio1_tags = extract_id3_tags(book.sample_audio1)
@@ -1118,82 +1337,30 @@ def extract_metadata(book: "Audiobook", quiet: bool = False) -> "Audiobook":
 
     book.narrator = id3_score.get("narrator", from_best=True, fallback=book.fs_narrator)
 
-    if not quiet:
-        print_list_item(f"Title: {book.title}")
-        print_list_item(f"Author: {book.author}")
-        if book.narrator:
-            print_list_item(f"Narrator: {book.narrator}")
-
-    # TODO: Author/Narrator and "Book name by Author" in folder name
-
-    # narrator_in_id3_artist = parse_narrator(book.id3_artist)
-    # narrator_in_id3_albumartist = parse_narrator(book.id3_albumartist)
-    # narrator_in_id3_comment = parse_narrator(book.id3_comment)
-    # narrator_in_id3_composer = parse_narrator(book.id3_composer)
-
-    # id3_artist_has_slash = "/" in book.id3_artist
-    # id3_albumartist_has_slash = "/" in book.id3_albumartist
-
-    # # Narrator
-    # if id3_artist_has_slash:
-    #     match = narrator_slash_pattern.search(book.id3_artist)
-    #     book.narrator = re_group(match, "narrator")
-    #     book.artist = re_group(match, "author")
-    # elif id3_albumartist_has_slash:
-    #     match = narrator_slash_pattern.search(book.id3_albumartist)
-    #     book.narrator = re_group(match, "narrator")
-    #     book.albumartist = re_group(match, "author")
-    # elif bool(narrator_in_id3_artist):
-    #     match = narrator_in_artist_pattern.search(book.id3_artist)
-    #     book.artist = re_group(match, "author")
-    #     book.narrator = re_group(match, "narrator")
-    # elif bool(narrator_in_id3_albumartist):
-    #     match = narrator_in_artist_pattern.search(book.id3_albumartist)
-    #     book.albumartist = re_group(match, "author")
-    #     book.narrator = re_group(match, "narrator")
-    # elif bool(narrator_in_id3_comment):
-    #     book.narrator = narrator_in_id3_comment
-    # elif bool(narrator_in_id3_composer):
-    #     book.narrator = narrator_in_id3_composer
-    # else:
-    #     book.narrator = book.fs_narrator
-
-    # # Swap first and last names if a comma is present
-    # book.artist = swap_firstname_lastname(book.artist)
-    # book.albumartist = swap_firstname_lastname(book.albumartist)
-    # book.narrator = swap_firstname_lastname(book.narrator)
-
-    # If comment does not have narrator, but narrator is not empty,
-    # pre-pend narrator to comment as "Narrated by <narrator>. <existing comment>"
+    li(f"Title: {book.title}")
+    li(f"Author: {book.author}")
     if book.narrator:
+        li(f"Narrator: {book.narrator}")
+
+        # TODO: Author/Narrator and "Book name by Author" in folder name
+
+        # If comment does not have narrator, but narrator is not empty,
+        # pre-pend narrator to comment as "Narrated by <narrator>. <existing comment>"
         if not book.id3_comment:
             book.id3_comment = f"Read by {book.narrator}"
-        elif not parse_narrator(book.id3_comment):
+        elif not parse_narrator(book.id3_comment, "comment"):
             book.id3_comment = f"Read by {book.narrator} // {book.id3_comment}"
 
-    # Date:
-    if book.id3_date and not book.fs_year:
-        book.date = book.id3_date
-    elif book.fs_year and not book.id3_date:
-        book.date = book.fs_year
-    elif book.id3_date and book.fs_year:
-        if int(book.id3_year) < int(book.fs_year):
-            book.date = book.id3_date
-        else:
-            book.date = book.fs_year
-
-    if book.date and not quiet:
-        print_list_item(f"Date: {book.date}")
+    book.date = id3_score.get("date", from_best=True, fallback=book.fs_year)
+    if book.date:
+        li(f"Date: {book.date}")
     # extract 4 digits from date
     book.year = get_year_from_date(book.date)
 
     # convert bitrate and sample rate to friendly to kbit/s, rounding to nearest tenths, e.g. 44.1 kHz
-    if not quiet:
-        print_list_item(
-            f"Quality: {book.bitrate_friendly} @ {book.samplerate_friendly}"
-        )
-        print_list_item(f"Duration: {book.duration('inbox', 'human')}")
-        if not book.has_id3_cover:
-            print_list_item(f"No cover art")
+    li(f"Quality: {book.bitrate_friendly} @ {book.samplerate_friendly}")
+    li(f"Duration: {book.duration('inbox', 'human')}")
+    if not book.has_id3_cover:
+        li(f"No cover art")
 
     return book

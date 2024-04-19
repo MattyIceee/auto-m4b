@@ -49,6 +49,9 @@ roman_strip_pattern = re.compile(r"(?<=\w)(?=[\W_.-])|(?<=[\W_.-])(?=\w)|(?<=[a-
 
 year_pattern = re.compile(r"(?P<year>\d{4})", re.I)
 
+common_str_pattern = re.compile(r"(^common_|_c(ommon)?$)")
+startswith_num_pattern = re.compile(r"^\d+")
+
 multi_disc_pattern = re.compile(r"(?:^|(?<=[\W_-]))(dis[ck]|cd)(\b|\s|[_.-])*#?(\b|\s|[_.-])*(?:\b|[\W_-])*(\d+)", re.I)
 book_series_pattern = re.compile(r"(^\d+|(?:^|(?<=[\W_-]))(bo{0,2}k|vol(?:ume)?|#)(?:\b|[\W_-])*(\d+)|(?<=[\W_-])Series.*/.+)", re.I)
 multi_part_pattern = re.compile(r"(?:^|(?<=[\W_-]))(pa?r?t|ch(?:\.|apter))(?:\b|[\W_-])*(\d+)", re.I)
@@ -157,7 +160,7 @@ def extract_path_info(book: "Audiobook", quiet: bool = False) -> "Audiobook":
 
     dir_title = re_group(book_title_pattern.search(book.basename), "book_title")
     dir_year = re_group(year_pattern.search(book.basename), "year")
-    dir_narrator = parse_narrator(book.basename)
+    dir_narrator = parse_narrator(book.basename, "fs")
 
     # remove suffix/extension from files
     files = [f.stem for f in Path(book.inbox_dir).iterdir() if f.is_file()]
@@ -178,7 +181,7 @@ def extract_path_info(book: "Audiobook", quiet: bool = False) -> "Audiobook":
 
     file_author = parse_author(orig_file_name, "fs")
     file_title = re_group(book_title_pattern.search(orig_file_name), "book_title")
-    file_year = re_group(year_pattern.search(orig_file_name), "year")
+    file_year = parse_year(orig_file_name)
 
     meta = {
         "author": dir_author,
@@ -314,34 +317,34 @@ def parse_names(
             author_pattern = author_comment_pattern
             narrator_pattern = narrator_comment_pattern
 
-    author_default = (
-        default if not re_group(narrator_pattern.search(narrator), "narrator") else ""
-    )
-    narrator_default = (
-        default if not re_group(author_pattern.search(author), "author") else ""
-    )
+    # author_default = (
+    #     default if not re_group(narrator_pattern.search(narrator), "narrator") else ""
+    # )
+    # narrator_default = (
+    #     default if not re_group(author_pattern.search(author), "author") else ""
+    # )
 
-    author = re_group(
-        author_pattern.search(author), "author", default=author_default
-    ).strip()
+    author = re_group(author_pattern.search(author), "author", default=default).strip()
     narrator = re_group(
-        narrator_pattern.search(narrator), "narrator", default=narrator_default
+        narrator_pattern.search(narrator), "narrator", default=default
     ).strip()
 
     if not author and not narrator:
         return AuthorNarrator(default, default)
 
-    if author and author in narrator:
-        narrator = re.sub(author, "", narrator)
-    elif narrator and narrator in author:
-        author = re.sub(narrator, "", author)
+    if author != narrator:
+        if author and author in narrator:
+            narrator = re.sub(author, "", narrator)
+        elif narrator and narrator in author:
+            author = re.sub(narrator, "", author)
 
     author = get_name_from_str(author)
     narrator = get_name_from_str(narrator)
 
     return AuthorNarrator(
         author=swap_firstname_lastname(author),
-        narrator=swap_firstname_lastname(narrator),
+        # narrator=swap_firstname_lastname(narrator),
+        narrator=narrator,
     )
 
 
@@ -359,6 +362,10 @@ def parse_narrator(
     s: str, target: NameParserTarget, *, default: str | None = None
 ) -> str:
     return parse_names(s, target, default=default).narrator or default or ""
+
+
+def parse_year(s: str) -> str:
+    return re_group(year_pattern.search(s), "year")
 
 
 def get_title_partno_score(

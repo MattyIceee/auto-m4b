@@ -264,7 +264,7 @@ class test_unhappy_paths:
 
         with concurrent.futures.ThreadPoolExecutor() as executor:
             await asyncio.get_running_loop().run_in_executor(
-                executor, testutils.flatten_book, old_mill__multidisc_mp3, 3
+                executor, testutils.flatten_book, old_mill__multidisc_mp3, 4
             )
 
         out = testutils.get_stdout(capfd)
@@ -372,35 +372,33 @@ class test_unhappy_paths:
             )
 
         async def async_app():
-            with testutils.set_wait_time(2):
+            with testutils.set_wait_time(1):
                 testutils.print("Starting app...")
                 app(max_loops=2)
                 testutils.print("Finished app")
 
-        with testutils.set_wait_time(1):
+        app_task = asyncio.create_task(async_app())
 
-            app_task = asyncio.create_task(async_app())
-
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                await asyncio.get_running_loop().run_in_executor(
-                    executor, add_book_to_inbox
-                )
-
-            await app_task
-
-            out = testutils.get_stdout(capfd)
-            assert testutils.assert_processed_output(
-                out,
-                tower_treasure__flat_mp3,
-                house_on_the_cliff__flat_mp3,
-                the_sunlit_man__flat_mp3,
-                tiny__flat_mp3,
-                loops=[
-                    testutils.check_output(found_books_eq=2, converted_eq=2),
-                    testutils.check_output(found_books_eq=2, converted_eq=2),
-                ],
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            await asyncio.get_running_loop().run_in_executor(
+                executor, add_book_to_inbox
             )
-            assert testutils.assert_header_count(out, expected_eq=2)
+
+        await app_task
+
+        out = testutils.get_stdout(capfd)
+        assert testutils.assert_processed_output(
+            out,
+            tower_treasure__flat_mp3,
+            house_on_the_cliff__flat_mp3,
+            the_sunlit_man__flat_mp3,
+            tiny__flat_mp3,
+            loops=[
+                testutils.check_output(found_books_eq=2, converted_eq=2),
+                testutils.check_output(found_books_eq=2, converted_eq=2),
+            ],
+        )
+        assert testutils.assert_header_count(out, expected_eq=2)
 
     ORDER += 1
 

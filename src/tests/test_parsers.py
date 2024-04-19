@@ -47,18 +47,19 @@ def test_id3_extract_fails_for_corrupt_file(corrupt_audiobook: Audiobook):
             },
             {
                 "author": "Sarah J. Maas",
-                "narrator": "Full Cast",
+                "narrator": "Melody Muze",
             },
         ),
     ],
 )
 def test_parse_id3_tags(test_dict: dict[str, str], expected: dict[str, str]):
 
-    for tag, test_str in test_dict.items():
+    for _tag, test_str in test_dict.items():
+        # TODO: Move this to full extract_metadata test
         if "narrator" in expected:
-            assert parse_narrator(test_str) == expected["narrator"]
+            assert parse_narrator(test_str, "comment") == expected["narrator"]
         if "author" in expected:
-            assert parse_author(test_str, target="tag") == expected["author"]
+            assert parse_author(test_str, "comment") == expected["author"]
 
 
 def test_ignore_graphic_audio(
@@ -85,12 +86,12 @@ def test_ignore_graphic_audio(
     assert b.author == "Sarah J. Maas"
     assert b.artist == b.author
     assert b.albumartist == b.author
-    assert b.narrator == "Full Cast"
+    assert b.narrator == "Melody Muze"
 
     assert """Sampling A Court Of Thorns And Roses [03.1] A Court Of Frost And Starlight.m4b for book metadata and quality info:
 - Title: A Court of Thorns and Roses: A Court of Frost and Starlight
 - Author: Sarah J. Maas
-- Narrator: Full Cast
+- Narrator: Melody Muze
 - Date: 2023
 - Quality: 64 kb/s @ 44.1 kHz
 - Duration: 0h:00m:33s
@@ -174,6 +175,33 @@ def test_parse_id3_author(
 
     book = Audiobook(blank_audiobook.sample_audio1).extract_metadata()
     assert book.author == expected_author
+
+
+@pytest.mark.parametrize(
+    "test_dict, expected_date",
+    [
+        (
+            {
+                "date": "2023-10-22",
+            },
+            "2023",
+        ),
+    ],
+)
+def test_parse_id3_date(
+    test_dict: dict[str, str],
+    expected_date: str,
+    blank_audiobook: Audiobook,
+    mock_id3_tags: Callable[..., list[dict[str, str]]],
+):
+
+    _got_tags = mock_id3_tags(
+        (blank_audiobook.sample_audio1, test_dict),
+        (blank_audiobook.sample_audio2, test_dict),
+    )
+
+    book = Audiobook(blank_audiobook.sample_audio1).extract_metadata()
+    assert book.year == expected_date
 
 
 @pytest.mark.parametrize(
