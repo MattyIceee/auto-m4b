@@ -159,6 +159,13 @@ def test_ignore_graphic_audio(
             },
             "James Allen",
         ),
+        (
+            {
+                "artist": "James Allen/Andrew Farell",
+                "comment": "",
+            },
+            "James Allen",
+        ),
     ],
 )
 def test_parse_id3_author(
@@ -233,6 +240,13 @@ def test_parse_id3_date(
         (
             {
                 "artist": "James Allen/Andrew Farell (Narrator)",
+                "comment": "",
+            },
+            "Andrew Farell",
+        ),
+        (
+            {
+                "artist": "James Allen/Andrew Farell",
                 "comment": "",
             },
             "Andrew Farell",

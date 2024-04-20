@@ -14,7 +14,6 @@ from src.lib.config import cfg
 from src.lib.formatters import (
     human_elapsed_time,
     log_date,
-    log_format_elapsed_time,
     pluralize,
     pluralize_with_count,
 )
@@ -675,14 +674,15 @@ def convert_book(book: Audiobook):
 
     if err:
         stderr = proc.stderr.decode() if proc.stderr else ""
-        book.write_log(f"{err}\n{stderr}")
-        fail_book(book)
+        fail_book(book, reason=f"{err}\n{stderr}")
         log_global_results(book, "FAILED", 0)
         return False
-    else:
-        book.write_log(
-            f"{endtime_log}  {book}  Converted in {log_format_elapsed_time(elapsedtime)}\n"
-        )
+
+    # TODO: No longer need to write successful logs
+    # else:
+    #     book.write_log(
+    #         f"{endtime_log}  {book}  Converted in {log_format_elapsed_time(elapsedtime)}\n"
+    #     )
 
     return elapsedtime
 
