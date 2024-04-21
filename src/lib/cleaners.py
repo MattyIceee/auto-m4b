@@ -1,5 +1,12 @@
 import re
 
+disc_no_strip_pattern = re.compile(
+    r"\W*?-?\W*?[\(\[]*(disc|cd)\W*\d+[\)\]]*", flags=re.I
+)
+part_no_strip_pattern = re.compile(
+    r"(\W*?-?\W*?[\(\[]*[Pp]([Aa][Rr])?[Tt]\W*\d+[\)\]]*|P[Aa][Rr][Tt]$)"
+)
+
 
 def strip_html_tags(s: str) -> str:
     """Replaces all html tags including <open> and </close> tags, and <autoclose /> tags with an empty string"""
@@ -8,12 +15,13 @@ def strip_html_tags(s: str) -> str:
 
 def strip_disc_number(s: str) -> str:
     """Takes a string and removes any disc/CD number found in the string"""
-    return re.sub(r"\W*?-?\W*?[\(\[]*(disc|cd)\W*\d+[\)\]]*", "", s, flags=re.I).strip()
+    return disc_no_strip_pattern.sub("", s).strip()
 
 
 def strip_part_number(s: str) -> str:
-    """Takes a string and removes any part number found in the string"""
-    return re.sub(r"\W*?-?\W*?[\(\[]*p(ar)?t\W*\d+[\)\]]*", "", s, flags=re.I).strip()
+
+    # if it matches both the part number and ignore, return original string
+    return part_no_strip_pattern.sub("", s).strip()
 
 
 def fix_smart_quotes(s: str) -> str:

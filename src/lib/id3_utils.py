@@ -21,6 +21,7 @@ from src.lib.misc import compare_trim, fix_ffprobe, get_numbers_in_string
 
 fix_ffprobe()
 
+from src.lib.cleaners import strip_part_number
 from src.lib.parsers import (
     common_str_pattern,
     contains_partno,
@@ -536,21 +537,21 @@ class BaseScoreCard:
         return self.__class__.__name__.split("ScoreCard")[0].lower()
 
     @property
-    def is_likely(self) -> tuple[TagSource, int]:
+    def is_likely(self) -> tuple[TagSource, int, str | None]:
         # put all the scores in a list and return the highest score and its var name
         rep = re.compile(rf"_(is|contains)_{self._prop}$")
         scores = [
-            (cast(TagSource, re.sub(rep, "", p)), getattr(self, p))
+            (cast(TagSource, re.sub(rep, "", p)), getattr(self, p), p)
             for p in dir(self)
             if not p.startswith("_")
             and p.endswith(self._prop)
             and isinstance(getattr(self, p), int)
         ]
-        if not scores or all(score <= 0 for _, score in scores):
-            return "unknown", 0
-        tag, best = max(scores, key=lambda x: x[1])
+        if not scores or all(score[1] <= 0 for score in scores):
+            return "unknown", 0, None
+        tag, best, prop = max(scores, key=lambda x: x[1])
         # return the highest score and the name of its variable - use inflection or inspect
-        return tag, best
+        return tag, best, prop
 
     def __repr__(self):
         return self.__str__()
@@ -763,6 +764,8 @@ class MetadataProps:
                 self.title1, self.title2, self.album1, self.sortalbum1
             )
         )
+        if self._t_is_partno:
+            self.title_c = strip_part_number(self.title_c)
 
         # Title
         self._t1_numbers = ""
@@ -1002,7 +1005,7 @@ class MetadataScore:
 
         getattr(self, f"calc_{key}_scores")()
         if from_best:
-            from_tag, _score = getattr(self, key).is_likely
+            from_tag, _score, _prop = getattr(self, key).is_likely
         if from_tag is None:
             raise ValueError("from_tag must be provided if from_best is False")
 
@@ -1014,6 +1017,9 @@ class MetadataScore:
             val = getattr(self._p, f"{key}_in_comment")
         elif common_str_pattern.match(from_tag):
             val = getattr(self._p, common_str_pattern.sub("", from_tag) + "_c")
+        elif from_tag == "fs":
+            if key == "date":
+                val = self._p.fs_year
         else:
             try:
                 val = getattr(self._p, f"{from_tag}1")

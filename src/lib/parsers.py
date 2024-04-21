@@ -10,6 +10,7 @@ import cachetools
 import cachetools.func
 import regex as rex
 
+from src.lib.cleaners import strip_part_number
 from src.lib.misc import get_numbers_in_string, isorted, re_group
 from src.lib.term import print_debug
 from src.lib.typing import AuthorNarrator, MEMO_TTL, NameParserTarget
@@ -39,7 +40,7 @@ lastname_firstname_pattern = re.compile(r"^(?P<lastname>.*?), (?P<firstname>.*)$
 firstname_lastname_pattern = re.compile(r"^(?P<firstname>.*?).*\s(?P<lastname>\S+)$", re.I)
 
 book_title_pattern = re.compile(r"(?<=[-_–—])[\W\s]*(?P<book_title>[\w\s]+?)\s*(?=\d{4}|\(|\[|$)", re.I)
-part_number_pattern = re.compile(rf",?{_div}(?:part|ch(?:\.|apter))?{_div}\W*(\d+)(?:$|{_div}(?:of|-){_div}(\d+)\W*$)", re.I)
+part_number_match_pattern = re.compile(rf",?{_div}(?:part|ch(?:\.|apter))?{_div}\W*(\d+)(?:$|{_div}(?:of|-){_div}(\d+)\W*$)", re.I)
 part_number_ignore_pattern = re.compile(r"(?:\bbook\b|\bvol(?:ume)?)\s*\d+$", re.I)
 path_junk_pattern = re.compile(r"^[ \,.\)\}\]_-]*|[ \,.\)\}\]_-]*$", re.I)
 path_garbage_pattern = re.compile(r"^[ \,.\)\}\]]*", re.I)
@@ -136,19 +137,10 @@ def find_greatest_common_string(s: list[str]) -> str:
 
 
 def contains_partno(s: str) -> bool:
-    matches_part_number = part_number_pattern.search(s)
+    matches_part_number = part_number_match_pattern.search(s)
     matches_ignore_if = part_number_ignore_pattern.search(s)
 
     return bool(matches_part_number and not matches_ignore_if)
-
-
-def strip_part_number(s: str) -> str:
-
-    # if it matches both the part number and ignore, return original string
-    if contains_partno(s):
-        return part_number_pattern.sub("", s)
-    else:
-        return s
 
 
 def extract_path_info(book: "Audiobook", quiet: bool = False) -> "Audiobook":
@@ -371,31 +363,32 @@ def parse_year(s: str) -> str:
 def get_title_partno_score(
     title_1: str, title_2: str, album_1: str, sortalbum_1: str
 ) -> tuple[bool, int, bool]:
+    """Returns a score for the likelihood that the title(s) indicate the part number of a multi-part book, e.g. "Part 01" or "The Martian Part 014. A positive score indicates a likely part #, negative indicates not a part #."""
     score = 0
     t1_part = contains_partno(title_1)
     t2_part = contains_partno(title_2)
     t1 = get_numbers_in_string(title_1)
     t2 = get_numbers_in_string(title_2)
-    a1 = get_numbers_in_string(album_1)
-    sa1 = get_numbers_in_string(sortalbum_1)
+    al1 = get_numbers_in_string(album_1)
+    sal1 = get_numbers_in_string(sortalbum_1)
 
-    if len(t1) > len(a1):
-        score -= 1
+    if len(t1) > len(al1):
+        score += 1
 
-    if len(t1) > len(sa1):
-        score -= 1
+    if len(t1) > len(sal1):
+        score += 1
 
     if t1 != t2:
-        score -= 1
+        score += 1
         if t1_part:
-            score -= 1
+            score += 1
         if t2_part:
-            score -= 1
+            score += 1
     else:
         # if the numbers in both titles match, it's likely that the number is part of the book's name
-        score += 1
+        score -= 1
         if not t1_part and not t2_part:
-            score += 2
+            score -= 2
 
     contains_only_part = (
         strip_part_number(title_1) == "" and strip_part_number(title_2) == ""

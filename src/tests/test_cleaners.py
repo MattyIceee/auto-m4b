@@ -61,22 +61,13 @@ def test_strip_disc_number(test_str: str, expected: str):
             "The Last Guardian - Part 01 - Track07.mp3",
             "The Last Guardian - Track07.mp3",
         ),
-        (
-            "The Last Guardian (Part 01)",
-            "The Last Guardian",
-        ),
-        (
-            "The Last Guardian - Part 01",
-            "The Last Guardian",
-        ),
-        (
-            "The Last Guardian, PT.01",
-            "The Last Guardian",
-        ),
-        (
-            "The Last Guardian, pt 1",
-            "The Last Guardian",
-        ),
+        ("The Last Guardian (Part 01)", "The Last Guardian"),
+        ("The Last Guardian - Part 01", "The Last Guardian"),
+        ("The Last Guardian, PT.01", "The Last Guardian"),
+        ("The Last Guardian, pt 1", "The Last Guardian"),
+        ("TouchofFrostPart1MythosAcademy", "TouchofFrostMythosAcademy"),
+        ("TouchofFrostPart 01.mp3", "TouchofFrost.mp3"),
+        ("TouchofFrostPart", "TouchofFrost"),
     ],
 )
 def test_strip_part_number(test_str: str, expected: str):
