@@ -718,12 +718,13 @@ def move_converted_book_and_extras(book: Audiobook):
         overwrite_mode="overwrite-silent",
     )
 
-    mv_file_to_dir(
-        book.log_file,
-        book.converted_dir,
-        new_filename=book.log_filename,
-        overwrite_mode="overwrite-silent",
-    )
+    if book.log_file.is_file():
+        mv_file_to_dir(
+            book.log_file,
+            book.converted_dir,
+            new_filename=book.log_filename,
+            overwrite_mode="overwrite-silent",
+        )
 
     rm_all_empty_dirs(book.build_dir)
 
