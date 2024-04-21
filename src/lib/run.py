@@ -620,7 +620,6 @@ def convert_book(book: Audiobook):
         smart_print(stdout)
 
     endtime_log = log_date()
-    elapsedtime = int(time.time() - starttime)
 
     if re.search(r"error", stdout, re.I):
         # ignorable errors:
@@ -684,7 +683,9 @@ def convert_book(book: Audiobook):
     #         f"{endtime_log}  {book}  Converted in {log_format_elapsed_time(elapsedtime)}\n"
     #     )
 
-    return elapsedtime
+    verify_and_update_id3_tags(book, "build")
+
+    return int(time.time() - starttime)
 
 
 def move_desc_file(book: Audiobook):
@@ -912,7 +913,6 @@ def process_book(b: int, item: InboxItem):
     book.write_description_txt()
 
     # TODO: Only handles single m4b output file, not multiple files.
-    verify_and_update_id3_tags(book, "build")
 
     if (elapsedtime := convert_book(book)) is False:
         return b
