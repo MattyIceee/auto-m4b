@@ -230,7 +230,7 @@ def fail_book(book: Audiobook, reason: str = "unknown"):
 def backup_ok(book: Audiobook):
     # Copy files to backup destination
     if not cfg.BACKUP:
-        print_dark_grey("Not backing up (backups are disabled)")
+        print_debug("Not backing up (backups are disabled)")
     elif dir_is_empty_ignoring_hidden_files(book.inbox_dir):
         print_dark_grey("Skipping backup (folder is empty)")
     else:
@@ -910,6 +910,9 @@ def process_book(b: int, item: InboxItem):
 
     book.write_description_txt()
 
+    # TODO: Only handles single m4b output file, not multiple files.
+    verify_and_update_id3_tags(book, "build")
+
     if (elapsedtime := convert_book(book)) is False:
         return b
 
@@ -919,9 +922,6 @@ def process_book(b: int, item: InboxItem):
 
     move_desc_file(book)
     log_global_results(book, "SUCCESS", elapsedtime)
-
-    # TODO: Only handles single m4b output file, not multiple files.
-    verify_and_update_id3_tags(book, "build")
 
     if not move_converted_book_and_extras(book):
         return b
