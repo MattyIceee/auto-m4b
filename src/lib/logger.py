@@ -51,6 +51,7 @@ def log_global_results(
         log_file = cfg.GLOBAL_LOG_FILE
 
     log_data: list[list[str]] = []
+    log_file.touch(exist_ok=True)
     with open(log_file, "r") as f:
         for line in f:
             if line.startswith("Date ") or multiline_is_empty(line):
