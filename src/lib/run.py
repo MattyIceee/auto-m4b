@@ -720,12 +720,16 @@ def move_converted_book_and_extras(book: Audiobook):
     )
 
     if book.log_file.is_file():
-        mv_file_to_dir(
-            book.log_file,
-            book.converted_dir,
-            new_filename=book.log_filename,
-            overwrite_mode="overwrite-silent",
-        )
+        # Delete it if it's empty, otherwise move it
+        if not book.log_file.read_text().strip():
+            book.log_file.unlink()
+        else:
+            mv_file_to_dir(
+                book.log_file,
+                book.converted_dir,
+                new_filename=book.log_filename,
+                overwrite_mode="overwrite-silent",
+            )
 
     rm_all_empty_dirs(book.build_dir)
 

@@ -242,6 +242,7 @@ class Audiobook(BaseModel):
         return log_file
 
     def write_log(self, *s: str):
+        self.log_file.touch(exist_ok=True)
         with open(self.log_file, "a+") as f:
             # if file is not empty, and last line is not empty, add a newline
             if f.tell() and (existing := f.readlines()) and existing[-1].strip():

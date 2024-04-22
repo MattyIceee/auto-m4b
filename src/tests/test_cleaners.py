@@ -68,6 +68,7 @@ def test_strip_disc_number(test_str: str, expected: str):
         ("TouchofFrostPart1MythosAcademy", "TouchofFrostMythosAcademy"),
         ("TouchofFrostPart 01.mp3", "TouchofFrost.mp3"),
         ("TouchofFrostPart", "TouchofFrost"),
+        ("Midnight Frost: Part 1", "Midnight Frost"),
     ],
 )
 def test_strip_part_number(test_str: str, expected: str):

@@ -767,8 +767,8 @@ class testutils:
         m4b = book.converted_dir / f"{book.path.name}.m4b"
         assert m4b.exists()
         assert m4b.stat().st_size > 0
-        # log = book.converted_dir / f"auto-m4b.{book.path.name}.log"
-        # assert log.exists()
+        log = book.converted_dir / f"auto-m4b.{book.path.name}.log"
+        assert not log.exists()
         # assert log.stat().st_size > 0
         desc = book.converted_dir / f"{book.path.name} [{quality}].txt"
         assert desc.exists()
