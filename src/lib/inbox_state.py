@@ -10,7 +10,6 @@ from src.lib.audiobook import Audiobook
 from src.lib.formatters import friendly_short_date
 from src.lib.fs_utils import (
     count_audio_files_in_inbox,
-    count_standalone_books_in_inbox,
     find_book_dirs_in_inbox,
     find_books_in_inbox,
     find_standalone_books_in_inbox,
@@ -260,8 +259,16 @@ class InboxState(Hasher):
         return find_standalone_books_in_inbox()
 
     @property
-    def num_standalone_files(self):
-        return count_standalone_books_in_inbox()
+    def standalone_books(self):
+        return {
+            k: v
+            for k, v in self._items.items()
+            if v.is_file and v.status in ("ok", "new", "needs_retry")
+        }
+
+    @property
+    def num_standalone_books(self):
+        return len(self.standalone_books)
 
     @property
     def book_dirs(self):
@@ -325,12 +332,12 @@ class InboxState(Hasher):
         return len(self.ok_books)
 
     @property
-    def ok_and_matched_books(self):
+    def matched_ok_books(self):
         return {k: v for k, v in self.ok_books.items() if k in self.matched_books}
 
     @property
-    def num_ok_and_matched(self):
-        return len(self.ok_and_matched_books)
+    def num_matched_ok(self):
+        return len(self.matched_ok_books)
 
     @property
     def has_failed_books(self):
@@ -381,7 +388,7 @@ class InboxState(Hasher):
             self.stale = True
         return changed
 
-    def inbox_needs_processing(self):
+    def inbox_needs_processing(self, *, on_will_scan: Callable[[], None] | None = None):
 
         from src.lib.config import cfg
         from src.lib.run import print_banner
@@ -395,7 +402,7 @@ class InboxState(Hasher):
         # rec_mod = self.dir_was_recently_modified
         while self.dir_was_recently_modified:
             print_debug(
-                f"Waiting for inbox updates: {waited_count + 1} ({before_modified_hash} → {self.curr_hash})"
+                f"{en.DEBUG_WAITING_FOR_INBOX} {waited_count + 1} ({before_modified_hash} → {self.curr_hash})"
             )
             self.scan()
             if not self.changed_after_waiting:
@@ -409,13 +416,12 @@ class InboxState(Hasher):
                 _banner_printed = True
 
             waited_count += 1
-            time.sleep(cfg.WAIT_TIME)
+            time.sleep(0.5)
 
         needs_scan = (
-            waited_count > 0
-            or self.changed_since_last_run_ended
-            or self.changed_since_last_run_started
+            self.changed_since_last_run_ended or self.changed_since_last_run_started
         )
+
         # print_debug(
         #     f"----------------------------\n"
         #     f"        Recently modified: {rec_mod}\n"
@@ -430,15 +436,21 @@ class InboxState(Hasher):
         #     f"        Ready: {self.ready}\n"
         # )
 
-        if needs_scan:
+        if needs_scan or waited_count > 0:
+
+            hash_changed = self.curr_hash != before_modified_hash
 
             msg = ""
             if waited_count:
                 msg = f"Done waiting for inbox"
 
+            # Fix standalone files
+            if on_will_scan:
+                on_will_scan()
+
             self.scan(recheck_failed=True, set_ready=True)
 
-            if self.curr_hash != before_modified_hash:
+            if hash_changed:
                 h = f"({before_modified_hash} → {self.curr_hash})"
                 msg = f"{msg} - hash changed {h}" if msg else f"Hash changed {h}"
                 print_banner()
@@ -449,9 +461,9 @@ class InboxState(Hasher):
             if msg:
                 print_debug(f"{msg}", only_once=True)
 
-            if self.ok_and_matched_books:
+            if self.matched_ok_books or hash_changed:
 
-                print_debug(f"{len(self.ok_and_matched_books)} book(s) need processing")
+                # print_debug(f"{len(self.matched_ok_books)} book(s) need processing")
                 return True
 
         print_debug(

@@ -3,20 +3,19 @@ import functools
 import re
 import shutil
 import subprocess
-import sys
 from pathlib import Path
-from typing import Any, cast, Literal, overload, TYPE_CHECKING
+from typing import Any, cast, Literal, NamedTuple, overload, TYPE_CHECKING
 
 import bidict
 import ffmpeg
 from columnar import columnar
-from eyed3 import AudioFile, core
-from eyed3.core import Date
-from eyed3.id3 import ID3_V2_3, ID3_V2_4, Tag
+from mutagen.mp3 import HeaderNotFoundError
 from rapidfuzz import fuzz
+from rapidfuzz.distance import LCSseq, Levenshtein
 from tinta import Tinta
 
 from src.lib.cleaners import clean_string, strip_leading_articles
+from src.lib.fs_utils import find_first_audio_file
 from src.lib.misc import compare_trim, fix_ffprobe, get_numbers_in_string
 
 fix_ffprobe()
@@ -72,40 +71,61 @@ def write_id3_tags_exiftool(file: Path, exiftool_args: list[str]) -> None:
     )
 
 
-# Patch eyed3 to support recording date, per https://github.com/nicfit/eyeD3/issues/517
-def _setRecordingDate(tag: Tag, date: str | core.Date | None) -> None:
-    if date in (None, ""):
-        for fid in (b"TDRC", b"TYER", b"TDAT", b"TIME"):
-            tag._setDate(fid, None)
-    elif tag.version == ID3_V2_4 or tag.version == ID3_V2_3:
-        try:
-            tag._setDate(b"TDRC", date)
-        except ValueError:
-            pass
+TagSet = NamedTuple(
+    "TagsSet",
+    [
+        ("title", str),
+        ("artist", str),
+        ("album", str),
+        ("albumartist", str),
+        ("composer", str),
+        ("date", str),
+        ("track_num", tuple[int, int]),
+        ("comment", str),
+    ],
+)
+
+
+def _tags_from_book_or_dict(book_or_dict: "Audiobook | dict[str, Any]") -> TagSet:
+    if isinstance(book_or_dict, dict):
+        title = str(book_or_dict.get("title", ""))
+        artist = str(book_or_dict.get("artist", ""))
+        album = str(book_or_dict.get("album", ""))
+        albumartist = str(book_or_dict.get("albumartist", ""))
+        composer = str(book_or_dict.get("composer", ""))
+        date = str(book_or_dict.get("date", ""))
+        track_num = book_or_dict.get("track_num", (1, 1))
+        comment = str(book_or_dict.get("comment", ""))
     else:
-        if not isinstance(date, core.Date):
-            parsed_date = core.Date.parse(date)
-        else:
-            parsed_date = date
+        title = book_or_dict.title
+        artist = book_or_dict.artist
+        album = book_or_dict.album
+        albumartist = book_or_dict.albumartist
+        composer = book_or_dict.composer
+        date = book_or_dict.date
+        track_num = book_or_dict.track_num
+        comment = book_or_dict.comment
 
-        year = parsed_date.year
-        month = parsed_date.month
-        day = parsed_date.day
-
-        if year is not None:
-            tag._setDate(b"TYER", str(year))
-        if None not in (month, day):
-            date_str = "%s%s" % (str(day).rjust(2, "0"), str(month).rjust(2, "0"))
-            tag._setDate(b"TDAT", date_str)
-
-
-def write_id3_tags_eyed3(file: Path, book: "Audiobook | dict[str, Any]") -> None:
-    # uses native python library eyed3 to write id3 tags to file
     try:
-        import eyed3
+        d = datetime.datetime.strptime(date, "%Y-%m-%d")
+    except ValueError:
+        d = None
+    year = get_year_from_date(date, to_int=True) or (d.year if d else None)
+    if year or d:
+        date = d.strftime("%Y-%m-%d") if d else f"{year}-01-01"
+
+    return TagSet(title, artist, album, albumartist, composer, date, track_num, comment)
+
+
+def write_m4b_tags(
+    file: Path, book: "Audiobook | dict[str, Any]", cover: Path | None = None
+):
+    """Uses mutagen to write id3 tags to an m4b file"""
+    try:
+        from mutagen.mp4 import MP4, MP4Cover
     except ImportError:
         raise MissingApplicationError(
-            "Error: eyed3 is not available, please install it with\n\n $ pip install eyed3\n\n...then try again"
+            "Error: mutagen is not available, please install it with\n\n $ pip install mutagen\n\n...then try again"
         )
 
     if not file.exists():
@@ -113,65 +133,112 @@ def write_id3_tags_eyed3(file: Path, book: "Audiobook | dict[str, Any]") -> None
             f"Error: Cannot write id3 tags, '{file}' does not exist"
         )
 
-    if isinstance(book, dict):
-        title = str(book.get("title", ""))
-        artist = str(book.get("artist", ""))
-        album = str(book.get("album", ""))
-        albumartist = str(book.get("albumartist", ""))
-        composer = str(book.get("composer", ""))
-        date = str(book.get("date", ""))
-        track_num = book.get("track_num", (1, 1))
-        comment = str(book.get("comment", ""))
+    title, artist, album, albumartist, composer, date, track_num, comment = (
+        _tags_from_book_or_dict(book)
+    )
+
+    if f := MP4(file):
+        f["\xa9nam"] = title
+        f["\xa9ART"] = artist
+        f["\xa9alb"] = album
+        f["aART"] = albumartist
+        f["\xa9wrt"] = composer
+        f["\xa9day"] = date
+        f["trkn"] = [(track_num[0], track_num[1])]
+        f["\xa9cmt"] = comment
+
+        # if cover exists, determine if it is jpg or png and set it
+        if cover and cover.is_file():
+            with open(cover, "rb") as img_in:
+                image_data = img_in.read()
+
+            if cover.suffix in [".jpg", ".jpeg"]:
+                mime_type = MP4Cover.FORMAT_JPEG
+            elif cover.suffix == ".png":
+                mime_type = MP4Cover.FORMAT_PNG
+            else:
+                raise IOError(
+                    f"Error: Could not set cover art, '{cover}' is not a valid .jpg or .png file"
+                )
+                return
+            f["covr"] = [MP4Cover(image_data, mime_type)]
+
+        f.save()
+
+
+def write_id3_tags_mutagen(
+    file: Path, book: "Audiobook | dict[str, Any]", cover: Path | None = None
+) -> None:
+    if file.suffix in [".m4b", ".m4a"]:
+        write_m4b_tags(file, book, cover)
     else:
-        title = book.title
-        artist = book.artist
-        album = book.album
-        albumartist = book.albumartist
-        composer = book.composer
-        date = book.date
-        track_num = book.track_num
-        comment = book.comment
+        write_mp3_tags(file, book, cover)
 
-    audiofile: AudioFile
-    if audiofile := eyed3.load(file):  # type: ignore
-        audiofile.tag = cast(Tag, audiofile.tag)
-        if not audiofile.tag:
-            audiofile.initTag()
-        audiofile.tag.title = title
-        audiofile.tag.artist = artist
-        audiofile.tag.album = album
-        audiofile.tag.album_artist = albumartist
-        audiofile.tag.composer = composer
-        audiofile.tag.comments.set(comment)  # type: ignore
 
-        # if track_num is not None and not a tuple of (int, int), throw error
-        if (
-            not isinstance(track_num, tuple)
-            or len(track_num) != 2
-            or not all(isinstance(i, int) for i in track_num)
-        ):
-            raise ValueError(
-                f"Error: track_num must be a tuple of (int, int), not {track_num}"
+def write_mp3_tags(
+    file: Path, book: "Audiobook | dict[str, Any]", cover: Path | None = None
+) -> None:
+    try:
+        from mutagen.easyid3 import EasyID3
+        from mutagen.id3 import APIC, ID3
+
+        EasyID3.RegisterTextKey("comment", "COMM")
+
+    except ImportError:
+        raise MissingApplicationError(
+            "Error: mutagen is not available, please install it with\n\n $ pip install mutagen\n\n...then try again"
+        )
+
+    if not file.exists():
+        raise FileNotFoundError(
+            f"Error: Cannot write id3 tags, '{file}' does not exist"
+        )
+
+    title, artist, album, albumartist, composer, date, track_num, comment = (
+        _tags_from_book_or_dict(book)
+    )
+
+    if f := EasyID3(file):
+        f["title"] = title
+        f["artist"] = artist
+        f["album"] = album
+        f["albumartist"] = albumartist
+        f["author"] = artist
+        f["composer"] = composer
+        f["comment"] = comment
+        f["tracknumber"] = f"{track_num[0]}/{track_num[1]}"
+        f["discnumber"] = ""
+        f["date"] = date
+        f["originaldate"] = date
+
+        f.save()
+
+        # if cover exists, determine if it is jpg or png and set it
+        if cover and cover.is_file() and (f := ID3(file)):
+            with open(cover, "rb") as img_in:
+                image_data = img_in.read()
+
+            if cover.suffix == ".jpg":
+                mime_type = "image/jpeg"
+            elif cover.suffix == ".png":
+                mime_type = "image/png"
+            else:
+                raise IOError(
+                    f"Error: Could not set cover art, '{cover}' is not a valid .jpg or .png file"
+                )
+                return
+            image = APIC(
+                encoding=3,
+                mime=mime_type,
+                type=3,
+                desc=cover.name,
+                data=image_data,
             )
-        audiofile.tag.track_num = track_num
-
-        year = get_year_from_date(date)
-        try:
-            d = datetime.datetime.strptime(date, "%Y-%m-%d")
-        except ValueError:
-            d = None
-        year = year or d.year if d else None
-        if year or d:
-            date_obj = Date(d.year, d.month, d.day) if d else Date(year)
-            _setRecordingDate(audiofile.tag, date_obj)
-            audiofile.tag.recording_date = date_obj
-            audiofile.tag.release_date = date_obj
-            audiofile.tag.original_release_date = date_obj
-            assert audiofile.tag.getBestDate() == date_obj
-
-        audiofile.tag.save()
+            f.delall("APIC")
+            f.add(image)
+            f.save()
     else:
-        raise BadFileError(
+        raise HeaderNotFoundError(
             f"Error: Could not load '{file}' for tagging, it may be corrupt or not an audio file"
         )
 
@@ -183,14 +250,15 @@ def verify_and_update_id3_tags(
     # if they do not match, it will print a notice and update the id3 tags
 
     from src.lib.audiobook import Audiobook
-    from src.lib.config import cfg
 
     m4b_to_check = book.converted_file if in_dir == "converted" else book.build_file
 
     if not m4b_to_check.is_file():
-        raise FileNotFoundError(
-            f"Cannot verify id3 tags, {m4b_to_check} does not exist"
-        )
+        m4b_to_check = find_first_audio_file(book.converted_dir, ".m4b")
+        if not m4b_to_check.is_file():
+            raise FileNotFoundError(
+                f"Cannot verify id3 tags, {m4b_to_check} does not exist"
+            )
 
     smart_print("\nVerifying id3 tags...", end="")
 
@@ -202,6 +270,7 @@ def verify_and_update_id3_tags(
     author_needs_updating = False
     date_needs_updating = False
     comment_needs_updating = False
+    cover_needs_updating = False
 
     updates = []
 
@@ -270,65 +339,31 @@ def verify_and_update_id3_tags(
             )
         )
 
-    if cfg.EXIF_WRITER == "exiftool":
-        # for each of the id3 tags that need updating, write the id3 tags
-        if title_needs_updating:
-            exiftool_args.extend(
-                [
-                    "-Title=" + book.title,
-                    "-Album=" + book.title,
-                    "-SortAlbum=" + book.title,
-                ]
-            )
+    if (
+        (cover := book.cover_art_file)
+        and cover.exists()
+        and not book_to_check.has_id3_cover
+    ):
+        cover_needs_updating = True
+        updates.append(lambda: _print_needs_updating("Cover art", None, cover.name))
 
-        if author_needs_updating:
-            exiftool_args.extend(
-                ["-Artist=" + book.author, "-SortArtist=" + book.author]
-            )
-
-        if date_needs_updating:
-            exiftool_args.append("-Date=" + book.date)
-
-        if comment_needs_updating:
-            exiftool_args.append("-Comment=" + book.comment)
-
-        # set track_number and other statics
-        exiftool_args.extend(
-            [
-                "-TrackNumber=1/" + str(book.m4b_num_parts),
-                "-EncodedBy=auto-m4b",
-                "-Genre=Audiobook",
-                "-Copyright=",
-            ]
-        )
-
-        # write with exiftool
-        if exiftool_args:
-            write_id3_tags_exiftool(m4b_to_check, exiftool_args)
-
-    elif cfg.EXIF_WRITER == "eyed3":
-        if (
-            title_needs_updating
-            or author_needs_updating
-            or date_needs_updating
-            or comment_needs_updating
-        ):
-            write_id3_tags_eyed3(m4b_to_check, book)
-
-    if not any(
-        [
+    needs_update = any(
+        (
             title_needs_updating,
             author_needs_updating,
             date_needs_updating,
             comment_needs_updating,
-        ]
-    ):
-        sys.stdout.write(Tinta().mint(" ✓\n").to_str())
-        smart_print()
+            cover_needs_updating,
+        )
+    )
+    if needs_update:
+        nl()
+        write_id3_tags_mutagen(m4b_to_check, book, book.cover_art_file)
+        [update() for update in updates]
+        smart_print(Tinta("\nDone").mint("✓").to_str())
 
     else:
-        [update() for update in updates]
-        smart_print(Tinta("Done").mint("✓").to_str())
+        smart_print(Tinta().mint(" ✓\n").to_str())
 
     nl()
 
@@ -495,7 +530,7 @@ def extract_id3_tags(
         file = Path(file)
     if not file or not file.exists():
         if throw:
-            raise BadFileError(
+            raise HeaderNotFoundError(
                 f"Error: Cannot extract id3 tags, '{file}' does not exist"
             )
         return {}
@@ -513,8 +548,8 @@ def extract_id3_tags(
             return {tag: tag_dict.get(tag, "") for tag in tags}
     except Exception as e:
         if throw:
-            raise BadFileError(
-                f"Error: Could not extract id3 tags from {file} with tags {tags}"
+            raise HeaderNotFoundError(
+                f"Error: Could not extract id3 tags from {file} with tags {', '.join(tags)}"
             ) from e
         # if cfg.DEBUG:
         #     print_debug(
@@ -525,6 +560,10 @@ def extract_id3_tags(
 
 class BaseScoreCard:
 
+    def __init__(self, scorer: "MetadataScore") -> None:
+
+        self._scorer = scorer
+
     props: list[TagSource] = []
 
     def reset(self):
@@ -533,11 +572,27 @@ class BaseScoreCard:
                 setattr(self, attr, 0)
 
     @property
+    def _choices(self):
+        available = list(set([p.split("_")[-1] for p in self.props]))
+        return {
+            k: getattr(self._scorer._p, k)
+            for k in [
+                _k
+                for _k in dir(self._scorer._p)
+                if not _k.startswith("_") and any((p in _k for p in available))
+            ]
+        }
+
+    @property
     def _prop(self):
         return self.__class__.__name__.split("ScoreCard")[0].lower()
 
     @property
-    def is_likely(self) -> tuple[TagSource, int, str | None]:
+    def _value(self):
+        return tag_matcher(self._scorer._p, self._prop, self._is_likely[0], "")
+
+    @property
+    def _is_likely(self) -> tuple[TagSource, int, str | None]:
         # put all the scores in a list and return the highest score and its var name
         rep = re.compile(rf"_(is|contains)_{self._prop}$")
         scores = [
@@ -667,6 +722,19 @@ KEY_MAP = {
 }
 
 
+def similarity_score(s1: str, s2: str) -> int:
+    """Returns the average similarity score between two strings using three different algorithms from -10 to 10 (with 0 being 50% similar, indeterminate)"""
+    tsr = fuzz.token_sort_ratio(s1, s2)
+    lcs = LCSseq.normalized_similarity(s1, s2) * 100
+    lev = Levenshtein.normalized_similarity(s1, s2) * 100
+
+    # round to nearest 0.001
+    percent = (tsr + lcs + lev) / 3
+
+    # if < 50, return -10 to 0, if >50 return 0 to 10
+    return int((percent / 100 if percent > 50 else percent / 50 - 1) * 10)
+
+
 def custom_sort(key: str, next_key: str) -> int:
     underscored = key.startswith("_")
     next_underscored = next_key.startswith("_")
@@ -756,8 +824,8 @@ class MetadataProps:
         self.comment = book.id3_comment
         self.composer = book.id3_composer
 
-        self.author_in_comment = parse_author(self.comment, "comment", default="")
-        self.narrator_in_comment = parse_narrator(self.comment, "comment", default="")
+        self.author_in_comment = parse_author(self.comment, "comment", fallback="")
+        self.narrator_in_comment = parse_narrator(self.comment, "comment", fallback="")
 
         self._t_is_partno, self._t_partno_score, self._t_is_only_part_no = (
             get_title_partno_score(
@@ -773,7 +841,7 @@ class MetadataProps:
         self._t1_startswith_num = False
         self._t2_startswith_num = False
         self._t1_is_in_fs_name = False
-        self._t1_fuzzy_fs_name = 0
+        self._t1_similarity_to_fs_name = 0
         self._t1_eq_t2 = False
         self._t1_is_missing = not self.title1
         if self.title1:
@@ -782,7 +850,7 @@ class MetadataProps:
             self._t1_startswith_num = startswith_num_pattern.match(self.title1)
             self._t2_startswith_num = startswith_num_pattern.match(self.title2)
             self._t1_is_in_fs_name = self.title1.lower() in self.fs_name_lower
-            self._t1_fuzzy_fs_name = fuzz.token_sort_ratio(
+            self._t1_similarity_to_fs_name = similarity_score(
                 self.title1.lower(), self.fs_name_lower
             )
             self._t1_eq_t2 = self.title1 == self.title2
@@ -794,7 +862,7 @@ class MetadataProps:
 
         # Album
         self._al1_eq_al2 = False
-        self._al1_fuzzy_fs_name = 0
+        self._al1_similarity_to_fs_name = 0
         self._al1_is_in_fs_name = False
         self._al1_is_in_title = False
         self._al1_numbers = ""
@@ -802,7 +870,7 @@ class MetadataProps:
         self._al1_is_missing = not self.album1
         if self.album1:
             self._al1_eq_al2 = self.album1 == self.album2
-            self._al1_fuzzy_fs_name = fuzz.token_sort_ratio(
+            self._al1_similarity_to_fs_name = similarity_score(
                 self.album1.lower(), self.fs_name_lower
             )
             self._al1_is_in_fs_name = self.album1.lower() in self.fs_name_lower
@@ -823,7 +891,7 @@ class MetadataProps:
 
         # Sort Album
         self._sal1_eq_sal2 = False
-        self._sal1_fuzzy_fs_name = 0
+        self._sal1_similarity_to_fs_name = 0
         self._sal1_is_in_fs_name = False
         self._sal1_is_in_title = False
         self._sal1_numbers = ""
@@ -831,7 +899,7 @@ class MetadataProps:
         self._sal1_is_missing = not self.sortalbum1
         if self.sortalbum1:
             self._sal1_eq_sal2 = self.sortalbum1 == self.sortalbum2
-            self._sal1_fuzzy_fs_name = fuzz.token_sort_ratio(
+            self._sal1_similarity_to_fs_name = similarity_score(
                 self.sortalbum1.lower(), self.fs_name_lower
             )
             self._sal1_is_in_fs_name = self.sortalbum1.lower() in self.fs_name_lower
@@ -850,24 +918,45 @@ class MetadataProps:
             self._sal2_numbers = get_numbers_in_string(self.sortalbum2)
             self._sal2_startswith_num = startswith_num_pattern.match(self.sortalbum2)
 
+        # Combo Title/Album/Sort Album
+        self._al_similarity_to_t = 0
+        self._al_similarity_to_sal = 0
+        self._t_similarity_to_al = 0
+        self._t_similarity_to_sal = 0
+        self._sal_similarity_to_t = 0
+        self._sal_similarity_to_al = 0
+        if all((self.title1, self.album1)):
+            self._al_similarity_to_t = similarity_score(
+                self.album1.lower(), self.title1.lower()
+            )
+            self._al_similarity_to_t = self._al_similarity_to_t
+
+        if all((self.title1, self.sortalbum1)):
+            self._sal_similarity_to_t = similarity_score(
+                self.sortalbum1.lower(), self.title1.lower()
+            )
+            self._sal_similarity_to_t = self._sal_similarity_to_t
+
+        if all((self.album1, self.sortalbum1)):
+            self._al_similarity_to_sal = similarity_score(
+                self.album1.lower(), self.sortalbum1.lower()
+            )
+            self._al_similarity_to_sal = self._al_similarity_to_sal
+
         # Artist
         self._ar1_is_in_fs_name = False
-        self._ar1_fuzzy_fs_name = 0
+        self._ar1_similarity_to_fs_name = 0
         self._ar1_is_graphic_audio = False
-        self._ar1_is_maybe_narrator = False
-        self._ar1_is_maybe_author = False
         self._ar1_eq_comment_narrator = False
         self._ar1_eq_ar2 = False
         self._ar1_is_missing = not self.artist1
         if self.artist1:
             self._ar1_eq_ar2 = self.artist1 == self.artist2
             self._ar1_is_in_fs_name = self.artist1.lower() in self.fs_name_lower
-            self._ar1_fuzzy_fs_name = fuzz.token_sort_ratio(
+            self._ar1_similarity_to_fs_name = similarity_score(
                 self.artist1.lower(), self.fs_name_lower
             )
             self._ar1_is_graphic_audio = has_graphic_audio(self.artist1)
-            self._ar1_is_maybe_narrator = parse_narrator(self.artist1, "generic")
-            self._ar1_is_maybe_author = parse_author(self.artist1, "generic")
 
         self._ar2_is_in_fs_name = False
         self._ar2_is_graphic_audio = False
@@ -878,29 +967,46 @@ class MetadataProps:
 
         # Album Artist
         self._aar1_is_in_fs_name = False
-        self._aar1_fuzzy_fs_name = 0
+        self._aar1_similarity_to_fs_name = 0
         self._aar1_is_graphic_audio = False
-        self._aar1_is_maybe_narrator = False
-        self._aar1_is_maybe_author = False
         self._aar1_eq_aar2 = False
+        self._aar1_is_missing = not self.albumartist1
         if self.albumartist1:
             self._aar1_eq_aar2 = self.albumartist1 == self.albumartist2
             self._aar1_is_in_fs_name = self.albumartist1.lower() in self.fs_name_lower
-            self._aar1_fuzzy_fs_name = fuzz.token_sort_ratio(
+            self._aar1_similarity_to_fs_name = similarity_score(
                 self.albumartist1.lower(), self.fs_name_lower
             )
             self._aar1_is_graphic_audio = has_graphic_audio(self.albumartist1)
-            self._aar1_is_maybe_narrator = parse_narrator(self.albumartist1, "generic")
-            self._aar1_is_maybe_author = parse_author(self.albumartist1, "generic")
-            if self.narrator_in_comment:
-                self._aar1_neq_comment_narrator = (
-                    self.narrator_in_comment != self.albumartist1
-                )
 
         self._aar2_is_missing = not self.albumartist2
         if self.albumartist2:
             self._aar2_is_in_fs_name = self.albumartist2.lower() in self.fs_name_lower
             self._aar2_is_graphic_audio = has_graphic_audio(self.albumartist2)
+
+        # Combo Artist/Album Artist
+        self._ar_similarity_to_aar = 0
+        self._aar_similarity_to_ar = 0
+        if all((self.artist1, self.albumartist1)):
+            self._ar_similarity_to_aar = similarity_score(
+                self.artist1.lower(), self.albumartist1.lower()
+            )
+            self._ar_similarity_to_aar = self._ar_similarity_to_aar
+
+        self._ar1_parsed_author = parse_author(self.artist1, "generic")
+        self._ar1_parsed_narrator = parse_narrator(self.artist1, "generic")
+        self._ar1_parsed_author_similarity_to_narrator = (
+            similarity_score(self._ar1_parsed_author, self._ar1_parsed_narrator)
+            if self._ar1_parsed_author
+            else 0
+        )
+        self._aar1_parsed_author = parse_author(self.albumartist1, "generic")
+        self._aar1_parsed_narrator = parse_narrator(self.albumartist1, "generic")
+        self._aar1_parsed_author_similarity_to_narrator = (
+            similarity_score(self._aar1_parsed_author, self._aar1_parsed_narrator)
+            if self._aar1_parsed_author
+            else 0
+        )
 
         # Comment
         self._ar1_eq_comment_author = False
@@ -967,6 +1073,29 @@ class MetadataProps:
         return f"MetadataScore\n" f"{self.table()}\n"
 
 
+def tag_matcher(p: MetadataProps, prop: str, tag: str, fallback: str = "") -> str:
+    if tag == "unknown":
+        return fallback
+
+    if common_str_pattern.match(tag):
+        return getattr(p, common_str_pattern.sub("", tag) + "_c")
+
+    if tag == "comment":
+        return getattr(p, f"{prop}_in_comment")
+
+    if tag == "fs":
+        try:
+            val = getattr(p, f"fs_{tag}")
+        except AttributeError:
+            ...
+    try:
+        val = getattr(p, f"{tag}1")
+    except AttributeError:
+        val = getattr(p, tag)
+
+    return clean_string(val if val else fallback)
+
+
 class MetadataScore:
     def __init__(
         self,
@@ -974,10 +1103,10 @@ class MetadataScore:
         sample_audio2_tags: dict[TagSource | AdditionalTags, str],
     ):
 
-        self.title = TitleScoreCard()
-        self.author = AuthorScoreCard()
-        self.narrator = NarratorScoreCard()
-        self.date = DateScoreCard()
+        self.title = TitleScoreCard(self)
+        self.author = AuthorScoreCard(self)
+        self.narrator = NarratorScoreCard(self)
+        self.date = DateScoreCard(self)
 
         self._p = MetadataProps(book, sample_audio2_tags)
 
@@ -985,10 +1114,10 @@ class MetadataScore:
 
         return (
             f"MetadataScore\n"
-            f" - title is likely:   {self.calc_title_scores()}\n"
-            f" - author is likely:  {self.calc_author_scores()}\n"
-            f" - narrator is likely:  {self.calc_narrator_scores()}\n"
-            f" - date is likely:  {self.calc_date_scores()}\n"
+            f" - title is likely:   {self.determine_title()}\n"
+            f" - author is likely:  {self.determine_author()}\n"
+            f" - narrator is likely:  {self.determine_narrator()}\n"
+            f" - date is likely:  {self.determine_date()}\n"
         )
 
     def __repr__(self):
@@ -999,15 +1128,12 @@ class MetadataScore:
         key: ScoredProp,
         *,
         from_tag: TagSource | None = None,
-        from_best: bool = False,
         fallback: str = "",
     ) -> str:
 
         getattr(self, f"calc_{key}_scores")()
-        if from_best:
-            from_tag, _score, _prop = getattr(self, key).is_likely
         if from_tag is None:
-            raise ValueError("from_tag must be provided if from_best is False")
+            from_tag, _score, _prop = getattr(self, key).is_likely
 
         if from_tag == "unknown":
             return fallback
@@ -1034,69 +1160,122 @@ class MetadataScore:
                 val = parse_narrator(val, "generic")
         return val
 
-    def calc_title_scores(self):
+    def determine_title(self, fallback: str = ""):
 
         self.title.reset()
 
+        if all(
+            (
+                self._p._t1_is_missing,
+                self._p._t2_is_missing,
+                self._p._al1_is_missing,
+                self._p._al2_is_missing,
+                self._p._sal1_is_missing,
+                self._p._sal2_is_missing,
+            )
+        ):
+            return fallback
+
+        title_is_title = 0
+        album_is_title = 0
+        sortalbum_is_title = 0
+        common_title_is_title = 0
+        common_album_is_title = 0
+        common_sortalbum_is_title = 0
+
         # Title weights
-        self.title.title_is_title += int(self._p._t1_is_in_fs_name)
-        self.title.title_is_title += int(self._p._t2_is_in_fs_name)
-        self.title.title_is_title += int(self._p._t1_fuzzy_fs_name)
-        self.title.title_is_title -= 100 * int(self._p._t1_is_missing)
-        self.title.title_is_title -= 10 * int(self._p._t2_is_missing)
-        self.title.common_title_is_title = (
-            0 if self._p._t2_is_missing else self.title.title_is_title
-        )
-        self.title.common_title_is_title += int(10 if not self._p._t1_eq_t2 else -10)
-        self.title.title_is_title += int(10 if self._p._t1_eq_t2 else -10)
+        if self._p.title1:
+            title_is_title += int(self._p._t1_is_in_fs_name)
+            title_is_title += 10 * int(self._p._t1_similarity_to_fs_name)
+            title_is_title += int(10 if self._p._t1_eq_t2 else -10)
+            title_is_title += len(self._p.title1)
+
+        else:
+            title_is_title = -404
+
+        if self._p.title2:
+            title_is_title += int(self._p._t2_is_in_fs_name)
+            title_is_title -= 10 * int(self._p._t2_is_missing)
+
+        if self._p.title1 and self._p.title2:
+            common_title_is_title = max(0, title_is_title)
+            common_title_is_title += int(
+                len(self._p.title_c) if not self._p._t1_eq_t2 else -len(self._p.title_c)
+            )
 
         if self._p._t_is_partno:
             if self._p._t_is_only_part_no:
-                self.title.title_is_title -= self._p._t_partno_score * 100
+                title_is_title -= self._p._t_partno_score * 100
             else:
                 title1_contains_partno = contains_partno(self._p.title1)
                 title2_contains_partno = contains_partno(self._p.title2)
                 if title1_contains_partno or title2_contains_partno:
-                    self.title.common_title_is_title = max(
-                        self.title.title_is_title,
-                        self.title.common_title_is_title,
+                    common_title_is_title = max(
+                        title_is_title,
+                        common_title_is_title,
                     )
-                    self.title.title_is_title -= self._p._t_partno_score * 5
+                    title_is_title -= self._p._t_partno_score * 5
 
         else:
-            self.title.title_is_title += self._p._t_partno_score
+            title_is_title += self._p._t_partno_score
 
         # Album weights
-        self.title.album_is_title += int(self._p._al1_is_in_fs_name)
-        self.title.album_is_title += int(self._p._al2_is_in_fs_name)
-        self.title.album_is_title += int(self._p._al1_fuzzy_fs_name)
-        self.title.album_is_title += int(self._p._al1_is_in_title)
-        self.title.album_is_title += int(self._p._al2_is_in_title)
-        self.title.album_is_title -= 10 * int(self._p._al1_is_missing)
-        self.title.album_is_title -= int(self._p._al2_is_missing)
-        self.title.common_album_is_title = (
-            0 if self._p._al2_is_missing else self.title.album_is_title
-        )
-        self.title.common_album_is_title += int(10 if not self._p._al1_eq_al2 else -10)
-        self.title.album_is_title += int(10 if self._p._al1_eq_al2 else -10)
+        if self._p.album1:
+            album_is_title += int(self._p._al1_is_in_fs_name)
+            album_is_title += int(self._p._al1_similarity_to_fs_name)
+            album_is_title += int(self._p._al1_is_in_title)
+            album_is_title += len(self._p.album1)
+
+        else:
+            album_is_title = -404
+
+        if self._p.album2:
+            album_is_title += int(self._p._al2_is_in_fs_name)
+            album_is_title += int(self._p._al2_is_in_title)
+            album_is_title += int(10 if self._p._al1_eq_al2 else -10)
+
+        if self._p.album1 and self._p.album2:
+            common_album_is_title = max(0, album_is_title)
+            common_album_is_title += int(
+                len(self._p.album_c)
+                if not self._p._al1_eq_al2
+                else -len(self._p.album_c)
+            )
 
         # Sortalbum weights
-        self.title.sortalbum_is_title += int(self._p._sal1_is_in_fs_name)
-        self.title.sortalbum_is_title += int(self._p._sal2_is_in_fs_name)
-        self.title.sortalbum_is_title += int(self._p._sal1_fuzzy_fs_name)
-        self.title.sortalbum_is_title += int(self._p._sal1_is_in_title)
-        self.title.sortalbum_is_title += int(self._p._sal2_is_in_title)
-        self.title.sortalbum_is_title -= 10 * int(self._p._sal1_is_missing)
-        self.title.sortalbum_is_title -= int(self._p._sal2_is_missing)
-        self.title.common_sortalbum_is_title = (
-            0 if self._p._sal2_is_missing else self.title.sortalbum_is_title
-        )
-        self.title.common_sortalbum_is_title += int(
-            10 if not self._p._sal1_eq_sal2 else -10
-        )
-        self.title.sortalbum_is_title += int(10 if self._p._sal1_eq_sal2 else -10)
+        if self._p.sortalbum1:
+            sortalbum_is_title += int(self._p._sal1_is_in_fs_name)
+            sortalbum_is_title += int(self._p._sal1_similarity_to_fs_name)
+            sortalbum_is_title += int(self._p._sal1_is_in_title)
+            sortalbum_is_title += len(self._p.sortalbum1)
 
-    def calc_author_scores(self):
+        else:
+            sortalbum_is_title = -404
+
+        if self._p.sortalbum2:
+            sortalbum_is_title += int(self._p._sal2_is_in_fs_name)
+            sortalbum_is_title += int(self._p._sal2_is_in_title)
+            sortalbum_is_title += int(10 if self._p._sal1_eq_sal2 else -10)
+
+        if self._p.sortalbum1 and self._p.sortalbum2:
+            common_sortalbum_is_title = max(0, sortalbum_is_title)
+            common_sortalbum_is_title += int(
+                len(self._p.sortalbum_c)
+                if not self._p._sal1_eq_sal2
+                else -len(self._p.sortalbum_c)
+            )
+
+        # Update the scores
+        self.title.title_is_title = title_is_title
+        self.title.album_is_title = album_is_title
+        self.title.sortalbum_is_title = sortalbum_is_title
+        self.title.common_title_is_title = common_title_is_title
+        self.title.common_album_is_title = common_album_is_title
+        self.title.common_sortalbum_is_title = common_sortalbum_is_title
+
+        return self.title._value or fallback
+
+    def determine_author(self, fallback: str = ""):
         self.author.reset()
 
         artist_is_author = 0
@@ -1105,20 +1284,31 @@ class MetadataScore:
         common_albumartist_is_author = 0
         comment_contains_author = 0
 
+        if all(
+            (
+                self._p._ar1_is_missing,
+                self._p._ar2_is_missing,
+                self._p._aar1_is_missing,
+                self._p._aar2_is_missing,
+                not self._p.author_in_comment,
+            )
+        ):
+            return fallback
+
         if self._p.comment:
             comment_contains_author += 20 * int(bool(self._p.author_in_comment))
 
         # Artist weights
         if self._p.artist1:
             artist_is_author += int(self._p._ar1_is_in_fs_name)
-            artist_is_author += int(self._p._ar1_fuzzy_fs_name)
+            artist_is_author += max(0, int(self._p._ar1_similarity_to_fs_name))
             artist_is_author -= 500 * int(self._p._ar1_is_graphic_audio)
-            artist_is_author -= int(10 if self._p._ar1_is_maybe_narrator else -10)
-            artist_is_author += int(10 if self._p._ar1_is_maybe_author else -10)
+            artist_is_author += int(10 if self._p._ar1_parsed_author else -10)
+            artist_is_author += self._p._ar1_parsed_author_similarity_to_narrator
 
             if self._p.author_in_comment:
-                artist_is_author += int(
-                    fuzz.ratio(self._p.author_in_comment, self._p.artist1)
+                artist_is_author += similarity_score(
+                    self._p.author_in_comment, self._p.artist1
                 )
             if self._p.narrator_in_comment:
                 artist_is_author += 10 * int(
@@ -1129,25 +1319,24 @@ class MetadataScore:
 
         if self._p.artist2:
             artist_is_author += int(self._p._ar2_is_in_fs_name)
-            artist_is_author -= 10 * int(self._p._ar2_is_missing)
             artist_is_author -= 250 * int(self._p._ar2_is_graphic_audio)
 
         if self._p.artist1 and self._p.artist2:
-            common_artist_is_author = artist_is_author
+            common_artist_is_author = max(0, artist_is_author)
             common_artist_is_author += int(10 if not self._p._ar1_eq_ar2 else -10)
-            artist_is_author += int(10 if self._p._ar1_eq_ar2 else -10)
+            artist_is_author += int(11 if self._p._ar1_eq_ar2 else -11)
 
         # Album Artist weights
         if self._p.albumartist1:
             albumartist_is_author += int(self._p._aar1_is_in_fs_name)
-            albumartist_is_author += int(self._p._aar1_fuzzy_fs_name)
+            albumartist_is_author += max(0, int(self._p._aar1_similarity_to_fs_name))
             albumartist_is_author -= 500 * int(self._p._aar1_is_graphic_audio)
-            albumartist_is_author -= int(10 if self._p._aar1_is_maybe_narrator else -10)
-            albumartist_is_author += int(10 if self._p._aar1_is_maybe_author else -10)
+            albumartist_is_author += int(10 if self._p._aar1_parsed_author else -10)
+            albumartist_is_author += self._p._aar1_parsed_author_similarity_to_narrator
 
             if self._p.author_in_comment:
-                albumartist_is_author += int(
-                    fuzz.ratio(self._p.author_in_comment, self._p.albumartist1)
+                albumartist_is_author += similarity_score(
+                    self._p.author_in_comment, self._p.albumartist1
                 )
 
             if self._p.narrator_in_comment:
@@ -1159,20 +1348,16 @@ class MetadataScore:
 
         if self._p.albumartist2:
             albumartist_is_author += int(self._p._aar2_is_in_fs_name)
-            albumartist_is_author -= 10 * int(self._p._aar2_is_missing)
             albumartist_is_author -= 250 * int(self._p._aar2_is_graphic_audio)
 
         if self._p.albumartist1 and self._p.albumartist2:
-            common_albumartist_is_author = albumartist_is_author
+            common_albumartist_is_author = max(0, albumartist_is_author)
             common_albumartist_is_author += int(
                 10 if not self._p._aar1_eq_aar2 else -10
             )
             albumartist_is_author += int(10 if self._p._aar1_eq_aar2 else -10)
 
-        if self._p.artist1 == self._p.albumartist1:
-            artist_is_author += 1
-
-        if self._p.artist2 == self._p.albumartist2:
+        if self._p.artist1 != self._p.albumartist1:
             artist_is_author += 1
 
         if self._p.author_in_comment and self._p.narrator_in_comment:
@@ -1187,8 +1372,21 @@ class MetadataScore:
         self.author.common_albumartist_is_author = common_albumartist_is_author
         self.author.comment_contains_author = comment_contains_author
 
-    def calc_narrator_scores(self):
+        return parse_author(self.author._value or fallback, "generic")
+
+    def determine_narrator(self, fallback: str = ""):
         self.narrator.reset()
+
+        if all(
+            (
+                self._p._ar1_is_missing,
+                self._p._ar2_is_missing,
+                self._p._aar1_is_missing,
+                self._p._aar2_is_missing,
+                not self._p.narrator_in_comment,
+            )
+        ):
+            return fallback
 
         artist_is_narrator = 0
         albumartist_is_narrator = 0
@@ -1211,16 +1409,17 @@ class MetadataScore:
 
         else:
             # Artist weights
-            if self._p.artist1:
+            if self._p.artist1 and not self.author._is_likely[0] == "artist":
+
                 artist_is_narrator += int(self._p._ar1_is_in_fs_name)
-                artist_is_narrator += int(self._p._ar1_fuzzy_fs_name)
+                artist_is_narrator -= max(0, int(self._p._ar1_similarity_to_fs_name))
                 artist_is_narrator -= 500 * int(self._p._ar1_is_graphic_audio)
-                artist_is_narrator -= int(10 if self._p._ar1_is_maybe_narrator else -10)
-                artist_is_narrator += int(10 if self._p._ar1_is_maybe_author else -10)
+                artist_is_narrator += int(10 if self._p._ar1_parsed_narrator else -10)
+                artist_is_narrator -= self._p._ar1_parsed_author_similarity_to_narrator
 
                 if self._p.narrator_in_comment:
-                    artist_is_narrator += int(
-                        fuzz.ratio(self._p.narrator_in_comment, self._p.artist1)
+                    artist_is_narrator += similarity_score(
+                        self._p.narrator_in_comment, self._p.artist1
                     )
                 if self._p.author_in_comment:
                     artist_is_narrator += 10 * int(
@@ -1236,23 +1435,29 @@ class MetadataScore:
                 artist_is_narrator -= 250 * int(self._p._ar2_is_graphic_audio)
 
             if self._p.artist1 and self._p.artist2:
-                common_artist_is_narrator = artist_is_narrator
+                common_artist_is_narrator = max(0, artist_is_narrator)
                 common_artist_is_narrator += int(10 if not self._p._ar1_eq_ar2 else -10)
                 artist_is_narrator += int(10 if self._p._ar1_eq_ar2 else -10)
 
             # Album Artist weights
-            if self._p.albumartist1:
+            if self._p.albumartist1 and not self.author._is_likely[0] == "albumartist":
                 albumartist_is_narrator += int(self._p._aar1_is_in_fs_name)
-                albumartist_is_narrator += int(self._p._aar1_fuzzy_fs_name)
+                albumartist_is_narrator -= max(
+                    0, int(self._p._aar1_similarity_to_fs_name)
+                )
                 albumartist_is_narrator -= 500 * int(self._p._aar1_is_graphic_audio)
-                albumartist_is_narrator -= int(
-                    10 if self._p._aar1_is_maybe_narrator else -10
+                albumartist_is_narrator += int(
+                    10 if self._p._aar1_parsed_narrator else -10
+                )
+                albumartist_is_narrator -= (
+                    self._p._aar1_parsed_author_similarity_to_narrator
                 )
 
                 if self._p.narrator_in_comment:
-                    albumartist_is_narrator += int(
-                        fuzz.ratio(self._p.narrator_in_comment, self._p.albumartist1)
+                    albumartist_is_narrator += similarity_score(
+                        self._p.narrator_in_comment, self._p.albumartist1
                     )
+
                 if self._p.author_in_comment:
                     albumartist_is_narrator += 10 * int(
                         -1 if self._p._aar1_eq_comment_author else 1
@@ -1266,7 +1471,7 @@ class MetadataScore:
                 albumartist_is_narrator -= 250 * int(self._p._aar2_is_graphic_audio)
 
             if self._p.albumartist1 and self._p.albumartist2:
-                common_albumartist_is_narrator = albumartist_is_narrator
+                common_albumartist_is_narrator = max(0, albumartist_is_narrator)
                 common_albumartist_is_narrator += int(
                     10 if not self._p._aar1_eq_aar2 else -10
                 )
@@ -1282,7 +1487,20 @@ class MetadataScore:
         self.narrator.comment_contains_narrator = comment_contains_narrator
         self.narrator.composer_is_narrator = composer_is_narrator
 
-    def calc_date_scores(self):
+        return parse_narrator(self.narrator._value or fallback, "generic")
+
+    def determine_albumartist(self):
+        # If artist and albumartist are different, or if albumartist contains a / we want to process.
+        if self._p._aar1_is_missing or self._p._aar1_eq_comment_narrator:
+            return parse_author(
+                self.author._value, "generic", fallback=self._p.author_in_comment
+            )
+        elif self._p._aar_has_slash or self.narrator._value != self.author._value:
+            return parse_narrator(self._p.albumartist1, "generic")
+        else:
+            return parse_author(self._p.albumartist1, "generic")
+
+    def determine_date(self, fallback: str = ""):
         self.date.reset()
 
         date_is_date = 0
@@ -1301,10 +1519,12 @@ class MetadataScore:
         self.date.date_is_date = date_is_date
         self.date.fs_contains_date = fs_contains_date
 
-        # if book.date:
-        #     li(f"Date: {book.date}")
-        # # extract 4 digits from date
-        # book.year = get_year_from_date(book.date)
+        from_tag, _score, _prop = self.date._is_likely
+
+        if from_tag == "fs":
+            return self._p.fs_year
+
+        return tag_matcher(self._p, "date", from_tag, fallback)
 
 
 def extract_metadata(book: "Audiobook", quiet: bool = False) -> "Audiobook":
@@ -1330,18 +1550,17 @@ def extract_metadata(book: "Audiobook", quiet: bool = False) -> "Audiobook":
 
     book.id3_year = get_year_from_date(book.id3_date)
     # Note: only works for mp3 files, will always return None for m4b files
-    book.has_id3_cover = bool(sample_audio1_tags.get("cover"))
+    book.has_id3_cover = bool(extract_cover_art(book.sample_audio1))
 
     id3_score = MetadataScore(book, sample_audio2_tags)
 
-    book.title = id3_score.get("title", from_best=True, fallback=book.fs_title)
+    book.title = id3_score.determine_title(book.fs_title)
     book.album = book.title
     book.sortalbum = strip_leading_articles(book.title)
 
-    book.artist = id3_score.get("author", from_best=True, fallback=book.fs_author)
-    book.albumartist = book.artist
-
-    book.narrator = id3_score.get("narrator", from_best=True, fallback=book.fs_narrator)
+    book.artist = id3_score.determine_author(book.fs_author)
+    book.narrator = id3_score.determine_narrator(book.fs_narrator)
+    book.albumartist = id3_score.determine_albumartist()
 
     li(f"Title: {book.title}")
     li(f"Author: {book.author}")
@@ -1357,7 +1576,7 @@ def extract_metadata(book: "Audiobook", quiet: bool = False) -> "Audiobook":
         elif not parse_narrator(book.id3_comment, "comment"):
             book.id3_comment = f"Read by {book.narrator} // {book.id3_comment}"
 
-    book.date = id3_score.get("date", from_best=True, fallback=book.fs_year)
+    book.date = id3_score.determine_date(book.fs_year)
     if book.date:
         li(f"Date: {book.date}")
     # extract 4 digits from date
@@ -1370,3 +1589,18 @@ def extract_metadata(book: "Audiobook", quiet: bool = False) -> "Audiobook":
         li(f"No cover art")
 
     return book
+
+
+def map_kid3_keys(in_dict: dict[str, Any]):
+    """Renames keys from kid3 format to our format:
+
+    - lowercase keys
+    - remove spaces
+    """
+
+    out_dict = {}
+    for key, value in in_dict.items():
+        new_key = key.lower().replace(" ", "")
+        out_dict[new_key] = value
+
+    return out_dict

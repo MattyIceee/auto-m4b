@@ -5,7 +5,7 @@ import re
 import subprocess
 from collections.abc import Generator, Iterable
 from pathlib import Path, PosixPath
-from typing import Any, cast, TypeVar
+from typing import Any, cast, overload, TypeVar
 
 from dotenv import dotenv_values
 
@@ -69,10 +69,21 @@ def re_group(
     return cast(G, found) if found is not None else default
 
 
+@overload
+def isorted(iterable: list[T], reverse: bool = False) -> list[T]: ...
+
+
+@overload
 def isorted(
     iterable: Iterable[T] | Generator[T, None, None], reverse: bool = False
-) -> list[T]:
-    return sorted(iterable, key=lambda x: str(x).lower(), reverse=reverse)
+) -> Iterable[T]: ...
+
+
+def isorted(
+    iterable: Iterable[T] | Generator[T, None, None], reverse: bool = False
+) -> Iterable[T]:
+    to_list = lambda x: list(x) if isinstance(iterable, list) else x
+    return to_list(sorted(iterable, key=lambda x: str(x).lower(), reverse=reverse))
 
 
 def compare_trim(a: str, b: str) -> bool:
@@ -315,3 +326,13 @@ def fix_ffprobe(counter: int = 0):
             raise ImportError(
                 f"ffmpeg's ffprobe is not installed, please fix it manually:\n\n $ {fix_cmd}\n\n"
             )
+
+
+def increment(s: str) -> str:
+    """if a string ends with a number, increment it and return the new string"""
+    if not s:
+        return s
+    m = re.search(r"\d+$", s)
+    if m:
+        return s[: m.start()] + str(int(m.group()) + 1)
+    return s

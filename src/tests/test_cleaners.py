@@ -1,4 +1,16 @@
+from pathlib import Path
+
 import pytest
+
+from src.lib.misc import isorted
+from src.lib.parsers import romans
+from src.tests.helpers.pytest_statics import (
+    PART_NO_ROMANS,
+    PART_ROMANS,
+    ROTK_NO_ROMANS,
+    ROTK_ROMANS,
+)
+from src.tests.helpers.pytest_utils import testutils
 
 
 @pytest.mark.parametrize(
@@ -150,3 +162,79 @@ def test_strip_html_tags(test_str: str, expected: str):
     from src.lib.cleaners import strip_html_tags
 
     assert strip_html_tags(test_str) == expected
+
+
+@pytest.mark.parametrize(
+    "test_files, expected",
+    [
+        (
+            ROTK_ROMANS,
+            ROTK_NO_ROMANS,
+        ),
+        (
+            PART_ROMANS,
+            PART_NO_ROMANS,
+        ),
+    ],
+)
+def test_strip_roman_numerals_from_list(
+    test_files: list[str], expected: list[str], tmp_path: Path
+):
+
+    from src.lib.parsers import romans
+
+    d = testutils.make_tmp_files(tmp_path, test_files)
+
+    assert romans.strip_from_list([f.name for f in isorted(d.rglob("*"))]) == expected
+
+
+@pytest.mark.parametrize(
+    "test_case, expected",
+    [
+        ("A", "A"),
+        ("B", "B"),
+        ("8", "8"),
+        ("I", ""),
+        ("II", ""),
+        ("III", ""),
+        ("IV", ""),
+        ("V", ""),
+        ("VI", ""),
+        ("VII", ""),
+        ("VIII", ""),
+        ("IX", ""),
+        ("X", ""),
+        ("XI", ""),
+        ("XII", ""),
+        ("XIII", ""),
+        ("Roman_Numeral_Book_I - Part_0", "Roman_Numeral_Book_ - Part_0"),
+        ("Roman_Numeral_Book_II - Part_1", "Roman_Numeral_Book_ - Part_1"),
+        ("Roman_Numeral_Book_III - Part_2", "Roman_Numeral_Book_ - Part_2"),
+        ("Roman_Numeral_Book_IV - Part_3", "Roman_Numeral_Book_ - Part_3"),
+        ("Star Wars Episode IV: A New Hope", "Star Wars Episode : A New Hope"),
+        (
+            "Star Wars Episode V: The Empire Strikes Back",
+            "Star Wars Episode : The Empire Strikes Back",
+        ),
+        (
+            "Star Wars Episode VI: Return of the Jedi",
+            "Star Wars Episode : Return of the Jedi",
+        ),
+        (
+            "Star Wars EpisodeVII: The Force Awakens",
+            "Star Wars Episode: The Force Awakens",
+        ),
+        (
+            "Star Wars EpisodeVIII: The Last Jedi",
+            "Star Wars Episode: The Last Jedi",
+        ),
+        (
+            "Star Wars Episodeix: The Rise of Skywalker",
+            "Star Wars Episodeix: The Rise of Skywalker",
+        ),
+        ("Star.Trek.III.The.Search.for.Spock", "Star.Trek..The.Search.for.Spock"),
+    ],
+)
+def test_romans_strip(test_case, expected):
+
+    assert romans.strip(test_case) == expected

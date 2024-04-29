@@ -1,16 +1,16 @@
 import os
 import re
 import string
+from collections.abc import Generator, Iterable
 from dataclasses import dataclass
 from itertools import combinations
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import Any, cast, Literal, overload, TYPE_CHECKING, TypeVar
 
 import cachetools
 import cachetools.func
 import regex as rex
 
-from src.lib.cleaners import strip_part_number
 from src.lib.misc import get_numbers_in_string, isorted, re_group
 from src.lib.term import print_debug
 from src.lib.typing import AuthorNarrator, MEMO_TTL, NameParserTarget
@@ -58,6 +58,8 @@ book_series_pattern = re.compile(r"(^\d+|(?:^|(?<=[\W_-]))(bo{0,2}k|vol(?:ume)?|
 multi_part_pattern = re.compile(r"(?:^|(?<=[\W_-]))(pa?r?t|ch(?:\.|apter))(?:\b|[\W_-])*(\d+)", re.I)
 # fmt: on
 
+S = TypeVar("S", bound=str | Path)
+
 
 @dataclass
 class romans:
@@ -87,6 +89,13 @@ class romans:
         # split on word boundaries, and any boundary between lowercase/uppercase or letter/non-letter
         split = roman_strip_pattern.split(s)
         return "".join([p for p in split if not cls.is_roman_numeral(p)])
+
+    @classmethod
+    def strip_from_list(cls, l: Iterable[S] | Generator[S, None, None]) -> list[S]:
+
+        l = list(l)
+        to_path = lambda x: Path(x) if isinstance(l[0], Path) else x
+        return cast(list[S], [to_path(cls.strip(str(s))) for s in l])
 
 
 if TYPE_CHECKING:
@@ -145,6 +154,7 @@ def contains_partno(s: str) -> bool:
 
 def extract_path_info(book: "Audiobook", quiet: bool = False) -> "Audiobook":
     # Replace single occurrences of . with spaces
+    from src.lib.cleaners import strip_part_number
 
     dir_author = swap_firstname_lastname(
         re_group(author_fs_pattern.search(book.basename), "author")
@@ -219,7 +229,7 @@ def extract_path_info(book: "Audiobook", quiet: bool = False) -> "Audiobook":
     return book
 
 
-def get_roman_numerals_dict(*ss: str) -> dict[str, int]:
+def get_romans_dict(*ss: str) -> dict[str, int]:
 
     found_roman_numerals = {}
 
@@ -233,24 +243,16 @@ def get_roman_numerals_dict(*ss: str) -> dict[str, int]:
     return found_roman_numerals
 
 
-def find_roman_numerals(d: Path) -> dict[str, int]:
+def find_paths_with_romans(d: Path) -> dict[str, int]:
     """Makes a dictionary of all the different roman numerals found in the directory"""
     from src.lib.fs_utils import only_audio_files
 
-    return get_roman_numerals_dict(*(str(f) for f in only_audio_files(d.rglob("*"))))
+    return get_romans_dict(*(str(f) for f in only_audio_files(d.rglob("*"))))
 
 
-def count_distinct_roman_numerals(d: Path) -> int:
+def count_distinct_romans(d: Path) -> int:
     """Counts the number of unique roman numerals in a directory, ignoring 'I' to avoid false positives"""
-    return len([n for n in find_roman_numerals(d).keys() if n != "I"])
-
-
-def strip_roman_numerals(d: Path) -> list[Path]:
-    """Strips roman numerals from the filenames in a directory and returns
-    a list of proposed paths, keeping the original file order"""
-    return [
-        f.parent / romans.strip(f.name) for f in isorted(d.rglob("*")) if f.is_file()
-    ]
+    return len([n for n in find_paths_with_romans(d).keys() if n != "I"])
 
 
 def roman_numerals_affect_file_order(d: Path) -> bool:
@@ -262,15 +264,18 @@ def roman_numerals_affect_file_order(d: Path) -> bool:
     Returns:
         bool: True if the files are in the same order, False otherwise
     """
-    files = [f.stem for f in isorted(d.rglob("*")) if f.is_file()]
-    files_no_roman = [romans.strip(f) for f in files]
-    files_no_roman_sorted = list(isorted([f.stem for f in strip_roman_numerals(d)]))
-
-    return files_no_roman_sorted != files_no_roman
+    files = isorted((Path(f).stem for f in d.rglob("*")))
+    files_no_roman = romans.strip_from_list(files)
+    return files_no_roman != isorted(files_no_roman)
 
 
-def get_year_from_date(date: str | None) -> str:
-    return re_group(re.search(r"\d{4}", date or ""), default="")
+@overload
+def get_year_from_date(date: Any) -> str: ...
+@overload
+def get_year_from_date(date: Any, to_int: Literal[True] = True) -> int: ...
+def get_year_from_date(date: Any, to_int: bool = False) -> str | int:
+    y = re_group(re.search(r"\d{4}", str(date)), default="")
+    return int(y) if y and to_int else y
 
 
 def get_name_from_str(s: str, max_words=6) -> str:
@@ -285,12 +290,12 @@ def get_name_from_str(s: str, max_words=6) -> str:
 
 
 def parse_names(
-    s: str, target: NameParserTarget, *, default: str | None = None
+    s: str, target: NameParserTarget, *, fallback: str | None = None
 ) -> AuthorNarrator:
-    if default is None:
-        default = s
+    if fallback is None:
+        fallback = s
     if not s or graphic_audio_pattern.search(s):
-        return AuthorNarrator(default, default)
+        return AuthorNarrator(fallback, fallback)
     author = s
     narrator = s
     if any([w for w in to_words(s)[:6] if "/" in w]):
@@ -316,13 +321,13 @@ def parse_names(
     #     default if not re_group(author_pattern.search(author), "author") else ""
     # )
 
-    author = re_group(author_pattern.search(author), "author", default=default).strip()
+    author = re_group(author_pattern.search(author), "author", default=fallback).strip()
     narrator = re_group(
-        narrator_pattern.search(narrator), "narrator", default=default
+        narrator_pattern.search(narrator), "narrator", default=fallback
     ).strip()
 
     if not author and not narrator:
-        return AuthorNarrator(default, default)
+        return AuthorNarrator(fallback, fallback)
 
     if author != narrator:
         if author and author in narrator:
@@ -341,9 +346,9 @@ def parse_names(
 
 
 def parse_author(
-    s: str, target: NameParserTarget, *, default: str | None = None
+    s: str, target: NameParserTarget, *, fallback: str | None = None
 ) -> str:
-    return parse_names(s, target, default=default).author
+    return parse_names(s, target, fallback=fallback).author
 
 
 def has_graphic_audio(s: str) -> bool:
@@ -351,9 +356,9 @@ def has_graphic_audio(s: str) -> bool:
 
 
 def parse_narrator(
-    s: str, target: NameParserTarget, *, default: str | None = None
+    s: str, target: NameParserTarget, *, fallback: str | None = None
 ) -> str:
-    return parse_names(s, target, default=default).narrator or default or ""
+    return parse_names(s, target, fallback=fallback).narrator or fallback or ""
 
 
 def parse_year(s: str) -> str:
@@ -364,6 +369,8 @@ def get_title_partno_score(
     title_1: str, title_2: str, album_1: str, sortalbum_1: str
 ) -> tuple[bool, int, bool]:
     """Returns a score for the likelihood that the title(s) indicate the part number of a multi-part book, e.g. "Part 01" or "The Martian Part 014. A positive score indicates a likely part #, negative indicates not a part #."""
+    from src.lib.cleaners import strip_part_number
+
     score = 0
     t1_part = contains_partno(title_1)
     t2_part = contains_partno(title_2)

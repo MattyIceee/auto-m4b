@@ -548,8 +548,8 @@ def max_term_width(indent: int = 0):
     try:
         tw = os.get_terminal_size().columns
     except OSError:
-        tw = 120
-    return min(120, tw) - indent
+        tw = 100
+    return min(100, tw) - indent
 
 
 def wrap_brackets(*s: str, sep: str = "") -> str:

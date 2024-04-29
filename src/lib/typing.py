@@ -20,8 +20,7 @@ DirName = Literal[
 ]
 FailedBooksDict = dict[str, float]
 BookHashesDict = dict[str, str]
-ExifWriter = Literal["exiftool", "eyed3"]
-InboxDirStructure = Literal[
+BookStructure = Literal[
     "flat",  # all audio files are in the root/top-level directory
     "flat_nested",  # all audio files are in a single subdirectory
     "multi_disc",  # audio files are in multiple subdirectories, appears to be multiple discs of a single book
@@ -29,8 +28,8 @@ InboxDirStructure = Literal[
     "multi_book_series",  # audio files are in multiple subdirectories, appears to be multiple books in a series
     "multi_nested",  # audio files are in multiple subdirectories, but can't determine if multi-series or multi-disc
     "multi_mixed",  # audio files are in the root dir and subdirectories, but can't determine if multi-series or multi-disc
-    "file",  # a single audio file in the root/top-level directory
-    "standalone",  # a single audio file in a subdirectory
+    "standalone",  # a standalone audio file in the root/top-level directory
+    "single",  # a single audio file in a subdirectory
     "empty",  # no audio files found
 ]
 InboxDirMap = Sequence[tuple[Path]] | Sequence[tuple[Path, Sequence[Path]]]

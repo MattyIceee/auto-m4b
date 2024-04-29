@@ -34,7 +34,7 @@ from src.lib.misc import (
 )
 from src.lib.strings import en
 from src.lib.term import nl, print_amber, print_banana, print_debug, print_error
-from src.lib.typing import ExifWriter, OverwriteMode
+from src.lib.typing import OverwriteMode
 
 DEFAULT_SLEEP_TIME: float = 10
 DEFAULT_WAIT_TIME: float = 5
@@ -519,10 +519,6 @@ class Config:
     def IGNORE_FILES(self):
         global IGNORE_FILES
         return IGNORE_FILES
-
-    @cached_property
-    def EXIF_WRITER(self) -> ExifWriter:
-        return cast(ExifWriter, os.getenv("EXIF_WRITER", "eyed3"))
 
     @cached_property
     def USE_DOCKER(self):

@@ -182,12 +182,13 @@ class test_unhappy_paths:
         from src.lib.config import cfg
 
         txr_name = "txr_treasure__flat_mp3"
+        shutil.rmtree(cfg.inbox_dir / txr_name, ignore_errors=True)
 
         rename_dir(tower_treasure__flat_mp3.inbox_dir, txr_name)
 
         async def async_app():
-            with testutils.set_wait_time(0.5):
-                with testutils.set_sleep_time(1):
+            with testutils.set_wait_time(1):
+                with testutils.set_sleep_time(0.5):
                     time.sleep(0)
                     testutils.print("Starting app...")
                     testutils.set_match_filter("^(missing|tower)")
@@ -195,12 +196,12 @@ class test_unhappy_paths:
                     testutils.print("Finished app")
 
         def renamer():
-            time.sleep(1)
+            time.sleep(2)
             testutils.rename_files(
                 tower_treasure__flat_mp3,
                 append="-new1",
                 rstrip=r"-new\d",
-                wait_time=0.5,
+                wait_time=0.25,
             )
             time.sleep(2)
             rename_dir(cfg.inbox_dir / txr_name, tower_treasure__flat_mp3.basename)
@@ -208,7 +209,7 @@ class test_unhappy_paths:
                 tower_treasure__flat_mp3,
                 append="-new2",
                 rstrip=r"-new\d",
-                wait_time=0.5,
+                wait_time=0.25,
             )
 
         with testutils.set_on_complete("archive" if archive else "test_do_nothing"):

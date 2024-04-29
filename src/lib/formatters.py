@@ -188,3 +188,8 @@ def pluralize_with_count(
 def listify(l: Iterable[Any], bul: str = "-", indent: int = 0) -> str:
     bul = f'{" " * indent}{bul} '
     return f"\n".join([f"{bul}{i}" for i in l])
+
+
+def ensure_dot(s: str) -> str:
+    """Ensure extension (suffix) has a leading dot '.' character."""
+    return s if s.startswith(".") else f".{s}"

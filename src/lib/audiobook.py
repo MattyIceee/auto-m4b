@@ -28,8 +28,8 @@ from src.lib.fs_utils import (
 )
 from src.lib.id3_utils import extract_cover_art, extract_metadata
 from src.lib.misc import get_dir_name_from_path
-from src.lib.parsers import count_distinct_roman_numerals, extract_path_info
-from src.lib.typing import AudiobookFmt, DirName, SizeFmt
+from src.lib.parsers import count_distinct_romans, extract_path_info
+from src.lib.typing import AudiobookFmt, BookStructure, DirName, SizeFmt
 
 
 class Audiobook(BaseModel):
@@ -50,6 +50,7 @@ class Audiobook(BaseModel):
     fs_narrator: str = ""
     dir_extra_junk: str = ""
     file_extra_junk: str = ""
+    orig_file_type: AudiobookFmt = ""  # type: ignore
     orig_file_name: str = ""
     title: str = ""
     artist: str = ""
@@ -75,6 +76,8 @@ class Audiobook(BaseModel):
 
         self.path = path
         self._active_dir = get_dir_name_from_path(path)
+        if f := find_first_audio_file(self.path, ignore_errors=True):
+            self.orig_file_type = cast(AudiobookFmt, f.suffix.replace(".", ""))
 
     def __str__(self):
         return f"{self.key}"
@@ -110,15 +113,15 @@ class Audiobook(BaseModel):
 
     @property
     def build_dir(self) -> Path:
-        return cfg.build_dir.resolve() / self.basename
+        return (cfg.build_dir.resolve() / self.basename).with_suffix("")
 
     @property
     def build_tmp_dir(self) -> Path:
-        return self.build_dir.resolve() / f"{self.basename}-tmpfiles"
+        return self.build_dir / f"{self.basename}-tmpfiles"
 
     @property
     def converted_dir(self) -> Path:
-        return cfg.converted_dir.resolve() / self.key
+        return (cfg.converted_dir.resolve() / self.basename).with_suffix("")
 
     @property
     def archive_dir(self) -> Path:
@@ -130,11 +133,21 @@ class Audiobook(BaseModel):
 
     @property
     def build_file(self) -> Path:
-        return self.build_dir.resolve() / f"{self.basename}.m4b"
+        if self.build_dir.suffix == ".m4b":
+            return self.build_dir
+        try:
+            return find_first_audio_file(self.build_dir, ".m4b")
+        except FileNotFoundError:
+            return self.build_dir / f"{self.basename}.m4b"
 
     @property
     def converted_file(self) -> Path:
-        return self.converted_dir / f"{self.basename}.m4b"
+        if self.converted_dir.suffix == ".m4b":
+            return self.converted_dir
+        try:
+            return find_first_audio_file(self.converted_dir, ".m4b")
+        except FileNotFoundError:
+            return self.converted_dir / f"{self.basename}.m4b"
 
     @cached_property
     def sample_audio1(self):
@@ -143,6 +156,14 @@ class Audiobook(BaseModel):
     @cached_property
     def sample_audio2(self):
         return find_next_audio_file(self.sample_audio1)
+
+    def rescan_structure(self):
+        for attr in ["sample_audio1", "sample_audio2", "structure"]:
+            try:
+                delattr(self, attr)
+            except AttributeError:
+                pass
+            getattr(self, attr)
 
     def last_updated_at(self, for_dir: DirName = "inbox"):
         return last_updated_at(
@@ -153,8 +174,23 @@ class Audiobook(BaseModel):
         return hash_path_audio_files(getattr(self, for_dir + "_dir"))
 
     @cached_property
-    def structure(self):
+    def structure(self) -> BookStructure:
         return find_book_audio_files(self)[0]
+
+    def is_a(
+        self,
+        structure: BookStructure | tuple[BookStructure, ...],
+        fmt: AudiobookFmt | None = None,
+        *,
+        not_fmt: AudiobookFmt | tuple[AudiobookFmt | None, ...] | None = None,
+    ):
+        if not isinstance(structure, tuple):
+            structure = (structure,)
+        if not isinstance(not_fmt, tuple):
+            not_fmt = (not_fmt,)
+        not_fmt_matches = not not_fmt or self.orig_file_type not in not_fmt
+        fmt_matches = not fmt or self.orig_file_type == fmt
+        return self.structure in structure and fmt_matches and not_fmt_matches
 
     @property
     def is_maybe_series_book(self):
@@ -190,16 +226,12 @@ class Audiobook(BaseModel):
     def num_books_in_series(self):
         return self._inbox_item.num_books_in_series if self._inbox_item else -1
 
-    @cached_property
-    def orig_file_type(self):
-        return cast(AudiobookFmt, self.sample_audio1.suffix.replace(".", ""))
-
     def num_files(self, for_dir: DirName):
         return count_audio_files_in_dir(getattr(self, for_dir + "_dir"))
 
     @property
     def num_roman_numerals(self):
-        return count_distinct_roman_numerals(self.inbox_dir)
+        return count_distinct_romans(self.inbox_dir)
 
     @overload
     def size(self, for_dir: DirName, fmt: Literal["bytes"]) -> int: ...
@@ -237,9 +269,9 @@ class Audiobook(BaseModel):
 
     @property
     def log_file(self) -> Path:
-        log_file = self.active_dir / self.log_filename
-        log_file.touch(exist_ok=True)
-        return log_file
+        return (
+            self.active_dir.parent if self.active_dir.is_file() else self.active_dir
+        ) / self.log_filename
 
     def write_log(self, *s: str):
         self.log_file.touch(exist_ok=True)
@@ -291,6 +323,10 @@ class Audiobook(BaseModel):
             cp_file_to_dir(self._inbox_cover_art_file, self.merge_dir)
         return merge_cover
 
+    @cached_property
+    def id3_cover(self):
+        return extract_cover_art(self.sample_audio1, save_to_file=False)
+
     @property
     def basename(self):
         """The name of the book, including file extension if it is a single file,
@@ -322,23 +358,31 @@ class Audiobook(BaseModel):
     def write_description_txt(self, out_path: Path | None = None):
 
         # Write the description to the file with newlines, ensure utf-8 encoding
+
+        m4b_file = next(
+            (f for f in [self.converted_file, self.build_file] if f.exists()),
+            None,
+        )
+        converted_duration = get_duration(m4b_file, "human") if m4b_file else "N/A"
+        converted_size = get_size(m4b_file, "human") if m4b_file else "N/A"
+        orig_basename = (
+            f"{'File' if self.path.is_file() else 'Folder'} name: {self.basename}"
+        )
+
         content = f"""Book title: {self.title}
 Author: {self.author}
 Date: {self.date}
 Narrator: {self.narrator}
+Format: m4b
 Quality: {self.bitrate_friendly} @ {self.samplerate_friendly}
-Original folder name: {self.basename}
-Original file type: {self.orig_file_type}
-Original size: {self.size("inbox", "human")}
-Original duration: {self.duration("inbox", "human")}
-"""
-        if self.converted_file.exists():
-            content += f"Converted size: {self.size('converted', 'human')}\n"
-            content += f"Converted duration: {self.duration('converted', 'human')}\n"
-        elif self.build_file.exists():
-            content += f"Converted size: {self.size('build', 'human')}\n"
-            content += f"Converted duration: {self.duration('build', 'human')}\n"
+Duration: {converted_duration}
+Size: {converted_size}
 
+(Original)
+{orig_basename}
+Format: {self.orig_file_type or 'N/A'}
+Size: {self.size("inbox", "human")}
+"""
         out_path = out_path or self.merge_desc_file
         # write the description to the file, overwriting if it already exists
         with open(out_path, "w", encoding="utf-8") as f:

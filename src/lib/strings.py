@@ -11,5 +11,6 @@ class en:
     )
     FEATURE_CONVERT_SERIES = "Converting book series"
     FEATURE_FLATTEN_MULTI_DISC_BOOKS = "Converting multi-disc books"
-    DEBUG_WAITING_FOR_INBOX = "Waiting for inbox"
+    DEBUG_WAITING_FOR_INBOX = "Waiting for inbox updates:"
     DEBUG_INBOX_HASH_UNCHANGED = "Inbox hash is the same, no changes since"
+    BOOK_ALREADY_CONVERTED = "This book has already been converted 🎉"

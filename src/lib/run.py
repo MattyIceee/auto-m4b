@@ -13,7 +13,6 @@ from src.lib.audiobook import Audiobook
 from src.lib.config import cfg
 from src.lib.formatters import (
     human_elapsed_time,
-    log_date,
     pluralize,
     pluralize_with_count,
 )
@@ -56,52 +55,71 @@ from src.lib.typing import SCAN_TTL
 # glasses 2: ᒡ◯ᴖ◯ᒢ
 
 
-def process_standalone_files():
-    """Move single audio files into their own folders"""
-    inbox = InboxState()
+def move_standalone_into_dir(book: Audiobook, item: InboxItem):
+    if not book.is_a("standalone", not_fmt="m4b"):
+        return book, item
 
-    if not inbox.num_standalone_files:
-        return
+    ext = ensure_dot(book.orig_file_type)
 
-    # get all standalone audio files in inbox - i.e., audio files that are directl in the inbox not a subfolder
-    for audio_file in inbox.book_dirs:
-        # Extract base name without extension
-        file_name = audio_file.name
-        folder_name = audio_file.stem
-        ext = audio_file.suffix
+    folder_name = item.path.stem
+    smart_print(f"\nMoving standalone {ext} into its own folder → ./{folder_name}/")
+    new_folder = cfg.inbox_dir / folder_name
+    new_folder.mkdir(exist_ok=True)
+    mv_file_to_dir(item.path, new_folder, overwrite_mode="overwrite-silent")
 
-        # If the file is an m4b, we can send it straight to the output folder.
-        # if a file of the same name exists, rename the incoming file to prevent data loss using (copy), (copy 1), (copy 2) etc.
-        if ext == ".m4b":
-            unique_target = cfg.converted_dir / file_name
-            smart_print("This book is already an m4b")
-            smart_print(f"Moving directly to converted books folder → {unique_target}")
+    # move any other files with the same basename to the new folder
+    for f in find_adjacent_files_with_same_basename(item.path):
+        mv_file_to_dir(f, new_folder)
 
-            if unique_target.exists():
-                smart_print(
-                    "(A file with the same name already exists in the output dir, this one will be renamed to prevent data loss)"
+    # update item
+    item = InboxItem(new_folder / new_folder)
+    item.reload()
+    return item.to_audiobook(), item
+
+
+def process_already_m4b(book: Audiobook, item: InboxItem):
+
+    print_book_info(book)
+    smart_print(f"\n{en.BOOK_ALREADY_CONVERTED}\n")
+    print_moving_to_converted(book)
+
+    if book.structure == "standalone":
+        file_name = item.key
+        ext = ensure_dot(book.orig_file_type)
+        folder_name = item.path.stem
+        target_dir = cfg.converted_dir / folder_name
+
+        unique_target = target_dir / file_name
+        (target_dir).mkdir(parents=True, exist_ok=True)
+
+        if unique_target.exists():
+            smart_print(
+                "(A file with the same name already exists, this one will be renamed to prevent data loss)"
+            )
+
+            i = 0
+            unique_target = (target_dir / f"{folder_name} (copy)").with_suffix(ext)
+            while unique_target.exists():
+                i += 1
+                unique_target = (target_dir / f"{folder_name} (copy {i})").with_suffix(
+                    ext
                 )
 
-                # using a loop, first try to rename the file to append (copy) to the end of the file name.
-                # if that fails, try (copy 1), (copy 2) etc. until it succeeds
-                i = 0
-                # first try to rename to (copy)
-                unique_target = cfg.converted_dir / f"{folder_name} (copy){ext}"
-                while unique_target.exists():
-                    i += 1
-                    unique_target = cfg.converted_dir / f"{folder_name} (copy {i}){ext}"
+        mv_file_to_dir(item.path, target_dir, new_filename=unique_target.name)
 
-            shutil.move(str(audio_file), str(unique_target))
+        for f in find_adjacent_files_with_same_basename(item.path):
+            mv_file_to_dir(f, target_dir)
 
-            if unique_target.exists():
-                smart_print(f"Successfully moved to {unique_target}")
-        else:
-            smart_print(f"Moving book into its own folder → {folder_name}/")
-            new_folder = cfg.inbox_dir / folder_name
-            new_folder.mkdir(exist_ok=True)
-            shutil.move(str(audio_file), str(new_folder))
+    elif book.structure == "single":
+        mv_dir_contents(
+            book.inbox_dir, book.converted_dir, overwrite_mode="overwrite-silent"
+        )
 
-        inbox.set_ok(folder_name)
+    book.set_active_dir("converted")
+    verify_and_update_id3_tags(book, "converted")
+
+    item.set_gone()
+    return 1
 
 
 def print_banner(after: Callable[..., Any] | None = None):
@@ -122,7 +140,7 @@ def print_banner(after: Callable[..., Any] | None = None):
 
     msg = (
         "Checking for"
-        if inbox.ok_and_matched_books and inbox.loop_counter > 1
+        if inbox.matched_ok_books and inbox.loop_counter > 1
         else "Watching for"
     )
     if not skip:
@@ -131,7 +149,7 @@ def print_banner(after: Callable[..., Any] | None = None):
     if not skip and inbox.loop_counter == 1:
         nl()
 
-    time.sleep(cfg.WAIT_TIME if not cfg.TEST else 0)
+    time.sleep(0.25 if not cfg.TEST else 0)
 
     if after:
         # print_debug("Running after function")
@@ -400,7 +418,7 @@ def books_to_process() -> tuple[int, Callable[[], None]]:
     check_failed_books()
 
     # If no books to convert, print, sleep, and exit
-    if inbox.num_books == 0:  # replace 'books_count' with your variable
+    if not inbox.num_books:  # replace 'books_count' with your variable
         return 0, lambda: smart_print(
             f"No books to convert, next check in {cfg.sleeptime_friendly}\n"
         )
@@ -437,10 +455,10 @@ def books_to_process() -> tuple[int, Callable[[], None]]:
             highlight_color=AMBER_COLOR,
         )
 
-    if inbox.match_filter and inbox.matched_books:
+    if inbox.match_filter and inbox.matched_ok_books:
         ignoring = f"ignoring {inbox.num_filtered}" if inbox.num_filtered else ""
         note = wrap_brackets(ignoring, skipping, sep=", ")
-        return inbox.num_matched, lambda: smart_print(
+        return inbox.num_matched_ok, lambda: smart_print(
             f"Found {pluralize_with_count(inbox.num_matched, 'book')} in the inbox matching [[{inbox.match_filter}]]{note}\n",
             highlight_color=AMBER_COLOR,
         )
@@ -493,10 +511,11 @@ def can_process_multi_dir(book: Audiobook):
                         return False
                     else:
                         flatten_files_in_dir(book.inbox_dir)
-                        book = Audiobook(book.inbox_dir)
+                        book.rescan_structure()
+                        # book = Audiobook(book.inbox_dir)
                         print_mint(" ✓\n")
-                        files = "\n".join([str(f) for f in book.inbox_dir.glob("*")])
-                        print_debug(f"New file structure:\n{files}")
+                        # files = "\n".join([str(f) for f in book.inbox_dir.glob("*")])
+                        # print_debug(f"New file structure:\n{files}")
                         inbox.set_ok(book)
                 else:
                     print_error(f"{en.MULTI_ERR}, maybe this is a multi-disc book?")
@@ -536,16 +555,6 @@ def can_process_roman_numeral_book(book: Audiobook):
     return True
 
 
-def is_already_m4b(book: Audiobook):
-    m4b_count = count_audio_files_in_dir(book.inbox_dir, only_file_exts=["m4b"])
-    if m4b_count == 1:
-        smart_print("This book is already an m4b")
-        smart_print(f"Moving directly to converted books folder → {book.converted_dir}")
-        mv_dir_contents(book.inbox_dir, book.converted_dir)
-        return True
-    return False
-
-
 def has_audio_files(book: Audiobook):
     if not book.num_files("inbox"):
         print_notice(
@@ -564,6 +573,7 @@ def flatten_nested_book(book: Audiobook):
         )
         flatten_files_in_dir(book.inbox_dir)
         print_mint(" ✓\n")
+        book.rescan_structure()
 
 
 def print_book_info(book: "Audiobook"):
@@ -582,8 +592,9 @@ def print_book_info(book: "Audiobook"):
     )
     print_list_item(f"Source: {src}")
     print_list_item(f"Output: {dst}")
-    print_list_item(f"File type: {book.orig_file_type}")
-    print_list_item(f"Audio files: {book.num_files('inbox')}")
+    print_list_item(f"Format: {book.orig_file_type}")
+    num_files = 1 if book.structure.count("standalone") else book.num_files("inbox")
+    print_list_item(f"Audio files: {num_files}")
     print_list_item(f"Total size: {book.size('inbox', 'human')}")
     if book.cover_art_file:
         print_list_item(f"Cover art: {book.cover_art_file.name}")
@@ -618,8 +629,6 @@ def convert_book(book: Audiobook):
 
     if cfg.DEBUG:
         smart_print(stdout)
-
-    endtime_log = log_date()
 
     if re.search(r"error", stdout, re.I):
         # ignorable errors:
@@ -707,9 +716,13 @@ def move_desc_file(book: Audiobook):
     )
 
 
-def move_converted_book_and_extras(book: Audiobook):
+def print_moving_to_converted(book):
     ln = "Moving to converted books folder → "
     smart_print(f"{ln}{tint_path(linebreak_path(book.converted_file, indent=len(ln)))}")
+
+
+def move_converted_book_and_extras(book: Audiobook):
+    print_moving_to_converted(book)
 
     # Copy other jpg, png, and txt files from mergefolder to output folder
     mv_dir_contents(
@@ -750,15 +763,15 @@ def move_converted_book_and_extras(book: Audiobook):
         fail_book(book)
         return False
 
-    # Remove description.txt from output folder if "$book [$desc_quality].txt" exists
-    if book.final_desc_file.is_file():
-        (book.converted_dir / "description.txt").unlink(missing_ok=True)
-    else:
-        print_notice(
-            "The description.txt is missing (reason unknown), trying to save a new one"
-        )
-        book.write_description_txt(book.final_desc_file)
     return True
+    # Remove description.txt from output folder if "$book [$desc_quality].txt" exists
+    # if book.final_desc_file.is_file():
+    #     (book.converted_dir / "description.txt").unlink(missing_ok=True)
+    # else:
+    #     print_notice(
+    #         "The description.txt is missing (reason unknown), trying to save a new one"
+    #     )
+    #     book.write_description_txt(book.final_desc_file)
 
 
 def cleanup_series_dir(parent: InboxItem | None):
@@ -855,7 +868,7 @@ def archive_inbox_book(book: Audiobook):
 def process_book(b: int, item: InboxItem):
 
     inbox = InboxState()
-    book = Audiobook(item.path)
+    book = item.to_audiobook()
     print_book_header(item)
 
     if not item.path.exists():
@@ -876,8 +889,12 @@ def process_book(b: int, item: InboxItem):
     # can't modify the inbox dir until we check whether it was modified recently
     book.log_file.unlink(missing_ok=True)
 
-    if is_already_m4b(book):
-        return b
+    if book.is_a(("single", "standalone"), "m4b"):
+        b += process_already_m4b(book, item)
+        if item.is_gone:
+            return b
+    else:
+        book, item = move_standalone_into_dir(book, item)
 
     if not has_audio_files(book):
         return b
@@ -914,8 +931,6 @@ def process_book(b: int, item: InboxItem):
 
     nl()
 
-    book.write_description_txt()
-
     # TODO: Only handles single m4b output file, not multiple files.
 
     if (elapsedtime := convert_book(book)) is False:
@@ -925,9 +940,11 @@ def process_book(b: int, item: InboxItem):
 
     # m4b_num_parts=1 # hardcode for now, until we know if we need to split parts
 
-    move_desc_file(book)
+    # move_desc_file(book)
+
     log_global_results(book, "SUCCESS", elapsedtime)
 
+    book.write_description_txt(book.final_desc_file)
     if not move_converted_book_and_extras(book):
         return b
 
@@ -957,19 +974,23 @@ def process_inbox():
         )
         return
 
-    if not inbox.inbox_needs_processing() and inbox.loop_counter > 1:
+    if (
+        # not inbox.inbox_needs_processing(on_will_scan=process_standalone_files)
+        not inbox.inbox_needs_processing()
+        and inbox.loop_counter > 1
+    ):
         return
     elif info := books_to_process():
-        expected, msg = info
-        print_debug(f"Processing {expected} book(s)")
+        _expected, msg = info
+        # print_debug(f"Processing {expected} book(s)")
         print_banner(after=lambda: [x() for x in (nl, msg)])
 
-    process_standalone_files()
+    # process_standalone_files()
 
     inbox.start()
 
     b = 0
-    for item in inbox.ok_and_matched_books.values():
+    for item in inbox.matched_ok_books.values():
         b = process_book(b, item)
         divider("\n", "\n")
 

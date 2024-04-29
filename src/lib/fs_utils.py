@@ -8,13 +8,8 @@ from pathlib import Path
 from typing import Any, cast, Literal, NamedTuple, overload, TYPE_CHECKING
 
 from src.lib.config import AUDIO_EXTS, cfg
-from src.lib.formatters import friendly_date, human_size
+from src.lib.formatters import ensure_dot, friendly_date, human_size
 from src.lib.misc import isorted, sh, try_get_stat_mtime
-from src.lib.parsers import (
-    is_maybe_multi_book_or_series,
-    is_maybe_multi_disc,
-    is_maybe_multi_part,
-)
 from src.lib.term import (
     print_error,
     print_grey,
@@ -23,9 +18,9 @@ from src.lib.term import (
 )
 from src.lib.typing import (
     BookHashesDict,
+    BookStructure,
     copy_kwargs_omit_first_arg,
     InboxDirMap,
-    InboxDirStructure,
     Operation,
     OVERWRITE_MODES,
     OverwriteMode,
@@ -145,11 +140,7 @@ def count_audio_files_in_inbox() -> int:
 
 
 def count_standalone_books_in_inbox() -> int:
-    from src.lib.config import cfg
-
-    return count_audio_files_in_dir(
-        cfg.inbox_dir, only_file_exts=cfg.AUDIO_EXTS, maxdepth=0
-    )
+    return len(find_standalone_books_in_inbox())
 
 
 @overload
@@ -526,17 +517,23 @@ def mv_file_to_dir(
 ) -> None:
     check_src_dst(source_file, "file", dst_dir, "dir", overwrite_mode)
 
-    dst = dst_dir if new_filename is None else dst_dir / new_filename
+    dst_file = (
+        dst_dir / source_file.name if new_filename is None else dst_dir / new_filename
+    )
 
-    if dst.is_file() and overwrite_mode == "skip":
-        raise FileExistsError(
-            f"Destination file {dst} already exists and overwrite mode is 'skip'"
-        )
-    if dst.is_file() and overwrite_mode != "overwrite-silent":
-        print_warning(f"Warning: {dst} already exists and will be overwritten")
+    if dst_file.exists():
+        if overwrite_mode == "skip":
+            raise FileExistsError(
+                f"Destination file '{dst_file}' already exists and overwrite mode is 'skip'"
+            )
+        elif overwrite_mode != "overwrite-silent":
+            print_warning(
+                f"Warning: '{dst_file}' already exists and will be overwritten"
+            )
+        dst_file.unlink(missing_ok=True)
 
     # Move the file
-    shutil.move(source_file, dst)
+    shutil.move(source_file, dst_file)
 
 
 def cp_file_to_dir(
@@ -635,6 +632,7 @@ def find_base_dirs_with_audio_files(
     root: Path,
     mindepth: int | None = None,
     maxdepth: int | None = None,
+    ignore_errors: bool = False,
 ) -> list[Path]:
     """Given a root directory, returns a list of all base directories that contain audio files. E.g.,
     if the root directory is '/path/to' and contains:
@@ -652,6 +650,8 @@ def find_base_dirs_with_audio_files(
     """
 
     if not root.is_dir():
+        if ignore_errors:
+            return []
         raise NotADirectoryError(f"Error: {root} is not a directory")
 
     def depth(p: Path) -> int:
@@ -718,12 +718,26 @@ def find_book_dirs_for_series(parent_dir: Path):
 
 
 def find_standalone_books_in_inbox():
-    return [
-        file
-        for ext in AUDIO_EXTS
-        for file in cfg.inbox_dir.glob(f"*{ext}")
-        if len(file.parts) == 1
-    ]
+    return isorted(
+        [
+            file
+            for ext in AUDIO_EXTS
+            for file in cfg.inbox_dir.glob(f"*{ext}")
+            if len(file.relative_to(cfg.inbox_dir).parts) == 1
+        ]
+    )
+
+
+def find_adjacent_files_with_same_basename(
+    path: Path, only_file_exts: list[str] = []
+) -> list[Path]:
+    return isorted(
+        [
+            f
+            for f in path.parent.glob(f"{path.stem}.*")
+            if f.is_file() and (not only_file_exts or f.suffix in only_file_exts)
+        ]
+    )
 
 
 def find_books_in_inbox():
@@ -733,14 +747,19 @@ def find_books_in_inbox():
 
 def find_book_audio_files(
     book: "Audiobook | Path",
-) -> tuple[InboxDirStructure, InboxDirMap]:
+) -> tuple[BookStructure, InboxDirMap]:
     """Given a book directory, returns a tuple of the book's directory structure type, and a map of the book's audio files."""
     from src.lib.config import cfg
+    from src.lib.parsers import (
+        is_maybe_multi_book_or_series,
+        is_maybe_multi_disc,
+        is_maybe_multi_part,
+    )
 
     path = book if isinstance(book, Path) else book.inbox_dir
 
     if path.is_file():
-        return ("file", [(path,)])
+        return ("standalone", [(path,)])
 
     all_audio_files = find_files_in_dir(
         path, resolve=True, only_file_exts=cfg.AUDIO_EXTS
@@ -751,7 +770,7 @@ def find_book_audio_files(
         return ("empty", [])
 
     if len(all_audio_files) == 1:
-        return ("standalone", [(all_audio_files[0],)])
+        return ("single", [(all_audio_files[0],)])
 
     root_audio_files_tuples: InboxDirMap = [(f,) for f in root_audio_files]
 
@@ -818,7 +837,7 @@ def find_book_audio_files(
         ],
     ]
 
-    struc: InboxDirStructure
+    struc: BookStructure
     if book_series:
         struc = "multi_book_series"
     elif multi_disc:
@@ -881,23 +900,28 @@ def rm_dirs(
 
 
 @overload
-def find_first_audio_file(path: Path, throw: bool = True) -> Path: ...
-
-
+def find_first_audio_file(
+    path: Path, ext: str | None = None, ignore_errors: Literal[False] = False
+) -> Path: ...
 @overload
-def find_first_audio_file(path: Path, throw: bool = False) -> Path | None: ...
+def find_first_audio_file(
+    path: Path, ext: str | None = None, ignore_errors: Literal[True] = True
+) -> Path | None: ...
 
 
-def find_first_audio_file(path: Path, throw: bool = True) -> Path | None:
+def find_first_audio_file(
+    path: Path, ext: str | None = None, ignore_errors: bool = False
+) -> Path | None:
 
-    if path.is_file() and path.suffix in AUDIO_EXTS:
+    exts = [ensure_dot(ext)] if ext else AUDIO_EXTS
+    if path.is_file() and path.suffix in exts:
         return path
 
-    audio_files = find_files_in_dir(path, resolve=True, only_file_exts=AUDIO_EXTS)
+    audio_files = find_files_in_dir(path, resolve=True, only_file_exts=exts)
 
     if audio_file := next(iter(sorted(audio_files)), None):
         return audio_file
-    if throw:
+    if not ignore_errors:
         raise FileNotFoundError(f"No audio files found in {path}")
     return None
 

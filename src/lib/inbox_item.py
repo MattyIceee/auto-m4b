@@ -62,6 +62,9 @@ class InboxItem:
 
         path = get_path(book)
 
+        self.is_dir = path.is_dir()
+        self.is_file = path.is_file()
+
         self._prev_hash = None
         self._last_updated: float | None = None
         self._curr_hash = hash_path_audio_files(path)
@@ -187,7 +190,7 @@ class InboxItem:
         return any(
             [
                 is_maybe_multi_book_or_series(d.name)
-                for d in find_base_dirs_with_audio_files(self.path)
+                for d in find_base_dirs_with_audio_files(self.path, ignore_errors=True)
             ]
         )
 

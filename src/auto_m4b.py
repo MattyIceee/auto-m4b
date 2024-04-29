@@ -15,7 +15,7 @@ def handle_err(e: Exception):
     from src.lib.config import cfg
 
     with open(cfg.FATAL_FILE, "a") as f:
-        f.write(f"Fatal {e}")
+        f.write(str(e))
 
     if cfg.DEBUG:
         print_red(f"\n{traceback.format_exc()}")

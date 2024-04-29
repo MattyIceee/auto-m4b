@@ -118,7 +118,7 @@ def log_global_results(
             book_name,
             book.bitrate_friendly,
             book.samplerate_friendly,
-            f".{book.orig_file_type.replace('.', '')}",
+            f".{(book.orig_file_type or "N/A").replace('.', '')}",
             f"{book.num_files('inbox')} {pluralize(book.num_files('inbox'), "file")}",
             book.size("inbox", "human"),
             book.duration("inbox", "human") or "-",
@@ -164,7 +164,9 @@ def get_log_entry(book_src: Path, log_file: Path | None = None) -> str:
 def write_err_file(
     file: Path, e: Any, component: str, stderr: str | None = None
 ) -> None:
-    with open(file.with_suffix(f".{component}-error.txt"), "a") as f:
+    err_file = file.with_suffix(f".{component}-error.txt")
+    err_file.touch(exist_ok=True)
+    with open(err_file, "a") as f:
         full_stack = traceback.format_exc()
         stderr = f"\n\n{stderr}" if stderr else ""
         f.write(f"{full_stack}\n{str(e)}{stderr}")

@@ -299,36 +299,43 @@ class test_happy_paths:
                             assert tower_treasure__flat_mp3.inbox_dir.exists()
                         assert not tower_treasure__flat_mp3.archive_dir.exists()
 
+    @pytest.mark.parametrize(
+        "indirect_fixture, capfd",
+        [
+            ("basic_with_cover__single_mp3", "capfd"),
+            ("basic_with_cover__single_m4b", "capfd"),
+            ("basic_no_cover__single_mp3", "capfd"),
+            ("basic_no_cover__single_m4b", "capfd"),
+        ],
+        indirect=["indirect_fixture", "capfd"],
+    )
     def test_cover_art_is_tagged(
-        self,
-        basic_with_cover__single_mp3: Audiobook,
-        basic_with_cover__single_m4b: Audiobook,
-        basic_no_cover__single_mp3: Audiobook,
-        basic_no_cover__single_m4b: Audiobook,
-        capfd: CaptureFixture[str],
+        self, indirect_fixture: Audiobook, capfd: CaptureFixture[str]
     ):
-        testutils.set_match_filter(r"^basic_\w+_cover")
+        book = indirect_fixture
+        # testutils.set_match_filter(r"^basic_\w+_cover")
         app(max_loops=1)
+        if book.orig_file_type == "m4b":
+            checks = {
+                "found_books_eq": 1,
+                "already_converted_eq": 1,
+            }
+        else:
+            checks = {
+                "found_books_eq": 1,
+                "converted_eq": 1,
+            }
         assert testutils.assert_processed_output(
             capfd,
-            basic_no_cover__single_mp3,
-            basic_no_cover__single_m4b,
-            basic_with_cover__single_mp3,
-            basic_with_cover__single_m4b,
-            loops=[testutils.check_output(found_books_eq=4, converted_eq=4)],
+            book,
+            loops=[testutils.check_output(**checks)],  # type: ignore
         )
 
         # extract cover art and check that it is > 10kb
-        for b in [
-            basic_no_cover__single_mp3,
-            basic_no_cover__single_m4b,
-            basic_with_cover__single_mp3,
-            basic_with_cover__single_m4b,
-        ]:
-            img = extract_cover_art(
-                b.converted_file,
-                save_to_file=True,
-                filename="test_cover.jpg",
-            )
-            assert img.exists()
-            assert img.stat().st_size > 10000
+        img = extract_cover_art(
+            book.converted_file,
+            save_to_file=True,
+            filename="test_cover.jpg",
+        )
+        assert img.exists()
+        assert img.stat().st_size > 10000
