@@ -14,7 +14,7 @@ from rapidfuzz import fuzz
 from rapidfuzz.distance import LCSseq, Levenshtein
 from tinta import Tinta
 
-from src.lib.cleaners import clean_string, strip_leading_articles
+from src.lib.cleaners import clean_string, strip_author_narrator, strip_leading_articles
 from src.lib.fs_utils import find_first_audio_file
 from src.lib.misc import compare_trim, fix_ffprobe, get_numbers_in_string
 
@@ -23,7 +23,7 @@ fix_ffprobe()
 from src.lib.cleaners import strip_part_number
 from src.lib.parsers import (
     common_str_pattern,
-    contains_partno,
+    contains_partno_or_ch,
     find_greatest_common_string,
     get_title_partno_score,
     get_year_from_date,
@@ -589,7 +589,7 @@ class BaseScoreCard:
 
     @property
     def _value(self):
-        return tag_matcher(self._scorer._p, self._prop, self._is_likely[0], "")
+        return self._scorer._tag_matcher(self._prop, self._is_likely[0], "")
 
     @property
     def _is_likely(self) -> tuple[TagSource, int, str | None]:
@@ -838,31 +838,50 @@ class MetadataProps:
         # Title
         self._t1_numbers = ""
         self._t2_numbers = ""
+        self._t1_is_numeric = False
+        self._t2_is_numeric = False
         self._t1_startswith_num = False
         self._t2_startswith_num = False
         self._t1_is_in_fs_name = False
         self._t1_similarity_to_fs_name = 0
+        self._t1_similarity_to_t2 = 0
         self._t1_eq_t2 = False
         self._t1_is_missing = not self.title1
         if self.title1:
             self._t1_numbers = get_numbers_in_string(self.title1)
-            self._t2_numbers = get_numbers_in_string(self.title2)
             self._t1_startswith_num = startswith_num_pattern.match(self.title1)
-            self._t2_startswith_num = startswith_num_pattern.match(self.title2)
+            self._t1_is_numeric = self._t1_numbers == self.title1
             self._t1_is_in_fs_name = self.title1.lower() in self.fs_name_lower
             self._t1_similarity_to_fs_name = similarity_score(
                 self.title1.lower(), self.fs_name_lower
             )
             self._t1_eq_t2 = self.title1 == self.title2
+            self._t1_similarity_to_t2 = similarity_score(
+                self.title1.lower(), self.title2.lower()
+            )
 
         self._t2_is_in_fs_name = False
         self._t2_is_missing = not self.title2
         if self.title2:
+            self._t2_numbers = get_numbers_in_string(self.title2)
+            self._t2_startswith_num = startswith_num_pattern.match(self.title2)
+            self._t2_is_numeric = self._t2_numbers == self.title2
             self._t2_is_in_fs_name = self.title2.lower() in self.fs_name_lower
+
+        self._tc_is_numeric = False
+        self._tc_is_in_fs_name = False
+        self._tc_similarity_to_fs_name = 0
+        if self.title_c:
+            self._tc_is_numeric = get_numbers_in_string(self.title_c) == self.title_c
+            self._tc_is_in_fs_name = self.title_c.lower() in self.fs_name_lower
+            self._tc_similarity_to_fs_name = similarity_score(
+                self.title_c.lower(), self.fs_name_lower
+            )
 
         # Album
         self._al1_eq_al2 = False
         self._al1_similarity_to_fs_name = 0
+        self._al1_similarity_to_al2 = 0
         self._al1_is_in_fs_name = False
         self._al1_is_in_title = False
         self._al1_numbers = ""
@@ -872,6 +891,9 @@ class MetadataProps:
             self._al1_eq_al2 = self.album1 == self.album2
             self._al1_similarity_to_fs_name = similarity_score(
                 self.album1.lower(), self.fs_name_lower
+            )
+            self._al1_similarity_to_al2 = similarity_score(
+                self.album1.lower(), self.album2.lower()
             )
             self._al1_is_in_fs_name = self.album1.lower() in self.fs_name_lower
             self._al1_is_in_title = self.album1.lower() in self.title1.lower()
@@ -892,6 +914,7 @@ class MetadataProps:
         # Sort Album
         self._sal1_eq_sal2 = False
         self._sal1_similarity_to_fs_name = 0
+        self._sal1_similarity_to_sal2 = 0
         self._sal1_is_in_fs_name = False
         self._sal1_is_in_title = False
         self._sal1_numbers = ""
@@ -901,6 +924,9 @@ class MetadataProps:
             self._sal1_eq_sal2 = self.sortalbum1 == self.sortalbum2
             self._sal1_similarity_to_fs_name = similarity_score(
                 self.sortalbum1.lower(), self.fs_name_lower
+            )
+            self._sal1_similarity_to_sal2 = similarity_score(
+                self.sortalbum1.lower(), self.sortalbum2.lower()
             )
             self._sal1_is_in_fs_name = self.sortalbum1.lower() in self.fs_name_lower
             self._sal1_is_in_title = self.sortalbum1.lower() in self.title1.lower()
@@ -1073,29 +1099,6 @@ class MetadataProps:
         return f"MetadataScore\n" f"{self.table()}\n"
 
 
-def tag_matcher(p: MetadataProps, prop: str, tag: str, fallback: str = "") -> str:
-    if tag == "unknown":
-        return fallback
-
-    if common_str_pattern.match(tag):
-        return getattr(p, common_str_pattern.sub("", tag) + "_c")
-
-    if tag == "comment":
-        return getattr(p, f"{prop}_in_comment")
-
-    if tag == "fs":
-        try:
-            val = getattr(p, f"fs_{tag}")
-        except AttributeError:
-            ...
-    try:
-        val = getattr(p, f"{tag}1")
-    except AttributeError:
-        val = getattr(p, tag)
-
-    return clean_string(val if val else fallback)
-
-
 class MetadataScore:
     def __init__(
         self,
@@ -1103,20 +1106,26 @@ class MetadataScore:
         sample_audio2_tags: dict[TagSource | AdditionalTags, str],
     ):
 
-        self.title = TitleScoreCard(self)
         self.author = AuthorScoreCard(self)
         self.narrator = NarratorScoreCard(self)
+        self.title = TitleScoreCard(self)
         self.date = DateScoreCard(self)
 
         self._p = MetadataProps(book, sample_audio2_tags)
+
+        self._title: str = ""
+        self._author: str = ""
+        self._narrator: str = ""
+        self._date: str = ""
+        self._albumartist: str = ""
 
     def __str__(self):
 
         return (
             f"MetadataScore\n"
-            f" - title is likely:   {self.determine_title()}\n"
             f" - author is likely:  {self.determine_author()}\n"
             f" - narrator is likely:  {self.determine_narrator()}\n"
+            f" - title is likely:   {self.determine_title()}\n"
             f" - date is likely:  {self.determine_date()}\n"
         )
 
@@ -1160,7 +1169,37 @@ class MetadataScore:
                 val = parse_narrator(val, "generic")
         return val
 
-    def determine_title(self, fallback: str = ""):
+    def _tag_matcher(self, prop: str, tag: str, fallback: str = "") -> str:
+        if tag == "unknown":
+            return fallback
+
+        if common_str_pattern.match(tag):
+            return getattr(self._p, common_str_pattern.sub("", tag) + "_c")
+
+        if tag == "comment":
+            return getattr(self._p, f"{prop}_in_comment")
+
+        if tag == "fs":
+            try:
+                val = getattr(self._p, f"fs_{tag}")
+            except AttributeError:
+                ...
+        try:
+            val = getattr(self._p, f"{tag}1")
+        except AttributeError:
+            val = getattr(self._p, tag)
+
+        if prop == "title":
+            self.determine_author()
+            self.determine_narrator()
+            val = strip_author_narrator(val, self._author, self._narrator)
+
+        return clean_string(val if val else fallback)
+
+    def determine_title(self, fallback: str = "Unknown", *, force: bool = False):
+
+        if not force and self._title:
+            return self._title
 
         self.title.reset()
 
@@ -1186,29 +1225,41 @@ class MetadataScore:
         # Title weights
         if self._p.title1:
             title_is_title += int(self._p._t1_is_in_fs_name)
-            title_is_title += 10 * int(self._p._t1_similarity_to_fs_name)
-            title_is_title += int(10 if self._p._t1_eq_t2 else -10)
-            title_is_title += len(self._p.title1)
+            title_is_title += 2 * int(self._p._t1_similarity_to_fs_name)
+            title_is_title += int(2 if self._p._t1_eq_t2 else -2)
+            title_is_title += int(len(self._p.title1) / 10)
+            title_is_title -= 2 * int(self._p._t1_is_numeric)
+            title_is_title += 2 * self._p._t1_similarity_to_t2
 
         else:
             title_is_title = -404
 
         if self._p.title2:
             title_is_title += int(self._p._t2_is_in_fs_name)
-            title_is_title -= 10 * int(self._p._t2_is_missing)
+            title_is_title -= 2 * int(self._p._t2_is_missing)
+            title_is_title -= 2 * int(self._p._t2_is_numeric)
 
         if self._p.title1 and self._p.title2:
             common_title_is_title = max(0, title_is_title)
+            common_title_is_title += int(self._p._tc_is_in_fs_name)
+            common_title_is_title += 3 * self._p._tc_similarity_to_fs_name
+            common_title_is_title -= 2 * int(self._p._tc_is_numeric)
             common_title_is_title += int(
-                len(self._p.title_c) if not self._p._t1_eq_t2 else -len(self._p.title_c)
+                (
+                    len(self._p.title_c)
+                    if not self._p._t1_eq_t2
+                    else -len(self._p.title_c)
+                )
+                / 10
             )
+            common_title_is_title += 4 * self._p._t1_similarity_to_t2
 
         if self._p._t_is_partno:
             if self._p._t_is_only_part_no:
                 title_is_title -= self._p._t_partno_score * 100
             else:
-                title1_contains_partno = contains_partno(self._p.title1)
-                title2_contains_partno = contains_partno(self._p.title2)
+                title1_contains_partno = contains_partno_or_ch(self._p.title1)
+                title2_contains_partno = contains_partno_or_ch(self._p.title2)
                 if title1_contains_partno or title2_contains_partno:
                     common_title_is_title = max(
                         title_is_title,
@@ -1223,8 +1274,9 @@ class MetadataScore:
         if self._p.album1:
             album_is_title += int(self._p._al1_is_in_fs_name)
             album_is_title += int(self._p._al1_similarity_to_fs_name)
+            album_is_title += 2 * self._p._al1_similarity_to_al2
             album_is_title += int(self._p._al1_is_in_title)
-            album_is_title += len(self._p.album1)
+            album_is_title += int(len(self._p.album1) / 10)
 
         else:
             album_is_title = -404
@@ -1232,20 +1284,25 @@ class MetadataScore:
         if self._p.album2:
             album_is_title += int(self._p._al2_is_in_fs_name)
             album_is_title += int(self._p._al2_is_in_title)
-            album_is_title += int(10 if self._p._al1_eq_al2 else -10)
+            album_is_title += int(2 if self._p._al1_eq_al2 else -2)
 
         if self._p.album1 and self._p.album2:
             common_album_is_title = max(0, album_is_title)
             common_album_is_title += int(
-                len(self._p.album_c)
-                if not self._p._al1_eq_al2
-                else -len(self._p.album_c)
+                (
+                    len(self._p.album_c)
+                    if not self._p._al1_eq_al2
+                    else -len(self._p.album_c)
+                )
+                / 10
             )
+            common_album_is_title += 4 * int(self._p._al1_similarity_to_al2)
 
         # Sortalbum weights
         if self._p.sortalbum1:
             sortalbum_is_title += int(self._p._sal1_is_in_fs_name)
             sortalbum_is_title += int(self._p._sal1_similarity_to_fs_name)
+            sortalbum_is_title += 2 * self._p._sal1_similarity_to_sal2
             sortalbum_is_title += int(self._p._sal1_is_in_title)
             sortalbum_is_title += len(self._p.sortalbum1)
 
@@ -1255,15 +1312,19 @@ class MetadataScore:
         if self._p.sortalbum2:
             sortalbum_is_title += int(self._p._sal2_is_in_fs_name)
             sortalbum_is_title += int(self._p._sal2_is_in_title)
-            sortalbum_is_title += int(10 if self._p._sal1_eq_sal2 else -10)
+            sortalbum_is_title += int(2 if self._p._sal1_eq_sal2 else -2)
 
         if self._p.sortalbum1 and self._p.sortalbum2:
             common_sortalbum_is_title = max(0, sortalbum_is_title)
             common_sortalbum_is_title += int(
-                len(self._p.sortalbum_c)
-                if not self._p._sal1_eq_sal2
-                else -len(self._p.sortalbum_c)
+                (
+                    len(self._p.sortalbum_c)
+                    if not self._p._sal1_eq_sal2
+                    else -len(self._p.sortalbum_c)
+                )
+                / 10
             )
+            common_sortalbum_is_title += 4 * int(self._p._sal1_similarity_to_sal2)
 
         # Update the scores
         self.title.title_is_title = title_is_title
@@ -1273,9 +1334,14 @@ class MetadataScore:
         self.title.common_album_is_title = common_album_is_title
         self.title.common_sortalbum_is_title = common_sortalbum_is_title
 
-        return self.title._value or fallback
+        self._title = self.title._value or fallback
+        return self._title
 
-    def determine_author(self, fallback: str = ""):
+    def determine_author(self, fallback: str = "Unknown", *, force: bool = False):
+
+        if not force and self._author:
+            return self._author
+
         self.author.reset()
 
         artist_is_author = 0
@@ -1372,9 +1438,14 @@ class MetadataScore:
         self.author.common_albumartist_is_author = common_albumartist_is_author
         self.author.comment_contains_author = comment_contains_author
 
-        return parse_author(self.author._value or fallback, "generic")
+        self._author = parse_author(self.author._value or fallback, "generic")
+        return self._author
 
-    def determine_narrator(self, fallback: str = ""):
+    def determine_narrator(self, fallback: str = "-", *, force: bool = False):
+
+        if not force and self._narrator:
+            return self._narrator
+
         self.narrator.reset()
 
         if all(
@@ -1487,20 +1558,31 @@ class MetadataScore:
         self.narrator.comment_contains_narrator = comment_contains_narrator
         self.narrator.composer_is_narrator = composer_is_narrator
 
-        return parse_narrator(self.narrator._value or fallback, "generic")
+        self._narrator = parse_narrator(self.narrator._value or fallback, "generic")
+        return self._narrator
 
-    def determine_albumartist(self):
+    def determine_albumartist(self, *, force: bool = False):
         # If artist and albumartist are different, or if albumartist contains a / we want to process.
+
+        if not force and self._albumartist:
+            return self._albumartist
+
         if self._p._aar1_is_missing or self._p._aar1_eq_comment_narrator:
-            return parse_author(
+            self._albumartist = parse_author(
                 self.author._value, "generic", fallback=self._p.author_in_comment
             )
         elif self._p._aar_has_slash or self.narrator._value != self.author._value:
-            return parse_narrator(self._p.albumartist1, "generic")
+            self._albumartist = parse_narrator(self._p.albumartist1, "generic")
         else:
-            return parse_author(self._p.albumartist1, "generic")
+            self._albumartist = parse_author(self._p.albumartist1, "generic")
 
-    def determine_date(self, fallback: str = ""):
+        return self._albumartist
+
+    def determine_date(self, fallback: str = "", *, force: bool = False):
+
+        if not force and self._date:
+            return self._date
+
         self.date.reset()
 
         date_is_date = 0
@@ -1524,7 +1606,9 @@ class MetadataScore:
         if from_tag == "fs":
             return self._p.fs_year
 
-        return tag_matcher(self._p, "date", from_tag, fallback)
+        self._date = self._tag_matcher("date", from_tag, fallback)
+
+        return self._date
 
 
 def extract_metadata(book: "Audiobook", quiet: bool = False) -> "Audiobook":

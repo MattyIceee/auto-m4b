@@ -326,7 +326,15 @@ def test_parse_id3_date(
         (
             "touch_of_frost__flat_mp3",
             {"title": "TouchofFrost"},
-        )
+        ),
+        (
+            "count_of_monte_cristo__flat_mp3",
+            {
+                "title": "The Count of Monte Cristo",
+                "author": "Alexandre Dumas",
+                "narrator": "Richard Matthews",
+            },
+        ),
     ],
     indirect=["indirect_fixture"],
 )

@@ -303,6 +303,15 @@ def touch_of_frost__flat_mp3():
 
 
 @pytest.fixture(scope="function")
+def count_of_monte_cristo__flat_mp3():
+    yield from load_test_fixture(
+        "count_of_monte_cristo__flat_mp3",
+        exclusive=True,
+        override_name="Alexandre Dumas   The Count of Monte Cristo",
+    )
+
+
+@pytest.fixture(scope="function")
 def conspiracy_theories__flat_mp3():
     yield from load_test_fixture(
         "conspiracy_theories__flat_mp3",

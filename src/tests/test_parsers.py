@@ -11,6 +11,7 @@ from src.lib.parsers import (
 )
 from src.tests.helpers.pytest_statics import PART_ROMANS, ROTK_ROMANS
 from src.tests.helpers.pytest_utils import testutils
+from src.tests.test_cleaners import strip_partno_tests
 
 
 def test_extract_path_info(benedict_society__mp3):
@@ -312,37 +313,44 @@ def test_is_maybe_multi_part(test_case, expected):
     assert is_maybe_multi_part(test_case.upper()) == expected
 
 
+series_true_tests = [
+    "Bk1",
+    "Bk-1",
+    "Book1",
+    "Book-1",
+    "Book.1",
+    "Book_1",
+    "Book 1",
+    "Book 1 - The Fellowship of the Ring",
+    "The Fellowship of the Ring - Bk 1",
+    "#1",
+    "#-1",
+    "#1",
+    "#-1",
+    "#1",
+    "#1",
+    "# 1",
+    "01 - Pride Of Chanur",
+    "Old Man's War Series/Old Man's War - John Scalzi",
+    "Aleron Kong - The Land Alliances (Chaos Seeds #3)",
+    "# 3 (Chaos Seeds) - Aleron Kong - The Land Alliances",
+    "The Land Alliances (Chaos Seeds #3) - Aleron Kong",
+]
+
+
 @pytest.mark.parametrize(
     "test_case, expected",
     [
-        ("Bk1", True),
-        ("Bk-1", True),
-        ("Book1", True),
-        ("Book-1", True),
-        ("Book.1", True),
-        ("Book_1", True),
-        ("Book 1", True),
-        ("Book 1 - The Fellowship of the Ring", True),
-        ("The Fellowship of the Ring - Bk 1", True),
-        ("Book", False),
-        ("The Fellowship of the Ring", False),
-        ("The Fellowship of the Ring - Bk", False),
-        ("#1", True),
-        ("#-1", True),
-        ("#1", True),
-        ("#-1", True),
-        ("#1", True),
-        ("#1", True),
-        ("# 1", True),
-        ("01 - Pride Of Chanur", True),
-        ("Old Man's War Series/Old Man's War - John Scalzi", True),
-        ("Aleron Kong - The Land Alliances (Chaos Seeds #3)", True),
-        ("# 3 (Chaos Seeds) - Aleron Kong - The Land Alliances", True),
-        ("The Land Alliances (Chaos Seeds #3) - Aleron Kong", True),
-        ("#", False),
-        ("#The Land Alliances (Chaos Seeds)", False),
-        ("The Land Alliances (Chaos Seeds) - #", False),
-        ("The Land Alliances (Disc #1)", False),
+        *[(test_case, True) for test_case in series_true_tests],
+        *[
+            ("Book", False),
+            ("The Fellowship of the Ring", False),
+            ("The Fellowship of the Ring - Bk", False),
+            ("#", False),
+            ("#The Land Alliances (Chaos Seeds)", False),
+            ("The Land Alliances (Chaos Seeds) - #", False),
+            ("The Land Alliances (Disc #1)", False),
+        ],
     ],
 )
 def test_is_maybe_multi_book_or_series(test_case, expected):
@@ -354,3 +362,24 @@ def test_is_maybe_multi_book_or_series(test_case, expected):
     assert is_maybe_multi_book_or_series(test_case.title()) == expected
     assert is_maybe_multi_book_or_series(test_case.capitalize()) == expected
     assert is_maybe_multi_book_or_series(test_case.upper()) == expected
+
+
+@pytest.mark.parametrize(
+    "s1, s2, expected",
+    [
+        *[(s1, None, False) for s1 in series_true_tests],
+        *[(t, None, True) for (t, _) in strip_partno_tests],
+        *[
+            (
+                "0100 _ Books on Tape _ The Count of Monte Cristo _ Alexandre Dumas",
+                "0101 _ Ch 01 _ The Arrival at Marseilles",
+                True,
+            ),
+        ],
+    ],
+)
+def test_contains_partno_or_ch(s1, s2, expected):
+
+    from src.lib.parsers import contains_partno_or_ch
+
+    assert contains_partno_or_ch(s1, s2) == expected

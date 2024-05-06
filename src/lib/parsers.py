@@ -40,8 +40,8 @@ lastname_firstname_pattern = re.compile(r"^(?P<lastname>.*?), (?P<firstname>.*)$
 firstname_lastname_pattern = re.compile(r"^(?P<firstname>.*?).*\s(?P<lastname>\S+)$", re.I)
 
 book_title_pattern = re.compile(r"(?<=[-_–—])[\W\s]*(?P<book_title>[\w\s]+?)\s*(?=\d{4}|\(|\[|$)", re.I)
-part_number_match_pattern = re.compile(rf",?{_div}(?:part|ch(?:\.|apter))?{_div}\W*(\d+)(?:$|{_div}(?:of|-){_div}(\d+)\W*$)", re.I)
-part_number_ignore_pattern = re.compile(r"(?:\bbook\b|\bvol(?:ume)?)\s*\d+$", re.I)
+partno_or_ch_match_pattern = re.compile(rf",?{_div}(?:part|ch(?:\.|apter))?{_div}\W*(\d+)(?:$|{_div}(?:of|-){_div}(\d+)\W*$)", re.I)
+partno_or_ch_match_pattern2 = re.compile(rf"(?:(?:(?:(?<=\W)|^)p|P)[Aa]?[Rr]?[Tt]|C[Hh]?(?:[\. ]|[Aa][Pp][Tt][Ee][Rr])|[^A-Za-z0-9\n]+?)\W*(?P<num1>\d+)(?:.?(?:of|-|to).?(?P<num2>\d+))?[^\n]*$")
 path_junk_pattern = re.compile(r"^[ \,.\)\}\]_-]*|[ \,.\)\}\]_-]*$", re.I)
 path_garbage_pattern = re.compile(r"^[ \,.\)\}\]]*", re.I)
 path_strip_l_t_alphanum_pattern = re.compile(r"^[^a-zA-Z0-9]+|[^a-zA-Z0-9]+$", re.I)
@@ -51,7 +51,7 @@ roman_strip_pattern = re.compile(r"(?<=\w)(?=[\W_.-])|(?<=[\W_.-])(?=\w)|(?<=[a-
 year_pattern = re.compile(r"(?P<year>\d{4})", re.I)
 
 common_str_pattern = re.compile(r"(^common_|_c(ommon)?$)")
-startswith_num_pattern = re.compile(r"^\d+")
+startswith_num_pattern = re.compile(r"(?P<num>^\d+)")
 
 multi_disc_pattern = re.compile(r"(?:^|(?<=[\W_-]))(dis[ck]|cd)(\b|\s|[_.-])*#?(\b|\s|[_.-])*(?:\b|[\W_-])*(\d+)", re.I)
 book_series_pattern = re.compile(r"(^\d+|(?:^|(?<=[\W_-]))(bo{0,2}k|vol(?:ume)?|#)(?:\b|[\W_-])*(\d+)|(?<=[\W_-])Series.*/.+)", re.I)
@@ -145,11 +145,33 @@ def find_greatest_common_string(s: list[str]) -> str:
     return max(valid_prefixes, key=len, default="")
 
 
-def contains_partno(s: str) -> bool:
-    matches_part_number = part_number_match_pattern.search(s)
-    matches_ignore_if = part_number_ignore_pattern.search(s)
+def contains_partno_or_ch(s: str, s2: str | None = None) -> bool:
+    s_matches_part_number = partno_or_ch_match_pattern2.search(s)
+    s_start_num = re_group(startswith_num_pattern.search(s), "num")
 
-    return bool(matches_part_number and not matches_ignore_if)
+    if not s2:
+        # If there is no second to compare it to, we want to be conservative
+        # and only return True if we don't think this is a series
+        return bool(s_matches_part_number and not is_maybe_multi_book_or_series(s))
+
+    s2_matches_part_number = partno_or_ch_match_pattern2.search(s2)
+    s2_start_num = re_group(startswith_num_pattern.search(s2), "num")
+
+    if s_start_num or s2_start_num and (s_start_num != s2_start_num):
+        # If the two strings are maybe series, but the numbers don't match, they're parts
+        return True
+
+    return re_group(s_matches_part_number, "num1") != re_group(
+        s2_matches_part_number, "num1"
+    )
+
+
+def startswith_partno(s: str, s2: str | None = None) -> bool:
+    if s2:
+        first = startswith_num_pattern.search(s)
+        second = startswith_num_pattern.search(s2)
+        return bool(first and second) and re_group(first, 0) == re_group(second, 0)
+    return bool(startswith_num_pattern.search(s))
 
 
 def extract_path_info(book: "Audiobook", quiet: bool = False) -> "Audiobook":
@@ -372,8 +394,8 @@ def get_title_partno_score(
     from src.lib.cleaners import strip_part_number
 
     score = 0
-    t1_part = contains_partno(title_1)
-    t2_part = contains_partno(title_2)
+    t1_part = contains_partno_or_ch(title_1)
+    t2_part = contains_partno_or_ch(title_2)
     t1 = get_numbers_in_string(title_1)
     t2 = get_numbers_in_string(title_2)
     al1 = get_numbers_in_string(album_1)

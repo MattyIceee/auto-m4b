@@ -52,36 +52,37 @@ def test_strip_disc_number(test_str: str, expected: str):
     assert strip_disc_number(test_str) == expected
 
 
+strip_partno_tests = [
+    ("part 1", ""),
+    ("pt 08", ""),
+    ("pt. 42", ""),
+    ("Part 1", ""),
+    ("Part 06", ""),
+    ("Part 009", ""),
+    ("pt1", ""),
+    ("PT 2", ""),
+    ("(Part 4)", ""),
+    (" - part 5", ""),
+    (
+        "The Last Guardian (Part 01) - Track07.mp3",
+        "The Last Guardian - Track07.mp3",
+    ),
+    (
+        "The Last Guardian - Part 01 - Track07.mp3",
+        "The Last Guardian - Track07.mp3",
+    ),
+    ("The Last Guardian (Part 01)", "The Last Guardian"),
+    ("The Last Guardian - Part 01", "The Last Guardian"),
+    ("The Last Guardian, PT.01", "The Last Guardian"),
+    ("The Last Guardian, pt 1", "The Last Guardian"),
+    ("TouchofFrostPart1MythosAcademy", "TouchofFrostMythosAcademy"),
+    ("TouchofFrostPart 01.mp3", "TouchofFrost.mp3"),
+    ("Midnight Frost: Part 1", "Midnight Frost"),
+]
+
+
 @pytest.mark.parametrize(
-    "test_str, expected",
-    [
-        ("part 1", ""),
-        ("pt 08", ""),
-        ("pt. 42", ""),
-        ("Part 1", ""),
-        ("Part 06", ""),
-        ("Part 009", ""),
-        ("pt1", ""),
-        ("PT 2", ""),
-        ("(Part 4)", ""),
-        (" - part 5", ""),
-        (
-            "The Last Guardian (Part 01) - Track07.mp3",
-            "The Last Guardian - Track07.mp3",
-        ),
-        (
-            "The Last Guardian - Part 01 - Track07.mp3",
-            "The Last Guardian - Track07.mp3",
-        ),
-        ("The Last Guardian (Part 01)", "The Last Guardian"),
-        ("The Last Guardian - Part 01", "The Last Guardian"),
-        ("The Last Guardian, PT.01", "The Last Guardian"),
-        ("The Last Guardian, pt 1", "The Last Guardian"),
-        ("TouchofFrostPart1MythosAcademy", "TouchofFrostMythosAcademy"),
-        ("TouchofFrostPart 01.mp3", "TouchofFrost.mp3"),
-        ("TouchofFrostPart", "TouchofFrost"),
-        ("Midnight Frost: Part 1", "Midnight Frost"),
-    ],
+    "test_str, expected", [*strip_partno_tests, ("TouchofFrostPart", "TouchofFrost")]
 )
 def test_strip_part_number(test_str: str, expected: str):
     from src.lib.cleaners import strip_part_number

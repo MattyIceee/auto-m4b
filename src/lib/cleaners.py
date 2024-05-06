@@ -6,11 +6,21 @@ disc_no_strip_pattern = re.compile(
 part_no_strip_pattern = re.compile(
     r"(\W*?-?\W*?[\(\[]*[Pp]([Aa][Rr])?[Tt]\W*\d+[\)\]]*|P[Aa][Rr][Tt]$)"
 )
+non_alpha_strip_pattern = re.compile(r"^\W+|\W+$")
+
+html_tag_pattern = re.compile(r"</?\w+\s*/?>", flags=re.DOTALL)
+
+leading_articles_pattern = re.compile(r"^((?:a|an|the)[\s_.]+\b)", flags=re.I)
 
 
 def strip_html_tags(s: str) -> str:
     """Replaces all html tags including <open> and </close> tags, and <autoclose /> tags with an empty string"""
-    return re.sub(r"</?\w+\s*/?>", "", s, flags=re.DOTALL)
+    return html_tag_pattern.sub("", s)
+
+
+def strip_non_alphanumeric(s: str) -> str:
+    """Trims all non-alphanumeric characters from the beginning and end of a string"""
+    return non_alpha_strip_pattern.sub("", s)
 
 
 def strip_disc_number(s: str) -> str:
@@ -22,6 +32,17 @@ def strip_part_number(s: str) -> str:
 
     # if it matches both the part number and ignore, return original string
     return part_no_strip_pattern.sub("", s).strip()
+
+
+def strip_author_narrator(
+    s: str, author: str | None = None, narrator: str | None = None
+) -> str:
+    """Takes a string and removes any author or narrator names found in the string"""
+    if author:
+        s = re.sub(re.escape(author), "", s, flags=re.I).strip()
+    if narrator:
+        s = re.sub(re.escape(narrator), "", s, flags=re.I).strip()
+    return s
 
 
 def fix_smart_quotes(s: str) -> str:
@@ -79,4 +100,4 @@ def clean_string(s: str, strip_disc_no: bool = True, strip_part_no: bool = True)
 
 def strip_leading_articles(s: str) -> str:
     """Strips leading articles from a string"""
-    return re.sub(r"^((?:a|an|the)[\s_.]+\b)", "", s, flags=re.I).strip()
+    return leading_articles_pattern.sub("", s).strip()
