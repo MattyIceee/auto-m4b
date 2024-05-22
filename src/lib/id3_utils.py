@@ -264,10 +264,9 @@ def verify_and_update_id3_tags(
 
     book_to_check = Audiobook(m4b_to_check).extract_metadata(quiet=True)
 
-    exiftool_args = []
-
     title_needs_updating = False
     author_needs_updating = False
+    narrator_needs_updating = False
     date_needs_updating = False
     comment_needs_updating = False
     cover_needs_updating = False
@@ -323,6 +322,14 @@ def verify_and_update_id3_tags(
             )
         )
 
+    if book.narrator and book_to_check.id3_composer != book.narrator:
+        narrator_needs_updating = True
+        updates.append(
+            lambda: _print_needs_updating(
+                "Composer (narrator)", book_to_check.id3_composer, book.narrator
+            )
+        )
+
     if book.date and get_year_from_date(book_to_check.id3_date) != get_year_from_date(
         book.date
     ):
@@ -351,6 +358,7 @@ def verify_and_update_id3_tags(
         (
             title_needs_updating,
             author_needs_updating,
+            narrator_needs_updating,
             date_needs_updating,
             comment_needs_updating,
             cover_needs_updating,
@@ -1659,6 +1667,7 @@ def extract_metadata(book: "Audiobook", quiet: bool = False) -> "Audiobook":
             book.id3_comment = f"Read by {book.narrator}"
         elif not parse_narrator(book.id3_comment, "comment"):
             book.id3_comment = f"Read by {book.narrator} // {book.id3_comment}"
+        book.composer = book.narrator
 
     book.date = id3_score.determine_date(book.fs_year)
     if book.date:
