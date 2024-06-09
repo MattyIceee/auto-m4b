@@ -1205,6 +1205,11 @@ class MetadataScore:
         return clean_string(val if val else fallback)
 
     def determine_title(self, fallback: str = "Unknown", *, force: bool = False):
+        # if using plex file formats we just need the simple title already gathered
+        # we will use more complex meta data gathering later
+        from src.lib.config import cfg
+        if(cfg.PLEX_FORMAT):
+            return fallback
 
         if not force and self._title:
             return self._title

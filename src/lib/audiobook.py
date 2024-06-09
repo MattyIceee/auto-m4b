@@ -113,7 +113,7 @@ class Audiobook(BaseModel):
 
     @property
     def build_dir(self) -> Path:
-        return (cfg.build_dir.resolve() / self.basename).with_suffix("")
+        return (cfg.build_dir.resolve() / self.key).with_suffix("") if cfg.PLEX_FORMAT else (cfg.build_dir.resolve() / self.basename).with_suffix("")
 
     @property
     def build_tmp_dir(self) -> Path:
@@ -121,6 +121,8 @@ class Audiobook(BaseModel):
 
     @property
     def converted_dir(self) -> Path:
+        if cfg.PLEX_FORMAT:
+            return (cfg.converted_dir.resolve() / self.key).with_suffix("")
         return (cfg.converted_dir.resolve() / self.basename).with_suffix("")
 
     @property
@@ -135,6 +137,8 @@ class Audiobook(BaseModel):
     def build_file(self) -> Path:
         if self.build_dir.suffix == ".m4b":
             return self.build_dir
+        if cfg.PLEX_FORMAT:
+                return self.build_dir / f"{self.title}.m4b"
         try:
             return find_first_audio_file(self.build_dir, ".m4b")
         except FileNotFoundError:
@@ -144,6 +148,8 @@ class Audiobook(BaseModel):
     def converted_file(self) -> Path:
         if self.converted_dir.suffix == ".m4b":
             return self.converted_dir
+        if cfg.PLEX_FORMAT:
+                return self.converted_dir / f"{self.title}.m4b"
         try:
             return find_first_audio_file(self.converted_dir, ".m4b")
         except FileNotFoundError:

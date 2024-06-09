@@ -647,6 +647,11 @@ def find_base_dirs_with_audio_files(
     then the return value will be:
     - /path/to/folder1
     - /path/to/folder2
+
+    unless processing books from readarr for plex (ie. PLEX_FORMAT)
+    then the return value will be the book title one level farther down (readarr will not create hanging files)
+    - /path/to/folder1/folder2
+    - /path/to/folder2/folder3
     """
 
     if not root.is_dir():
@@ -665,11 +670,11 @@ def find_base_dirs_with_audio_files(
                 maxdepth is None or depth(_d) <= maxdepth,
             ]
         )
-
+    
     all_roots_with_audio_files = list(
         set(
             [
-                root / d.relative_to(root).parts[0]
+                root / d if cfg.PLEX_FORMAT else root / d.relative_to(root).parts[0]
                 for d in root.rglob("*")
                 if is_valid_dir(d)
             ]
@@ -787,9 +792,15 @@ def find_book_audio_files(
     nested_audio_dirs = nested_audio_files_dict.keys()
 
     if not root_audio_files and len(nested_audio_files_dict) == 1:
+        structure_type = "flat_nested"
+
+        # setup with readarr for plex this file format is expected. do not flatten
+        if(cfg.PLEX_FORMAT):
+            structure_type = "readarr_standard"
+
         first_nested_dir = next(iter(nested_audio_dirs))
         return (
-            "flat_nested",
+            structure_type,
             [
                 (
                     first_nested_dir,

@@ -41,6 +41,7 @@ allow_prereleases = true
 app = "python src -l 1"
 forever = "python src -l -1"
 docker = "python -u src -l -1"
+debug = "python -m debugpy --wait-for-client --listen 0.0.0.0:5678 src -l -1"
 tests = "python -m pytest -c pyproject.toml"
 fix-ffprobe = "scripts/fix-ffprobe.sh"
 install-docker-m4b-tool = "scripts/install-docker-m4b-tool.sh"

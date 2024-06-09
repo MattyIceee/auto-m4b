@@ -30,6 +30,7 @@ BookStructure = Literal[
     "multi_mixed",  # audio files are in the root dir and subdirectories, but can't determine if multi-series or multi-disc
     "standalone",  # a standalone audio file in the root/top-level directory
     "single",  # a single audio file in a subdirectory
+    "readarr_standard", # all audio files in double sub directory following "/Author/Book Title/Author - Book Title (chapter #).mp3"
     "empty",  # no audio files found
 ]
 InboxDirMap = Sequence[tuple[Path]] | Sequence[tuple[Path, Sequence[Path]]]

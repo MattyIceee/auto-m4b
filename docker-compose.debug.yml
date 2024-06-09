@@ -12,12 +12,14 @@ services:
     # tty: true # docker run -t
     build:
       context: .
-      target: default
+      target: debug
       args:
         PUID: 1000
         PGID: 1000
     container_name: auto-m4b
     restart: unless-stopped
+    ports:
+      - "5678:5678"
     volumes:
       - ./config:/config:rw
       # - /etc/docker/auto-m4b/auto-m4b-tool.sh:/auto-m4b-tool.sh:ro
@@ -42,8 +44,9 @@ services:
       - OVERWRITE_EXISTING=Y
       - FLATTEN_MULTI_DISC_BOOKS=Y
       - CONVERT_SERIES=Y
-      - BACKUP=N
+      - BACKUP=Y
       - DEBUG=Y
+      - PLEX_FORMAT=Y
       - TZ=America/Chicago
 # volumes:
 #   downloads:

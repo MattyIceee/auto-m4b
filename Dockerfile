@@ -295,4 +295,10 @@ RUN chsh -s /usr/bin/zsh
 # USER ${USERNAME}
 # CMD [ "PYTHONPATH=.:src", "python", "-m", "src", "-l", "-1" ]
 USER ${USERNAME}
+
+FROM python AS default
 CMD [ "pipenv", "run", "docker" ]
+
+FROM python AS debug
+RUN pipenv run pip install debugpy
+CMD [ "pipenv", "run", "debug" ]

@@ -459,6 +459,11 @@ class Config:
 
     CONVERT_SERIES = _CONVERT_SERIES
 
+    @env_property(typ=bool, default=False)
+    def _PLEX_FORMAT(self): ...
+
+    PLEX_FORMAT = _PLEX_FORMAT
+
     @property
     def MAX_LOOPS(self):
         return self.args.max_loops if self.args.max_loops else -1

@@ -11,6 +11,19 @@
       "envFile": "${workspaceFolder}/.env",
       "module": "src",
       "args": ["-l", "1", "--env", "${workspaceFolder}/.env.local.stardust", "--debug"]
-    }
+    },
+    {
+      "name": "Attach (remote debug)",
+      "type": "python",
+      "request": "attach",
+      "port": 5678,
+      "host": "127.0.0.1",
+      "pathMappings": [
+          {
+            "localRoot": "${workspaceFolder}",
+            "remoteRoot": "."
+          }
+        ]
+  }
   ]
 }
